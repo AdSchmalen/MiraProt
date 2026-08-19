@@ -28,10 +28,9 @@ on:
       r_version:
         description: 'R version to bundle'
         required: false
-        default: '4.4.1'
+        default: ''
 
 env:
-  R_VERSION: ${{ github.event.inputs.r_version || '4.4.1' }}
   GO_VERSION: '1.22'
 
 jobs:
@@ -75,6 +74,16 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0  # Full history for git describe
+
+      - name: Resolve portable R version
+        shell: bash
+        env:
+          REQUESTED_R_VERSION: ${{ github.event.inputs.r_version }}
+        run: |
+          R_VERSION="${REQUESTED_R_VERSION:-$(tr -d '[:space:]' < portable/R_VERSION)}"
+          [[ "$R_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Invalid R version: $R_VERSION"; exit 1; }
+          echo "R_VERSION=$R_VERSION" >> "$GITHUB_ENV"
+          echo "Using R $R_VERSION"
 
       # ----------------------------------------------------------------
       # 2. Extract version from tag or git describe
