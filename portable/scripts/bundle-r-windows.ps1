@@ -2,6 +2,11 @@
 #
 # Usage:
 #   .\bundle-r-windows.ps1 [-RVersion VERSION] [-OutputDir ".\dist"]
+#       [-KeepFailedStaging <bool>]
+#
+# KeepFailedStaging defaults to $true so a failed R installation and its logs
+# remain available for diagnosis. Pass -KeepFailedStaging:$false to remove a
+# failed staging tree before the script exits.
 #
 # Prerequisites:
 #   - PowerShell 5.1+
@@ -12,10 +17,16 @@
 [CmdletBinding()]
 param(
     [string]$RVersion,
-    [string]$OutputDir = (Join-Path $PSScriptRoot "..\dist")
+    [string]$OutputDir = (Join-Path $PSScriptRoot "..\dist"),
+    [switch]$KeepFailedStaging = $true
 )
 
 $ErrorActionPreference = "Stop"
+
+function Write-LifecycleEvent {
+    param([Parameter(Mandatory = $true)][string]$Name)
+    Write-Host "LIFECYCLE: $Name"
+}
 
 $ScriptDir  = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ProjectRoot = (Resolve-Path (Join-Path $ScriptDir "..\..")).Path
@@ -89,9 +100,12 @@ function Invoke-RValidationProbe {
         [Parameter(Mandatory = $true)]
         [string[]]$ArgumentList,
         [Parameter(Mandatory = $true)]
-        [string]$Label
+        [string]$Label,
+        [string]$LogDirectory,
+        [string]$EventName
     )
 
+    Write-LifecycleEvent "$EventName start"
     Write-Host "Probe: $Label"
     $process = New-Object System.Diagnostics.Process
     $process.StartInfo.FileName = $FilePath
@@ -122,6 +136,14 @@ function Invoke-RValidationProbe {
     Write-Host "  stdout: $stdout"
     Write-Host "  stderr: $stderr"
     Write-Host "  exit code: $exitCode ($hexExitCode)"
+    if ($LogDirectory) {
+        New-Item -ItemType Directory -Force -Path $LogDirectory | Out-Null
+        $safeName = $EventName -replace '[^A-Za-z0-9_.-]', '-'
+        $probeLog = Join-Path $LogDirectory "$safeName.log"
+        @("Command: $FilePath $($ArgumentList -join ' ')", "Exit code: $exitCode ($hexExitCode)", "--- stdout ---", $stdout, "--- stderr ---", $stderr) |
+            Set-Content -LiteralPath $probeLog -Encoding UTF8
+    }
+    Write-LifecycleEvent "$EventName exit ($exitCode)"
 
     return [pscustomobject]@{
         Label = $Label
@@ -151,24 +173,26 @@ function Test-RRuntimeProcesses {
         [Parameter(Mandatory = $true)]
         [string]$RHome,
         [Parameter(Mandatory = $true)]
-        [string]$RequestedVersion
+        [string]$RequestedVersion,
+        [string]$LogDirectory,
+        [string]$EventPrefix = "staging"
     )
 
     $rPath = Join-Path $RHome "bin\R.exe"
     $rscriptPath = Join-Path $RHome "bin\Rscript.exe"
-    $rVersionProbe = Invoke-RValidationProbe -FilePath $rPath -ArgumentList @("--version") -Label "R.exe --version"
+    $rVersionProbe = Invoke-RValidationProbe -FilePath $rPath -ArgumentList @("--version") -Label "R.exe --version" -LogDirectory $LogDirectory -EventName "$EventPrefix probe R.exe --version"
     Assert-RProbeSucceeded -Probe $rVersionProbe
     if ([string]::IsNullOrWhiteSpace($rVersionProbe.Stdout)) {
         throw "R process 'R.exe --version' returned empty output."
     }
 
-    $rscriptVersionProbe = Invoke-RValidationProbe -FilePath $rscriptPath -ArgumentList @("--version") -Label "Rscript.exe --version"
+    $rscriptVersionProbe = Invoke-RValidationProbe -FilePath $rscriptPath -ArgumentList @("--version") -Label "Rscript.exe --version" -LogDirectory $LogDirectory -EventName "$EventPrefix probe Rscript.exe --version"
     Assert-RProbeSucceeded -Probe $rscriptVersionProbe
     if ([string]::IsNullOrWhiteSpace($rscriptVersionProbe.Stdout)) {
         throw "R process 'Rscript.exe --version' returned empty output."
     }
 
-    $expressionProbe = Invoke-RValidationProbe -FilePath $rscriptPath -ArgumentList @("--vanilla", "-s", "-e", "cat(as.character(getRversion()))") -Label 'Rscript.exe --vanilla -s -e "cat(as.character(getRversion()))"'
+    $expressionProbe = Invoke-RValidationProbe -FilePath $rscriptPath -ArgumentList @("--vanilla", "-s", "-e", "cat(as.character(getRversion()))") -Label 'Rscript.exe --vanilla -s -e "cat(as.character(getRversion()))"' -LogDirectory $LogDirectory -EventName "$EventPrefix probe R version expression"
     Assert-RProbeSucceeded -Probe $expressionProbe
     $detectedVersion = $expressionProbe.Stdout.Trim()
     if ([string]::IsNullOrWhiteSpace($detectedVersion)) {
@@ -179,6 +203,7 @@ function Test-RRuntimeProcesses {
     }
     # The exact requested-version comparison deliberately follows successful
     # expression execution and output validation.
+    Write-LifecycleEvent "$EventPrefix version comparison"
     if ($detectedVersion -cne $RequestedVersion) {
         throw "R version mismatch: requested R $RequestedVersion, but detected R $detectedVersion."
     }
@@ -363,10 +388,16 @@ if ($UseExistingRuntime) {
         }
     }
 
-    # Install into a fresh staging directory so an incomplete prior runtime can
-    # never satisfy the post-install checks.
-    $RStaging = Join-Path $OutputDir (".r-portable-staging-" + [guid]::NewGuid().ToString("N"))
+    # Keep this path short: deeply nested output directories can otherwise make
+    # the R installer exceed legacy Windows path limits.
+    $RStaging = Join-Path $env:TEMP ("MiraProt-R-$RVersion-" + [guid]::NewGuid().ToString("N"))
+    $StagingLogs = "$RStaging-logs"
+    $InstallerLog = Join-Path $StagingLogs "installer.log"
     $StagedRscriptPath = Join-Path $RStaging "bin\Rscript.exe"
+    Write-LifecycleEvent "staging creation start"
+    New-Item -ItemType Directory -Path $RStaging | Out-Null
+    New-Item -ItemType Directory -Path $StagingLogs | Out-Null
+    Write-LifecycleEvent "staging creation completion"
     Write-Host "Installing R to temporary staging directory $RStaging (this may take a few minutes)..."
     $installArgs = @(
         "/VERYSILENT"
@@ -375,28 +406,87 @@ if ($UseExistingRuntime) {
         "/SUPPRESSMSGBOXES"
         "/COMPONENTS=main,x64"
     )
+    $PromotionStarted = $false
+    $PromotionCompleted = $false
+    $RBackup = $null
     try {
+        Write-LifecycleEvent "installer start"
         if ($BundlerTestMode -and $env:MIRAPROT_TEST_INSTALLER_COMMAND) {
-            & $env:MIRAPROT_TEST_INSTALLER_COMMAND $RStaging
+            & $env:MIRAPROT_TEST_INSTALLER_COMMAND $RStaging *> $InstallerLog
             $installerExitCode = $LASTEXITCODE
         } else {
-            $process = Start-Process -FilePath $RInstaller -ArgumentList $installArgs -Wait -NoNewWindow -PassThru
+            $process = Start-Process -FilePath $RInstaller -ArgumentList $installArgs -Wait -NoNewWindow -PassThru -RedirectStandardOutput $InstallerLog -RedirectStandardError "$InstallerLog.stderr"
             $installerExitCode = $process.ExitCode
         }
+        Write-LifecycleEvent "installer exit ($installerExitCode)"
         if ($installerExitCode -ne 0) {
             throw "R installer '$RInstaller' failed with exit code $installerExitCode. The cached installer may be removed and downloaded again before retrying."
         }
 
+        Write-LifecycleEvent "staging static checks start"
         Test-RRuntimeStructure -RHome $RStaging
-        $InstalledVersion = Test-RRuntimeProcesses -RHome $RStaging -RequestedVersion $RVersion
+        Write-LifecycleEvent "staging static checks completion"
+        $InstalledVersion = Test-RRuntimeProcesses -RHome $RStaging -RequestedVersion $RVersion -LogDirectory $StagingLogs -EventPrefix "staging"
+
+        Write-LifecycleEvent "promotion start"
+        $PromotionStarted = $true
         if (Test-Path -LiteralPath $RPortable) {
-            Remove-Item -LiteralPath $RPortable -Recurse -Force
+            $RBackup = Join-Path $OutputDir (".r-portable-backup-" + [guid]::NewGuid().ToString("N"))
+            Move-Item -LiteralPath $RPortable -Destination $RBackup
         }
-        Move-Item -LiteralPath $RStaging -Destination $RPortable
-    } finally {
+        try {
+            Move-Item -LiteralPath $RStaging -Destination $RPortable
+            $PromotionCompleted = $true
+            Write-LifecycleEvent "promotion completion"
+
+            Write-LifecycleEvent "promoted-runtime validation start"
+            Write-LifecycleEvent "promoted static checks start"
+            Test-RRuntimeStructure -RHome $RPortable
+            Write-LifecycleEvent "promoted static checks completion"
+            $InstalledVersion = Test-RRuntimeProcesses -RHome $RPortable -RequestedVersion $RVersion -LogDirectory $StagingLogs -EventPrefix "promoted"
+            Write-LifecycleEvent "promoted-runtime validation completion"
+        } catch {
+            # The old runtime remains recoverable until the promoted tree has
+            # passed exactly the same checks at its final path.
+            if (Test-Path -LiteralPath $RPortable) {
+                Move-Item -LiteralPath $RPortable -Destination $RStaging
+            }
+            if ($RBackup -and (Test-Path -LiteralPath $RBackup)) {
+                Move-Item -LiteralPath $RBackup -Destination $RPortable
+            }
+            throw
+        }
+
+        Write-LifecycleEvent "cleanup start"
+        if ($RBackup -and (Test-Path -LiteralPath $RBackup)) {
+            Remove-Item -LiteralPath $RBackup -Recurse -Force
+        }
         if (Test-Path -LiteralPath $RStaging) {
             Remove-Item -LiteralPath $RStaging -Recurse -Force
         }
+        if (Test-Path -LiteralPath $StagingLogs) {
+            Remove-Item -LiteralPath $StagingLogs -Recurse -Force
+        }
+        Write-LifecycleEvent "cleanup completion"
+    } catch {
+        $failure = $_
+        # If promotion itself failed before its inner rollback ran, restore the
+        # uniquely named backup here as well.
+        if ($PromotionStarted -and -not $PromotionCompleted -and $RBackup -and (Test-Path -LiteralPath $RBackup)) {
+            if (Test-Path -LiteralPath $RPortable) { Remove-Item -LiteralPath $RPortable -Recurse -Force }
+            Move-Item -LiteralPath $RBackup -Destination $RPortable
+        }
+        if (-not $KeepFailedStaging) {
+            Write-LifecycleEvent "cleanup start"
+            if (Test-Path -LiteralPath $RStaging) { Remove-Item -LiteralPath $RStaging -Recurse -Force }
+            if (Test-Path -LiteralPath $StagingLogs) { Remove-Item -LiteralPath $StagingLogs -Recurse -Force }
+            Write-LifecycleEvent "cleanup completion"
+        } else {
+            Write-Host "Failed staging retained at: $RStaging" -ForegroundColor Yellow
+            Write-Host "Failure logs retained at: $StagingLogs" -ForegroundColor Yellow
+        }
+        Write-Error "Portable R installation failed before package installation: $($failure.Exception.Message)"
+        exit 1
     }
 
     Write-Host "Portable R installed at: $RPortable"
