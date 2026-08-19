@@ -31,6 +31,54 @@ function Write-LifecycleEvent {
     Write-Host "LIFECYCLE: $Name"
 }
 
+# R consults these variables before its own installation and site files.  A
+# developer's interactive R configuration must never influence the runtime we
+# are validating or the library/cache that we put in the portable bundle.
+$RProcessEnvironmentVariables = @(
+    "R_HOME", "R_ARCH", "R_LIBS", "R_LIBS_USER", "R_LIBS_SITE",
+    "R_ENVIRON", "R_ENVIRON_USER", "R_PROFILE", "R_PROFILE_USER"
+)
+
+function Invoke-WithCleanREnvironment {
+    param(
+        [Parameter(Mandatory = $true)]
+        [scriptblock]$Action,
+        [hashtable]$Environment = @{}
+    )
+
+    $snapshot = @{}
+    $present = @()
+    foreach ($name in $RProcessEnvironmentVariables) {
+        if (Test-Path -LiteralPath "Env:$name") {
+            $snapshot[$name] = (Get-Item -LiteralPath "Env:$name").Value
+            $present += $name
+        }
+    }
+    if ($present.Count -gt 0) {
+        Write-Host "Ignoring inherited R environment variables: $($present -join ', ')"
+    }
+
+    try {
+        foreach ($name in $RProcessEnvironmentVariables) {
+            Remove-Item -LiteralPath "Env:$name" -ErrorAction SilentlyContinue
+        }
+        foreach ($name in $Environment.Keys) {
+            if ($RProcessEnvironmentVariables -notcontains $name) {
+                throw "Unsupported R process environment override '$name'."
+            }
+            Set-Item -LiteralPath "Env:$name" -Value ([string]$Environment[$name])
+        }
+        & $Action
+    } finally {
+        foreach ($name in $RProcessEnvironmentVariables) {
+            Remove-Item -LiteralPath "Env:$name" -ErrorAction SilentlyContinue
+            if ($snapshot.ContainsKey($name)) {
+                Set-Item -LiteralPath "Env:$name" -Value $snapshot[$name]
+            }
+        }
+    }
+}
+
 $ScriptDir  = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ProjectRoot = (Resolve-Path (Join-Path $ScriptDir "..\..")).Path
 
@@ -121,16 +169,23 @@ function Invoke-RValidationProbe {
     $process.StartInfo.Arguments = ($ArgumentList -join " ")
     try {
         try {
-            if (-not $process.Start()) { throw "Process.Start returned false." }
+            $processResult = Invoke-WithCleanREnvironment -Action {
+                if (-not $process.Start()) { throw "Process.Start returned false." }
+                $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+                $stderrTask = $process.StandardError.ReadToEndAsync()
+                $process.WaitForExit()
+                [pscustomobject]@{
+                    Stdout = $stdoutTask.GetAwaiter().GetResult()
+                    Stderr = $stderrTask.GetAwaiter().GetResult()
+                    ExitCode = [int]$process.ExitCode
+                }
+            }
         } catch {
             throw "Process-start exception while running '$Label' with '$FilePath': $($_.Exception.Message)"
         }
-        $stdoutTask = $process.StandardOutput.ReadToEndAsync()
-        $stderrTask = $process.StandardError.ReadToEndAsync()
-        $process.WaitForExit()
-        $stdout = $stdoutTask.GetAwaiter().GetResult()
-        $stderr = $stderrTask.GetAwaiter().GetResult()
-        $exitCode = [int]$process.ExitCode
+        $stdout = $processResult.Stdout
+        $stderr = $processResult.Stderr
+        $exitCode = $processResult.ExitCode
     } finally {
         $process.Dispose()
     }
@@ -578,7 +633,9 @@ Write-Host "The installer prefers compatible Windows binary packages when reposi
 Write-Host "Rtools is needed only for dependencies that must compile from source; install-packages.R may attempt to install Rtools automatically if build tools are required and missing."
 
 $InstallScript = Join-Path $ScriptDir "install-packages.R"
-& $RscriptPath $InstallScript $RLibrary
+Invoke-WithCleanREnvironment -Environment @{ R_LIBS_USER = $RLibrary } -Action {
+    & $RscriptPath $InstallScript $RLibrary
+}
 
 if ($LASTEXITCODE -ne 0) {
     Write-Error "R package installation failed with exit code $LASTEXITCODE"
@@ -596,7 +653,9 @@ if ((Test-Path (Join-Path $GoCache "annotation_cache")) -and (Test-Path (Join-Pa
 } else {
     Write-Host "--- Pre-building AnnotationHub cache into $GoCache ---"
     New-Item -ItemType Directory -Force -Path $GoCache | Out-Null
-    & $RscriptPath (Join-Path $ScriptDir "prebuild-cache.R") $GoCache $RLibrary
+    Invoke-WithCleanREnvironment -Environment @{ R_LIBS_USER = $RLibrary } -Action {
+        & $RscriptPath (Join-Path $ScriptDir "prebuild-cache.R") $GoCache $RLibrary
+    }
 
     if ($LASTEXITCODE -ne 0) {
         Write-Warning "Cache pre-build failed (exit code $LASTEXITCODE) - portable app will download on first launch"
