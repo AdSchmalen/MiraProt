@@ -216,6 +216,14 @@ if ($LASTEXITCODE -ge 8) {
 $fileCount = (Get-ChildItem -Path $ShinyApp -Recurse -File).Count
 $sizeMB = [math]::Round((Get-ChildItem -Path $ShinyApp -Recurse -File | Measure-Object -Property Length -Sum).Sum / 1MB, 1)
 Write-Host "App copied to: $ShinyApp ($fileCount files, $sizeMB MB)"
+$commitCount = git -C $ProjectRoot rev-list --count HEAD
+$commitSha = git -C $ProjectRoot rev-parse --short=7 HEAD
+$commitDate = git -C $ProjectRoot log -1 --format=%cs
+@(
+    "COMMIT_COUNT=$commitCount"
+    "COMMIT_SHA=$commitSha"
+    "COMMIT_DATE=$commitDate"
+) | Set-Content -Path (Join-Path $ShinyApp "BUILD_INFO") -Encoding ascii
 Write-Host ""
 
 # -----------------------------------------------------------------------
