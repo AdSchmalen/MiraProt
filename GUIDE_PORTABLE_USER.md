@@ -189,10 +189,15 @@ compiled from source:
 xcode-select --install
 ```
 
-The architecture must match throughout the build. On an Intel Mac, use Intel
-(`x86_64`) R and Go. On an Apple Silicon Mac, use native Apple Silicon
-(`arm64`) R and Go. Do not mix an Intel R running through Rosetta with a native
-Apple Silicon build (or the reverse), because compiled packages may not load.
+The architecture must match throughout the build. The copied R runtime,
+compiled R packages, Go launcher, and (when used) DMG packaging host must all
+have compatible native architectures. On an Intel Mac, use Intel (`x86_64`)
+R and Go and package on Intel. On an Apple Silicon Mac, use native Apple
+Silicon (`arm64`) R and Go and package on Apple Silicon. The CI evidence covers
+Intel builds on `macos-13` and Apple Silicon builds on `macos-14`. MiraProt does
+not assemble a universal binary, and Rosetta operation has not been tested or
+claimed; do not mix architectures merely because Rosetta may make one build
+tool executable.
 
 R, Go, Git, Xcode's compiler, and package installers used to assemble the
 bundle are not automatically required to run the result. The copied R runtime
@@ -209,14 +214,52 @@ then run from the repository root:
 bash portable/scripts/bundle-r.sh
 ```
 
-The basic workflow creates a **flat launcher**, not an application or disk
-image:
+This is the complete **basic bundling** workflow. `portable/scripts/bundle-r.sh`
+produces a flat distribution directory containing the copied R runtime, R
+packages, Shiny application, and this native launcher; it does not create an
+application bundle or disk image:
 
 ```text
 portable/dist/MiraProt-launcher
 ```
 
-Optional DMG packaging is deliberately outside this basic workflow.
+#### Optional app and DMG packaging
+
+Packaging is a separate, optional step after the flat directory has been
+built. On the same compatible native architecture, run:
+
+```bash
+bash portable/installers/macos/create-dmg.sh \
+  --dist-dir portable/dist \
+  --version 1.0.0 \
+  --output-dir output
+```
+
+This produces `output/MiraProt-1.0.0-macos-<uname-m>.dmg` (in general,
+`MiraProt-<version>-macos-<uname-m>.dmg`) containing `MiraProt.app`. Packaging
+only rearranges the already-built flat distribution; it does not make mixed
+architectures compatible.
+
+#### macOS security for local builds
+
+Locally created `MiraProt.app` bundles are unsigned and unnotarized. Gatekeeper
+or quarantine may therefore warn, block, or require an explicit confirmation
+when the app or flat launcher is opened. Those prompts are macOS runtime
+security behavior, not evidence that R packages or the Go launcher failed to
+compile.
+
+For builds intended for distribution, use an appropriate Developer ID to sign
+the nested code and app, then notarize and staple the distributed package.
+For a trusted local build, inspect only the item you intend to run, for example
+with `codesign --verify --deep --strict /path/to/MiraProt.app`,
+`spctl --assess --type execute --verbose=4 /path/to/MiraProt.app`, and
+`xattr -p com.apple.quarantine /path/to/MiraProt.app`. An unsigned local app is
+expected to fail the signature or policy assessment. After independently
+verifying its source and contents, use Finder's Control-click **Open** flow; if
+necessary, remove quarantine only from that trusted app with
+`xattr -dr com.apple.quarantine /path/to/MiraProt.app` and open it again. Apply
+the analogous targeted check to `portable/dist/MiraProt-launcher` when using
+the flat bundle. Never disable Gatekeeper globally.
 
 #### Launch and stop
 
