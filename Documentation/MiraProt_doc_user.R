@@ -345,7 +345,9 @@ render_user_miraprot_build_content <- function() {
         tags$li(tags$b("Installer packaging (optional):"), " use scripts in portable/installers/ when creating platform installers.")
       )
     ),
-    tags$p("Policy note: this documentation avoids hardcoded 'current version' statements and defers to script/README defaults for version specifics."),
+    tags$p("Policy note: omit -RVersion/--r-version for normal builds so portable/R_VERSION supplies the maintained R runtime default."),
+    tags$p("MiraProt application versioning comes from Git/build metadata and R/version_info.R. It is independent of R, launcher, installer, and session-schema versions."),
+    tags$p("A bundle keeps the runtime in r-portable and packages in r-library. On Windows, R is validated in temporary staging before safe promotion; failed stages and installer/probe logs are retained by default, and an existing runtime is restored if promotion fails."),
 
     tags$h3("Platform-specific build commands"),
     tabsetPanel(
@@ -361,8 +363,8 @@ render_user_miraprot_build_content <- function() {
         )),
         tags$p("The first command moves you into the MiraProt folder. The second prints your current location so you can confirm you are in the correct directory."),
         tags$h4("2) Run the bundling script"),
-        sp_doc_code_panel(".\\portable\\scripts\\bundle-r-windows.ps1 -RVersion \"4.6.0\" -OutputDir \".\\dist\""),
-        tags$p("The RVersion value shown is an example. Use the release documented in the setup script/README, or rely on script defaults when that matches your target build."),
+        sp_doc_code_panel(".\\portable\\scripts\\bundle-r-windows.ps1 -OutputDir \".\\dist\""),
+        tags$p("Omit -RVersion for an ordinary build: portable/R_VERSION supplies the maintained R runtime. -RVersion selects R, not the MiraProt application version."),
         tags$p("This creates a portable distribution in dist/. If PowerShell blocks script execution, see the common pitfalls section below."),
         tags$h4("3) Expected dist/ output"),
         tags$ul(
@@ -386,8 +388,8 @@ render_user_miraprot_build_content <- function() {
         )),
         tags$p("The cd command selects the project folder. The pwd command prints where you are."),
         tags$h4("2) Run the bundling script"),
-        sp_doc_code_panel("./portable/scripts/bundle-r.sh --r-version 4.6.0 --output-dir ./dist"),
-        tags$p("The --r-version value above is an example. Check the script/README-supported release, or use the script defaults when appropriate."),
+        sp_doc_code_panel("./portable/scripts/bundle-r.sh --output-dir ./dist"),
+        tags$p("Omit --r-version for an ordinary build: portable/R_VERSION supplies the maintained R runtime. --r-version selects R, not the MiraProt application version."),
         tags$p("This script assembles the portable runtime and app content in dist/."),
         tags$h4("3) Expected dist/ output"),
         tags$ul(
@@ -411,8 +413,8 @@ render_user_miraprot_build_content <- function() {
         )),
         tags$p("Always confirm your folder before running build scripts to avoid writing files to the wrong location."),
         tags$h4("2) Run the bundling script"),
-        sp_doc_code_panel("./portable/scripts/bundle-r.sh --r-version 4.6.0 --output-dir ./dist"),
-        tags$p("The --r-version value above is an example. Check the script/README-supported release, or use the script defaults when appropriate."),
+        sp_doc_code_panel("./portable/scripts/bundle-r.sh --output-dir ./dist"),
+        tags$p("Omit --r-version for an ordinary build: portable/R_VERSION supplies the maintained R runtime. --r-version selects R, not the MiraProt application version."),
         tags$p("This prepares a portable MiraProt distribution that can be shared with other users."),
         tags$h4("3) Expected dist/ output"),
         tags$ul(

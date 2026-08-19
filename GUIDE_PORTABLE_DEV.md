@@ -114,6 +114,15 @@ xcode-select --install
 
 ## 2. Project Structure
 
+### Independent version domains
+
+MiraProt's application version comes from Git history/build metadata and
+`R/version_info.R`; portable artifacts copy the equivalent values into
+`BUILD_INFO`. This application identity is independent of the bundled R
+runtime, Go launcher version, platform-installer version, and saved-session
+schema version. Do not synchronize or infer one of these versions from
+another. In particular, bundler `-RVersion`/`--r-version` values select only R.
+
 All portable-edition files live under the `portable/` directory:
 
 ```
@@ -250,10 +259,12 @@ test claim; do not treat translation as permission to combine architectures.
 ```bash
 cd /path/to/MiraProt
 chmod +x portable/scripts/bundle-r.sh
-./portable/scripts/bundle-r.sh --r-version 4.5.2 --output-dir portable/dist
+./portable/scripts/bundle-r.sh --output-dir portable/dist
 ```
 
-The command-line options override the `R_VERSION` and `OUTPUT_DIR` environment
+`--r-version` selects the R runtime, not the MiraProt application version.
+Ordinary builds should omit it and use the maintained `portable/R_VERSION`
+default. The command-line options override the `R_VERSION` and `OUTPUT_DIR` environment
 variables. If an option is omitted, its environment variable is used; if that
 is also unset, the R version comes from `portable/R_VERSION` and the output is
 `portable/dist`. The default output is resolved relative to the script, so it
@@ -262,7 +273,7 @@ is invoked.
 
 Or use the documented environment-variable fallbacks:
 ```bash
-R_VERSION=4.5.2 OUTPUT_DIR=portable/dist ./portable/scripts/bundle-r.sh
+R_VERSION="$(cat portable/R_VERSION)" OUTPUT_DIR=portable/dist ./portable/scripts/bundle-r.sh
 ```
 
 ### What it does (step by step)
@@ -422,15 +433,19 @@ not need Git: its `BUILD_INFO` uses `unknown` commit fields and launcher version
 
 ```powershell
 cd C:\path\to\MiraProt
-.\portable\scripts\bundle-r-windows.ps1 -RVersion "4.5.2" -OutputDir ".\dist"
+.\portable\scripts\bundle-r-windows.ps1 -OutputDir ".\dist"
 ```
+
+`-RVersion` selects the R runtime to download and bundle; it does not set the
+MiraProt application version. Omit it for normal builds so
+`portable\R_VERSION` supplies the maintained default.
 
 ### What it does (step by step)
 
-1. **Downloads R** — Downloads the R 4.5.2 installer from CRAN (the default
-   comes from `portable/R_VERSION`).
-   (`R-4.5.2-win.exe`) to your temp directory.
-2. **Silent install** — Runs the R installer silently into `dist\r-portable\`.
+1. **Downloads R** — Downloads the runtime selected by `portable/R_VERSION`
+   from CRAN (unless a maintainer explicitly overrides it).
+2. **Safe staged install** — Runs the installer into a short, uniquely named
+   directory below `%TEMP%`, not directly into `dist\r-portable\`.
 3. **Installs R packages** — Same as Linux/macOS, ~30-60 minutes. Compatible
    Windows binaries are preferred when repositories offer them. Rtools is only
    required when a dependency must compile from source; note that
@@ -440,6 +455,39 @@ cd C:\path\to\MiraProt
    the same runtime allowlist as the Unix bundler and CI to assemble
    `dist\shiny-app\`.
 5. **Builds the Go launcher** — Compiles into `dist\MiraProt-launcher.exe`.
+
+The staged runtime must contain `bin\R.exe`, `bin\Rscript.exe`, and
+`bin\x64\R.dll`, and must pass version and expression probes before promotion.
+If `r-portable` already exists it is moved to a unique backup; the validated
+stage is promoted, validated again at its final path, and only then is the
+backup removed. A promotion failure restores the old runtime. Failed staging
+and its separate installer/probe log directory are retained by default and
+their exact paths are printed; use `-KeepFailedStaging:$false` only when those
+diagnostics are not needed. Successful staging logs are cleaned up.
+
+### Inspecting a failed Windows R stage
+
+The failure message prints the retained `%TEMP%\MiraProt-R-...` stage and its
+`...-logs` sibling. Use those printed paths, then inspect the three required
+runtime files and their Windows metadata:
+
+```powershell
+$stage = 'C:\path\printed\by\the\bundler'; $logs = "$stage-logs"
+Get-Item "$stage\bin\R.exe", "$stage\bin\Rscript.exe", "$stage\bin\x64\R.dll" |
+  Select FullName,Length,LastWriteTime,@{n='FileVersion';e={$_.VersionInfo.FileVersion}},@{n='ProductVersion';e={$_.VersionInfo.ProductVersion}}
+Get-ChildItem Env: | Where-Object Name -in 'R_HOME','R_ARCH','R_LIBS','R_LIBS_USER','R_LIBS_SITE','R_ENVIRON','R_ENVIRON_USER','R_PROFILE','R_PROFILE_USER'
+& "$stage\bin\R.exe" --version; $code=$LASTEXITCODE; '{0} (0x{1:X8})' -f $code,[uint32]$code
+& "$stage\bin\Rscript.exe" --version; $code=$LASTEXITCODE; '{0} (0x{1:X8})' -f $code,[uint32]$code
+& "$stage\bin\Rscript.exe" --vanilla -s -e "cat(as.character(getRversion()))"; $code=$LASTEXITCODE; "`n$code (0x$('{0:X8}' -f [uint32]$code))"
+Get-ChildItem $logs; Get-Content "$logs\installer.log"
+```
+
+The environment command shows inherited R variables that the bundler removes
+from child processes. The probes show expression output and signed/hex startup
+statuses (including statuses such as `0xC0000005`); probe logs retain the exact
+command, stdout, and stderr. Do not manually copy a failed stage into
+`r-portable`. Fix the cause and rerun so safe promotion and rollback remain
+active. `r-library` is separate and is populated only after runtime promotion.
 
 ### Troubleshooting Windows launcher resources
 
@@ -966,8 +1014,9 @@ tray, build with `-tags=notray` and `CGO_ENABLED=0`.
 
 ### Bundler fails: "R not found on this system"
 
-Install exactly R 4.5.2 before running the Linux/macOS bundler script. The script looks for
-`Rscript` in your PATH. On Linux, you can install via `apt install r-base` or
+Install/select exactly the R runtime shown in `portable/R_VERSION` before
+running the Linux/macOS bundler script. The script looks for `Rscript` in your
+PATH. On Linux, you can install via `apt install r-base` or
 use [rig](https://github.com/r-lib/rig). On macOS, use `brew install r` or
 rig.
 
