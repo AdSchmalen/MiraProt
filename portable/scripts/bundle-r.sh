@@ -279,32 +279,20 @@ echo ""
 # Step 5: Copy Shiny application
 # -----------------------------------------------------------------------
 echo "--- Copying Shiny application ---"
+rm -rf "$SHINY_APP"
 mkdir -p "$SHINY_APP"
 
-RSYNC_EXCLUDES=(
-  --exclude='.git'
-  --exclude='cache/'
-  --exclude='portable/'
-  --exclude='.Rproj.user'
-  --exclude='.RData'
-  --exclude='.Rhistory'
-  --exclude='.Ruserdata'
-  --exclude='user_data/'
-  --exclude='dist/'
-)
-
-# If OUTPUT_DIR lives inside PROJECT_ROOT, exclude it explicitly to avoid
-# recursively copying previously generated portable bundles into shiny-app/.
-case "$OUTPUT_DIR" in
-  "$PROJECT_ROOT"/*)
-    OUTPUT_DIR_REL="${OUTPUT_DIR#"$PROJECT_ROOT"/}"
-    RSYNC_EXCLUDES+=("--exclude=${OUTPUT_DIR_REL%/}/")
-    ;;
-esac
-
-rsync -a \
-  "${RSYNC_EXCLUDES[@]}" \
-  "$PROJECT_ROOT/" "$SHINY_APP/"
+# Runtime payload manifest.  Keep this allowlist synchronized with the Windows
+# bundler and portable-build.yml; BUILD_INFO is generated immediately below.
+for runtime_dir in R modules AutoAssign GSEA; do
+  rsync -a "$PROJECT_ROOT/$runtime_dir/" "$SHINY_APP/$runtime_dir/"
+done
+mkdir -p "$SHINY_APP/Documentation"
+rsync -a --include='*.R' --exclude='*' \
+  "$PROJECT_ROOT/Documentation/" "$SHINY_APP/Documentation/"
+for runtime_file in app.R MiraProt_icon.png; do
+  cp "$PROJECT_ROOT/$runtime_file" "$SHINY_APP/$runtime_file"
+done
 
 echo "App copied to: $SHINY_APP"
 {

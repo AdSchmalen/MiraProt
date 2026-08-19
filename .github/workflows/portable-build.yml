@@ -308,37 +308,28 @@ jobs:
       - name: Copy Shiny app (Unix)
         if: runner.os != 'Windows'
         run: |
+          rm -rf dist/shiny-app
           mkdir -p dist/shiny-app
-          rsync -a \
-            --exclude='.git' \
-            --exclude='cache/' \
-            --exclude='portable/' \
-            --exclude='scripts/' \
-            --exclude='tests/' \
-            --exclude='.Rproj.user' \
-            --exclude='.RData' \
-            --exclude='.Rhistory' \
-            --exclude='.Ruserdata' \
-            --exclude='user_data/' \
-            ./ dist/shiny-app/
+          for runtime_dir in R modules AutoAssign GSEA; do
+            rsync -a "$runtime_dir/" "dist/shiny-app/$runtime_dir/"
+          done
+          mkdir -p dist/shiny-app/Documentation
+          rsync -a --include='*.R' --exclude='*' Documentation/ dist/shiny-app/Documentation/
+          cp app.R MiraProt_icon.png dist/shiny-app/
 
       - name: Copy Shiny app (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $excludeDirs = @(".git", "cache", "portable", "scripts", "tests", ".Rproj.user", ".Ruserdata", "user_data")
-          $excludeFiles = @(".RData", ".Rhistory")
-
-          $args = @(".", "dist\shiny-app", "/E", "/NFL", "/NDL", "/NJH", "/NJS")
-          foreach ($d in $excludeDirs) { $args += "/XD"; $args += $d }
-          foreach ($f in $excludeFiles) { $args += "/XF"; $args += $f }
-
-          & robocopy @args | Out-Null
-          if ($LASTEXITCODE -ge 8) {
-            Write-Error "robocopy failed with exit code $LASTEXITCODE"
-            exit 1
+          Remove-Item "dist\shiny-app" -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path "dist\shiny-app" | Out-Null
+          foreach ($runtimeDir in @("R", "modules", "AutoAssign", "GSEA")) {
+            & robocopy $runtimeDir "dist\shiny-app\$runtimeDir" /E /NFL /NDL /NJH /NJS /NP *> $null
+            if ($LASTEXITCODE -ge 8) { throw "robocopy failed for $runtimeDir (exit $LASTEXITCODE)" }
           }
-          # Reset exit code — robocopy returns 1 for "files copied" which is success
+          & robocopy "Documentation" "dist\shiny-app\Documentation" "*.R" /NFL /NDL /NJH /NJS /NP *> $null
+          if ($LASTEXITCODE -ge 8) { throw "robocopy failed for Documentation (exit $LASTEXITCODE)" }
+          Copy-Item "app.R", "MiraProt_icon.png" -Destination "dist\shiny-app" -Force
           $global:LASTEXITCODE = 0
 
       # The packaged app excludes .git, so preserve the revision information
