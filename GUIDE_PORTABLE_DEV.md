@@ -54,7 +54,16 @@ Verify: `go version` should print `go1.22` or later.
 
 Verify: `Rscript --version` must report exactly `4.5.2` for the default portable build. The maintained default lives in `portable/R_VERSION`.
 
-### Linux only
+### Linux only (Ubuntu/Debian-family local builds)
+
+Ubuntu/Debian-family Linux is the currently implemented local-build path. The
+dependency-installation block below uses `apt-get` package names and `dpkg`;
+the Linux target exercised by CI is specifically Ubuntu on amd64. Do not
+translate this block into unverified package-manager commands: Fedora/RHEL-family,
+Arch-family, and openSUSE are **not supported by the current
+dependency-installation block**. In particular, do not publish `dnf`, `pacman`,
+or `zypper` commands until their package mappings and complete builds have been
+implemented and verified.
 
 Install system libraries required for compiling R packages and the system tray:
 
@@ -213,9 +222,11 @@ build matrix instead (see [section 8](#8-build-artifact-types-and-ci)).
 
 Linux and macOS currently require the requested, matching native R to be
 preinstalled and selected on `PATH`; the script validates the exact version
-before copying it. The `bundle-r.sh` script creates a complete self-contained
-distribution directory containing the launcher, a copy of R, all R packages,
-and the Shiny application.
+before copying it. On Linux, Ubuntu/Debian-family systems are the currently
+implemented local-build path, while Ubuntu amd64 is the CI-tested Linux target.
+The `bundle-r.sh` script creates a relocatable distribution directory containing
+the launcher, a copy of R, all R packages, and the Shiny application; Linux
+output is relocatable within compatible systems, not completely self-contained.
 
 ### Running the bundler
 
@@ -234,7 +245,10 @@ R_VERSION=4.5.2 OUTPUT_DIR=./dist ./portable/scripts/bundle-r.sh
 
 1. **Copies R** — Copies your system R installation into `dist/r-portable/`.
 2. **Installs system dependencies** (Linux only) — Checks for and installs
-   missing `-dev` packages via `apt-get`.
+   eight missing development packages via `apt-get`:
+   `libfreetype6-dev`, `libfontconfig1-dev`, `libharfbuzz-dev`,
+   `libfribidi-dev`, `libtiff5-dev`, `libjpeg-dev`, `libpng-dev`, and
+   `librsvg2-dev`.
 3. **Installs R packages** — Runs `install-packages.R` to install all ~97
    packages into `dist/r-library/`. This takes **30-60 minutes** on a fresh
    build. Packages are: 17 Bioconductor, 62 CRAN, 18 optional, 1 GitHub
@@ -245,6 +259,22 @@ R_VERSION=4.5.2 OUTPUT_DIR=./dist ./portable/scripts/bundle-r.sh
    in the source checkout for development and pre-package validation, but are
    omitted from the generated runtime distribution.
 5. **Builds the Go launcher** — Compiles the launcher into `dist/MiraProt-launcher`.
+
+The CI workflow adds five development libraries beyond the bundler's eight:
+`libcurl4-openssl-dev`, `libssl-dev`, `libxml2-dev`, `libgtk-3-dev`, and
+`libayatana-appindicator3-dev`. These support native R-package networking/XML
+dependencies and the tray-enabled launcher. This inventory describes the
+Ubuntu/Debian package mapping only; Fedora/RHEL-family, Arch-family, and
+openSUSE are not supported by the current dependency-installation block.
+
+Copying R and native R packages does not remove their dynamic-library
+requirements. They can retain dependencies on glibc, libstdc++, OpenSSL,
+libcurl, libxml2, font and graphics libraries, and desktop-integration
+libraries such as GTK and AppIndicator. Build Linux artifacts on the oldest
+compatible target distribution you intend to support, then validate native
+dependencies before release with platform tools such as `ldd`, `readelf`, and
+the target package manager's ownership/query commands. Test the resulting
+bundle on each claimed target system and architecture.
 
 ### Output directory structure
 
