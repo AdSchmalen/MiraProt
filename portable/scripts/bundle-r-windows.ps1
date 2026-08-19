@@ -101,7 +101,7 @@ if (-not $BundlerTestMode) { try {
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
     Invoke-WebRequest -Uri "https://cloud.r-project.org/" -Method Head -UseBasicParsing -TimeoutSec 15 | Out-Null
 } catch {
-    throw "Internet preflight failed: cannot reach CRAN at https://cloud.r-project.org/. Check DNS, proxy, firewall, and TLS settings, then retry. $($_.Exception.Message)"
+    throw "Networking failure: Internet preflight failed; cannot reach CRAN at https://cloud.r-project.org/. Check DNS, proxy, firewall, and TLS settings, then retry. $($_.Exception.Message)"
 } }
 
 try {
@@ -244,33 +244,45 @@ function Test-RRuntimeProcesses {
 
     $rPath = Join-Path $RHome "bin\R.exe"
     $rscriptPath = Join-Path $RHome "bin\Rscript.exe"
-    $rVersionProbe = Invoke-RValidationProbe -FilePath $rPath -ArgumentList @("--version") -Label "R.exe --version" -LogDirectory $LogDirectory -EventName "$EventPrefix probe R.exe --version"
-    Assert-RProbeSucceeded -Probe $rVersionProbe
-    if ([string]::IsNullOrWhiteSpace($rVersionProbe.Stdout)) {
-        throw "R process 'R.exe --version' returned empty output."
+    $phaseLabel = if ($EventPrefix -eq "promoted") { "Promoted-runtime revalidation" } else { "Staged native startup" }
+    try {
+        # These probes establish native process startup only. Their human-readable
+        # output is deliberately not parsed as authoritative version evidence.
+        $rVersionProbe = Invoke-RValidationProbe -FilePath $rPath -ArgumentList @("--version") -Label "R.exe --version" -LogDirectory $LogDirectory -EventName "$EventPrefix probe R.exe --version"
+        Assert-RProbeSucceeded -Probe $rVersionProbe
+        if ([string]::IsNullOrWhiteSpace($rVersionProbe.Stdout)) {
+            throw "R process 'R.exe --version' returned empty output."
+        }
+
+        $rscriptVersionProbe = Invoke-RValidationProbe -FilePath $rscriptPath -ArgumentList @("--version") -Label "Rscript.exe --version" -LogDirectory $LogDirectory -EventName "$EventPrefix probe Rscript.exe --version"
+        Assert-RProbeSucceeded -Probe $rscriptVersionProbe
+        if ([string]::IsNullOrWhiteSpace($rscriptVersionProbe.Stdout)) {
+            throw "R process 'Rscript.exe --version' returned empty output."
+        }
+    } catch {
+        throw "$phaseLabel failure: $($_.Exception.Message)"
     }
 
-    $rscriptVersionProbe = Invoke-RValidationProbe -FilePath $rscriptPath -ArgumentList @("--version") -Label "Rscript.exe --version" -LogDirectory $LogDirectory -EventName "$EventPrefix probe Rscript.exe --version"
-    Assert-RProbeSucceeded -Probe $rscriptVersionProbe
-    if ([string]::IsNullOrWhiteSpace($rscriptVersionProbe.Stdout)) {
-        throw "R process 'Rscript.exe --version' returned empty output."
+    $comparisonLayer = if ($EventPrefix -eq "promoted") { "Promoted-runtime revalidation" } else { "Staged authoritative version comparison" }
+    try {
+        $expressionProbe = Invoke-RValidationProbe -FilePath $rscriptPath -ArgumentList @("--vanilla", "-s", "-e", "cat(as.character(getRversion()))") -Label 'Rscript.exe --vanilla -s -e "cat(as.character(getRversion()))"' -LogDirectory $LogDirectory -EventName "$EventPrefix probe R version expression"
+        Assert-RProbeSucceeded -Probe $expressionProbe
+    } catch {
+        throw "$comparisonLayer failure: authoritative getRversion() probe failed. $($_.Exception.Message)"
     }
-
-    $expressionProbe = Invoke-RValidationProbe -FilePath $rscriptPath -ArgumentList @("--vanilla", "-s", "-e", "cat(as.character(getRversion()))") -Label 'Rscript.exe --vanilla -s -e "cat(as.character(getRversion()))"' -LogDirectory $LogDirectory -EventName "$EventPrefix probe R version expression"
-    Assert-RProbeSucceeded -Probe $expressionProbe
     $rawVersion = $expressionProbe.Stdout
     if ([string]::IsNullOrWhiteSpace($rawVersion)) {
-        throw "R version expression returned an empty version."
+        throw "$comparisonLayer failure: authoritative getRversion() expression returned an empty version."
     }
     $detectedVersion = $rawVersion.Trim()
     if ($detectedVersion -notmatch '^\d+\.\d+\.\d+$') {
-        throw "R version expression returned malformed version '$detectedVersion' (expected MAJOR.MINOR.PATCH)."
+        throw "$comparisonLayer failure: authoritative getRversion() expression returned malformed version '$detectedVersion' (expected MAJOR.MINOR.PATCH)."
     }
     # The exact requested-version comparison deliberately follows successful
     # expression execution and output validation.
     Write-LifecycleEvent "$EventPrefix version comparison"
     if ($detectedVersion -cne $RequestedVersion) {
-        throw "R version mismatch: requested R $RequestedVersion, but detected R $detectedVersion."
+        throw "$comparisonLayer failure: R version mismatch in the $EventPrefix runtime; detected R $detectedVersion, requested R $RequestedVersion."
     }
     return $detectedVersion
 }
@@ -381,11 +393,11 @@ function Test-RInstaller {
     $minimumInstallerBytes = 10MB
     $length = (Get-Item -LiteralPath $Path).Length
     if (-not $fixtureIdentity -and $length -lt $minimumInstallerBytes) {
-        Write-Warning "Rejecting installer '$Path': size $length bytes is implausibly small."
+        Write-Warning "Installer identity/integrity failure: rejecting installer '$Path'; downloaded file size $length bytes is implausibly small."
         return $false
     }
     if (-not (Test-WindowsExecutableHeader -Path $Path)) {
-        Write-Warning "Rejecting installer '$Path': it does not have a valid Windows PE executable header."
+        Write-Warning "Installer identity/integrity failure: rejecting installer '$Path'; it does not have a valid Windows PE executable header."
         return $false
     }
 
@@ -402,32 +414,34 @@ function Test-RInstaller {
         Write-Host "Installer source:       $($DownloadRecord.SourceUrl)"
         Write-Host "HTTP success:           $($DownloadRecord.HttpSuccess) (status $($DownloadRecord.StatusCode))"
         Write-Host "Final response URL:     $($DownloadRecord.FinalUrl)"
-        Write-Host "HTTP content length:    $($DownloadRecord.ContentLength)"
+        Write-Host "HTTP content length:    $($DownloadRecord.ResponseContentLength)"
+        Write-Host "Downloaded file size:   $length"
         if (-not $DownloadRecord.HttpSuccess -or
             $DownloadRecord.StatusCode -lt 200 -or $DownloadRecord.StatusCode -ge 300) {
-            Write-Warning "Rejecting installer '$Path': its download did not record HTTP success."
+            Write-Warning "Download provenance failure: rejecting installer '$Path'; its download did not record HTTP success."
             return $false
         }
         $expectedInstallerName = "R-$RequestedVersion-win.exe"
         try { $finalUri = [Uri]$DownloadRecord.FinalUrl } catch {
-            Write-Warning "Rejecting installer '$Path': recorded final URL '$($DownloadRecord.FinalUrl)' is invalid."
+            Write-Warning "Download provenance failure: rejecting installer '$Path'; recorded final URL '$($DownloadRecord.FinalUrl)' is invalid."
             return $false
         }
         if ($finalUri.Scheme -cne "https") {
-            Write-Warning "Rejecting installer '$Path': final URL '$finalUri' does not use HTTPS."
+            Write-Warning "Download provenance failure: rejecting installer '$Path'; final URL '$finalUri' does not use HTTPS."
             return $false
         }
         if ($finalUri.Host -notmatch '(?i)(^|\.)r-project\.org$') {
-            Write-Warning "Rejecting installer '$Path': final URL host '$($finalUri.Host)' is not an r-project.org host."
+            Write-Warning "Download provenance failure: rejecting installer '$Path'; final URL host '$($finalUri.Host)' is not an r-project.org host."
             return $false
         }
         if ([Uri]::UnescapeDataString((Split-Path -Leaf $finalUri.AbsolutePath)) -cne $expectedInstallerName) {
-            Write-Warning "Rejecting installer '$Path': final URL does not identify expected installer '$expectedInstallerName'."
+            Write-Warning "Download provenance failure: rejecting installer '$Path'; final URL does not identify expected installer '$expectedInstallerName'."
             return $false
         }
-        if ($null -ne $DownloadRecord.ResponseContentLength -and
-            $DownloadRecord.ResponseContentLength -ne $length) {
-            Write-Warning "Rejecting installer '$Path': downloaded length $length does not match HTTP content length $($DownloadRecord.ResponseContentLength)."
+        if ($null -eq $DownloadRecord.ResponseContentLength) {
+            Write-Warning "Download provenance warning: HTTP Content-Length evidence is unavailable; installer identity validation will continue using the downloaded file size and other evidence."
+        } elseif ($DownloadRecord.ResponseContentLength -ne $length) {
+            Write-Warning "Download provenance failure: HTTP Content-Length $($DownloadRecord.ResponseContentLength) bytes does not match actual downloaded size $length bytes; rejecting installer '$Path'."
             return $false
         }
         $provenanceVerified = $true
@@ -440,11 +454,11 @@ function Test-RInstaller {
     Write-Host "Installer metadata:     $metadataText"
     $metadataAvailable = -not [string]::IsNullOrWhiteSpace(($metadataText -replace '[|\s]', ''))
     if (-not $metadataAvailable) {
-        Write-Warning "Rejecting installer '$Path': embedded file/product metadata is missing and cannot identify requested R $RequestedVersion."
+        Write-Warning "Installer identity/integrity failure: rejecting installer '$Path'; embedded file/product metadata is missing and cannot identify requested R $RequestedVersion."
         return $false
     }
     if ($metadataText -notmatch ('(?<!\d)' + [regex]::Escape($RequestedVersion) + '(?!\d)')) {
-        Write-Warning "Rejecting installer '$Path': file/product metadata does not identify requested R $RequestedVersion."
+        Write-Warning "Installer identity/integrity failure: rejecting installer '$Path'; file/product metadata does not identify requested R $RequestedVersion."
         return $false
     }
 
@@ -484,7 +498,7 @@ function Test-RInstaller {
         }
     }
     if ($foundChecksum -and -not $checksumVerified) {
-        Write-Warning "Rejecting installer '$Path': its checksum does not match CRAN."
+        Write-Warning "Installer identity/integrity failure: rejecting installer '$Path'; its checksum does not match CRAN."
         return $false
     }
     if ($trustedSignature -and $metadataAvailable) {
@@ -500,7 +514,7 @@ function Test-RInstaller {
         Write-Warning "Explicit opt-in accepted installer whose identity could not otherwise be established ($reason)."
         return $true
     }
-    Write-Warning "Rejecting installer '$Path': insufficient installer identity ($reason). Use -AllowUnverifiedRInstaller only after independently confirming this installer."
+    Write-Warning "Installer identity/integrity failure: rejecting installer '$Path'; insufficient installer identity ($reason). Use -AllowUnverifiedRInstaller only after independently confirming this installer."
     return $false
 }
 
@@ -570,6 +584,7 @@ if ($UseExistingRuntime) {
                 $response = Invoke-WebRequest -Uri $RUrl -OutFile $downloadPath -UseBasicParsing -PassThru
                 $statusCode = [int]$response.StatusCode
                 $finalUrl = if ($response.BaseResponse.ResponseUri) { [string]$response.BaseResponse.ResponseUri.AbsoluteUri } else { [string]$RUrl }
+                Write-Host "Effective URL after successful request: $finalUrl"
                 $responseContentLength = Get-HttpContentLength -HeaderValue $response.Headers['Content-Length']
                 $downloadedLength = (Get-Item -LiteralPath $downloadPath).Length
                 $downloadRecord = [pscustomobject]@{
@@ -587,11 +602,11 @@ if ($UseExistingRuntime) {
                     $Downloaded = $true
                     break
                 }
-                $reason = "Downloaded installer from '$RUrl' failed local identity validation."
+                $reason = "Installer identity/integrity failure: downloaded installer from '$RUrl' failed local identity validation."
                 $DownloadFailures += $reason
                 Write-Warning "$reason Trying another CRAN location."
             } catch {
-                $reason = "Installer attempt '$RUrl' failed: $($_.Exception.Message)"
+                $reason = "Networking/download failure: installer attempt '$RUrl' failed: $($_.Exception.Message)"
                 $DownloadFailures += $reason
                 Write-Warning $reason
             } finally {
@@ -599,9 +614,11 @@ if ($UseExistingRuntime) {
             }
         }
         if (-not $Downloaded) {
-            throw "No validated R $RVersion installer was acquired. Attempts: $($DownloadFailures -join ' | ')"
+            throw "Download provenance failure: no validated R $RVersion installer was acquired. Attempts: $($DownloadFailures -join ' | ')"
         }
     }
+
+    Write-Host "Installer validation passed: provenance and identity/integrity checks succeeded."
 
     # Keep this path short: deeply nested output directories can otherwise make
     # the R installer exceed legacy Windows path limits.
@@ -638,11 +655,12 @@ if ($UseExistingRuntime) {
         }
         Write-LifecycleEvent "installer exit ($installerExitCode)"
         if ($installerExitCode -ne 0) {
-            throw "R installer '$RInstaller' failed with exit code $installerExitCode. Installer log: '$InstallerLog'. The cached installer may be removed and downloaded again before retrying."
+            throw "Installer execution failure: R installer '$RInstaller' failed with exit code $installerExitCode. Installer log: '$InstallerLog'. The cached installer may be removed and downloaded again before retrying."
         }
 
         Write-LifecycleEvent "staging static checks start"
-        Test-RRuntimeStructure -RHome $RStaging
+        try { Test-RRuntimeStructure -RHome $RStaging }
+        catch { throw "Staged native startup failure: $($_.Exception.Message)" }
         Write-LifecycleEvent "staging static checks completion"
         $InstalledVersion = Test-RRuntimeProcesses -RHome $RStaging -RequestedVersion $RVersion -LogDirectory $StagingLogs -EventPrefix "staging"
 
@@ -659,7 +677,8 @@ if ($UseExistingRuntime) {
 
             Write-LifecycleEvent "promoted-runtime validation start"
             Write-LifecycleEvent "promoted static checks start"
-            Test-RRuntimeStructure -RHome $RPortable
+            try { Test-RRuntimeStructure -RHome $RPortable }
+            catch { throw "Promoted-runtime revalidation failure: $($_.Exception.Message)" }
             Write-LifecycleEvent "promoted static checks completion"
             $InstalledVersion = Test-RRuntimeProcesses -RHome $RPortable -RequestedVersion $RVersion -LogDirectory $StagingLogs -EventPrefix "promoted"
             Write-LifecycleEvent "promoted-runtime validation completion"
