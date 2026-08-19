@@ -1,7 +1,7 @@
 # bundle-r-windows.ps1 — Create a portable MiraProt distribution for Windows
 #
 # Usage:
-#   .\bundle-r-windows.ps1 [-RVersion "4.6.0"] [-OutputDir ".\dist"]
+#   .\bundle-r-windows.ps1 [-RVersion VERSION] [-OutputDir ".\dist"]
 #
 # Prerequisites:
 #   - PowerShell 5.1+
@@ -10,7 +10,7 @@
 
 [CmdletBinding()]
 param(
-    [string]$RVersion = "4.6.0",
+    [string]$RVersion,
     [string]$OutputDir = (Join-Path $PSScriptRoot "..\dist")
 )
 
@@ -18,6 +18,13 @@ $ErrorActionPreference = "Stop"
 
 $ScriptDir  = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ProjectRoot = (Resolve-Path (Join-Path $ScriptDir "..\..")).Path
+
+if (-not $RVersion) {
+    $RVersion = (Get-Content (Join-Path $ScriptDir "..\R_VERSION") -Raw).Trim()
+}
+if ($RVersion -notmatch '^\d+\.\d+\.\d+$') {
+    throw "Invalid R version '$RVersion' (expected MAJOR.MINOR.PATCH)."
+}
 
 Write-Host "=== MiraProt Portable Bundler (Windows) ===" -ForegroundColor Cyan
 Write-Host "R version: $RVersion"
@@ -40,17 +47,37 @@ New-Item -ItemType Directory -Force -Path $RLibrary   | Out-Null
 $RscriptPath = Join-Path $RPortable "bin\Rscript.exe"
 
 if (Test-Path $RscriptPath) {
+    $InstalledVersion = (& $RscriptPath --vanilla -s -e "cat(as.character(getRversion()))").Trim()
+    if ($InstalledVersion -ne $RVersion) {
+        throw "Requested R $RVersion, but the existing portable runtime is R $InstalledVersion at $RscriptPath. Remove '$RPortable' or request R $InstalledVersion."
+    }
     Write-Host "--- R already present at $RPortable ---"
 } else {
     Write-Host "--- Downloading R $RVersion for Windows ---"
 
-    $RUrl = "https://cran.r-project.org/bin/windows/base/old/$RVersion/R-$RVersion-win.exe"
     $RInstaller = Join-Path $env:TEMP "R-$RVersion-win.exe"
 
     if (-not (Test-Path $RInstaller)) {
-        Write-Host "Downloading from: $RUrl"
         [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-        Invoke-WebRequest -Uri $RUrl -OutFile $RInstaller -UseBasicParsing
+        $RUrls = @(
+            "https://cran.r-project.org/bin/windows/base/R-$RVersion-win.exe"
+            "https://cran.r-project.org/bin/windows/base/old/$RVersion/R-$RVersion-win.exe"
+        )
+        $Downloaded = $false
+        foreach ($RUrl in $RUrls) {
+            Write-Host "Trying: $RUrl"
+            try {
+                Invoke-WebRequest -Uri $RUrl -OutFile $RInstaller -UseBasicParsing
+                $Downloaded = $true
+                break
+            } catch {
+                Remove-Item $RInstaller -Force -ErrorAction SilentlyContinue
+                Write-Host "Installer not available at this location."
+            }
+        }
+        if (-not $Downloaded) {
+            throw "R $RVersion is unavailable from both the current and archived CRAN Windows installer locations. Check the version at https://cran.r-project.org/bin/windows/base/ and retry."
+        }
     } else {
         Write-Host "Using cached installer: $RInstaller"
     }
@@ -69,6 +96,11 @@ if (Test-Path $RscriptPath) {
     if (-not (Test-Path $RscriptPath)) {
         Write-Error "R installation failed - Rscript.exe not found at $RscriptPath"
         exit 1
+    }
+
+    $InstalledVersion = (& $RscriptPath --vanilla -s -e "cat(as.character(getRversion()))").Trim()
+    if ($InstalledVersion -ne $RVersion) {
+        throw "CRAN installer mismatch: requested R $RVersion, but the installed runtime reports R $InstalledVersion."
     }
 
     Write-Host "Portable R installed at: $RPortable"

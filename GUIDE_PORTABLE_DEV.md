@@ -31,7 +31,7 @@ portable binaries are not normally published as GitHub Release assets.
 | Tool | Version | Purpose |
 |---|---|---|
 | **Go** | 1.22 or later | Compile the launcher binary |
-| **R** | 4.6.0 | Bundled R runtime and package compilation |
+| **R** | 4.5.2 | Bundled R runtime and package compilation |
 | **Git** | Any recent version | Version tagging and CI/CD |
 
 **Install Go:**
@@ -44,15 +44,15 @@ portable binaries are not normally published as GitHub Release assets.
 
 Verify: `go version` should print `go1.22` or later.
 
-**Install R 4.6.0:**
+**Install R 4.5.2:**
 
 | OS | Command |
 |---|---|
 | Windows | Download from https://cran.r-project.org/bin/windows/base/ |
-| macOS | `brew install r` or use [rig](https://github.com/r-lib/rig): `rig add 4.6.0` |
-| Linux | `sudo apt install r-base` or use rig: `rig add 4.6.0` |
+| macOS | `brew install r` or use [rig](https://github.com/r-lib/rig): `rig add 4.5.2` |
+| Linux | `sudo apt install r-base` or use rig: `rig add 4.5.2` |
 
-Verify: `Rscript --version` should print `4.6.0` or later.
+Verify: `Rscript --version` must report exactly `4.5.2` for the default portable build. The maintained default lives in `portable/R_VERSION`.
 
 ### Linux only
 
@@ -211,21 +211,23 @@ build matrix instead (see [section 8](#8-build-artifact-types-and-ci)).
 
 ## 4. Bundling a Portable Distribution (Linux/macOS)
 
-The `bundle-r.sh` script creates a complete self-contained distribution
-directory containing the launcher, a copy of R, all R packages, and the Shiny
-application.
+Linux and macOS currently require the requested, matching native R to be
+preinstalled and selected on `PATH`; the script validates the exact version
+before copying it. The `bundle-r.sh` script creates a complete self-contained
+distribution directory containing the launcher, a copy of R, all R packages,
+and the Shiny application.
 
 ### Running the bundler
 
 ```bash
 cd /path/to/MiraProt
 chmod +x portable/scripts/bundle-r.sh
-./portable/scripts/bundle-r.sh --r-version 4.6.0 --output-dir ./dist
+./portable/scripts/bundle-r.sh --r-version 4.5.2 --output-dir ./dist
 ```
 
 Or using environment variables:
 ```bash
-R_VERSION=4.6.0 OUTPUT_DIR=./dist ./portable/scripts/bundle-r.sh
+R_VERSION=4.5.2 OUTPUT_DIR=./dist ./portable/scripts/bundle-r.sh
 ```
 
 ### What it does (step by step)
@@ -266,20 +268,23 @@ caches), rather than before every launch.
 
 ## 5. Bundling a Portable Distribution (Windows)
 
-The `bundle-r-windows.ps1` script does the same thing as `bundle-r.sh` but
-for Windows, using PowerShell.
+The `bundle-r-windows.ps1` script does the same thing as `bundle-r.sh` but for
+Windows, using PowerShell. Unlike Linux/macOS, it downloads R automatically. It
+checks CRAN's current installer location and then the versioned archive, and
+clearly fails if neither contains the requested release.
 
 ### Running the bundler
 
 ```powershell
 cd C:\path\to\MiraProt
-.\portable\scripts\bundle-r-windows.ps1 -RVersion "4.6.0" -OutputDir ".\dist"
+.\portable\scripts\bundle-r-windows.ps1 -RVersion "4.5.2" -OutputDir ".\dist"
 ```
 
 ### What it does (step by step)
 
-1. **Downloads R** — Downloads the R 4.6.0 installer from CRAN
-   (`R-4.6.0-win.exe`) to your temp directory.
+1. **Downloads R** — Downloads the R 4.5.2 installer from CRAN (the default
+   comes from `portable/R_VERSION`).
+   (`R-4.5.2-win.exe`) to your temp directory.
 2. **Silent install** — Runs the R installer silently into `dist\r-portable\`.
 3. **Installs R packages** — Same as Linux/macOS, ~30-60 minutes.
 4. **Copies the Shiny application** — Uses `robocopy` (built into Windows) to
@@ -451,7 +456,7 @@ The workflow builds on 4 platforms in parallel:
 ### Build steps (per platform)
 
 1. Checkout repository (full history for `git describe`)
-2. Setup Go 1.22 and R 4.6.0
+2. Setup Go 1.22 and R 4.5.2
 3. Install system dependencies (Linux only)
 4. Restore R library cache (keyed by `install-packages.R` hash)
 5. Install R packages (skipped on cache hit)
@@ -488,7 +493,8 @@ added and this guide and the user guide updated together.
 To trigger a build without creating a tag:
 1. Go to **Actions** > **Build Portable Desktop** in GitHub
 2. Click **Run workflow**
-3. Optionally change the R version (the workflow currently defaults to 4.4.1)
+3. Optionally override the R version (otherwise the workflow reads
+   `portable/R_VERSION`)
 4. Click **Run workflow**
 
 Workflow artifacts are available from the workflow run page for 30 days. They
@@ -628,7 +634,7 @@ tray, build with `-tags=notray` and `CGO_ENABLED=0`.
 
 ### Bundler fails: "R not found on this system"
 
-Install R 4.6.0 before running the bundler script. The script looks for
+Install exactly R 4.5.2 before running the Linux/macOS bundler script. The script looks for
 `Rscript` in your PATH. On Linux, you can install via `apt install r-base` or
 use [rig](https://github.com/r-lib/rig). On macOS, use `brew install r` or
 rig.

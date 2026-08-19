@@ -35,7 +35,7 @@ All platforms need internet access while building (for R and package downloads),
 several gigabytes of free disk space, and:
 
 - **Go 1.22 or later** (`go version`)
-- **R 4.6.0** available as `Rscript` on Linux/macOS
+- **R 4.5.2** available as `Rscript` on Linux/macOS (the version must match `portable/R_VERSION` exactly)
 - **Git** to clone and later update the source
 
 ### Windows
@@ -45,8 +45,11 @@ Install:
 - [Go](https://go.dev/dl/)
 - PowerShell 5.1 or later (included with Windows 10/11)
 
-The Windows bundler downloads and installs its own R 4.6.0 copy into the
-generated bundle; a system R installation is not required.
+Linux and macOS currently copy a matching, preinstalled native R; they do not
+download or select R automatically. The Windows bundler downloads and installs
+its own R 4.5.2 copy into the generated bundle, so a system R installation is
+not required. The maintained default is stored in `portable/R_VERSION`;
+explicit version options override it.
 
 ### macOS
 
@@ -85,14 +88,14 @@ minutes because R packages must be downloaded and compiled.
 ### Windows (PowerShell)
 
 ```powershell
-.\portable\scripts\bundle-r-windows.ps1 -RVersion "4.6.0" -OutputDir ".\portable\dist"
+.\portable\scripts\bundle-r-windows.ps1 -RVersion "4.5.2" -OutputDir ".\portable\dist"
 ```
 
 ### macOS or Linux
 
 ```bash
 chmod +x portable/scripts/bundle-r.sh
-./portable/scripts/bundle-r.sh --r-version 4.6.0 --output-dir ./portable/dist
+./portable/scripts/bundle-r.sh --r-version 4.5.2 --output-dir ./portable/dist
 ```
 
 The generated local artifact is `portable/dist/`, with this principal layout:
@@ -166,7 +169,7 @@ Update the source checkout, then rebuild the local artifact:
 ```bash
 git pull --ff-only
 rm -rf portable/dist
-./portable/scripts/bundle-r.sh --r-version 4.6.0 --output-dir ./portable/dist
+./portable/scripts/bundle-r.sh --r-version 4.5.2 --output-dir ./portable/dist
 ```
 
 On Windows, use `Remove-Item -Recurse -Force .\portable\dist` and rerun the

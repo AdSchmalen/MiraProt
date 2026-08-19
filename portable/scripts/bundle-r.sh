@@ -2,10 +2,10 @@
 # bundle-r.sh — Create a portable MiraProt distribution for Linux or macOS
 #
 # Usage:
-#   ./bundle-r.sh [--r-version 4.6.0] [--output-dir ./dist]
+#   ./bundle-r.sh [--r-version VERSION] [--output-dir ./dist]
 #
 # Environment variables (override defaults):
-#   R_VERSION   — R version to bundle (default: 4.6.0)
+#   R_VERSION   — R version to bundle (default: portable/R_VERSION)
 #   OUTPUT_DIR  — Output directory (default: portable/dist)
 #
 # Prerequisites:
@@ -18,8 +18,38 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-R_VERSION="${R_VERSION:-4.6.0}"
+DEFAULT_R_VERSION="$(tr -d '[:space:]' < "$SCRIPT_DIR/../R_VERSION")"
+R_VERSION="${R_VERSION:-$DEFAULT_R_VERSION}"
 OUTPUT_DIR="${OUTPUT_DIR:-$SCRIPT_DIR/../dist}"
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --r-version)
+      [ "$#" -ge 2 ] || { echo "ERROR: --r-version requires a value." >&2; exit 2; }
+      R_VERSION="$2"
+      shift 2
+      ;;
+    --output-dir)
+      [ "$#" -ge 2 ] || { echo "ERROR: --output-dir requires a value." >&2; exit 2; }
+      OUTPUT_DIR="$2"
+      shift 2
+      ;;
+    -h|--help)
+      echo "Usage: $0 [--r-version VERSION] [--output-dir DIRECTORY]"
+      exit 0
+      ;;
+    *)
+      echo "ERROR: Unknown argument: $1" >&2
+      echo "Usage: $0 [--r-version VERSION] [--output-dir DIRECTORY]" >&2
+      exit 2
+      ;;
+  esac
+done
+
+if [[ ! "$R_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  echo "ERROR: Invalid R version '$R_VERSION' (expected MAJOR.MINOR.PATCH)." >&2
+  exit 2
+fi
 PLATFORM="$(uname -s | tr '[:upper:]' '[:lower:]')"
 ARCH="$(uname -m)"
 
@@ -36,10 +66,22 @@ echo ""
 
 mkdir -p "$OUTPUT_DIR" "$R_LIBRARY"
 
+validate_r_version() {
+  local rscript="$1" actual
+  actual="$("$rscript" --vanilla -s -e 'cat(as.character(getRversion()))')"
+  if [ "$actual" != "$R_VERSION" ]; then
+    echo "ERROR: Requested R $R_VERSION, but $rscript is R $actual." >&2
+    echo "Linux/macOS bundling requires the requested R version to be preinstalled and selected in PATH." >&2
+    echo "Install/select R $R_VERSION (for example: rig add $R_VERSION && rig default $R_VERSION), then retry." >&2
+    exit 1
+  fi
+}
+
 # -----------------------------------------------------------------------
 # Step 1: Obtain portable R
 # -----------------------------------------------------------------------
 if [ -f "$R_PORTABLE/bin/Rscript" ]; then
+  validate_r_version "$R_PORTABLE/bin/Rscript"
   echo "--- R already present at $R_PORTABLE ---"
 else
   echo "--- Setting up portable R $R_VERSION ---"
@@ -49,6 +91,7 @@ else
       # On Linux, link the system R installation into r-portable/
       # Install R via: apt install r-base, or rig add <version>
       if command -v Rscript &>/dev/null; then
+        validate_r_version "$(command -v Rscript)"
         R_BIN_DIR="$(dirname "$(command -v Rscript)")"
         R_HOME="$(Rscript -e 'cat(R.home())')"
         echo "Found system R at: $R_HOME"
@@ -73,6 +116,7 @@ else
     darwin)
       # On macOS, use the system/Homebrew/rig R installation
       if command -v Rscript &>/dev/null; then
+        validate_r_version "$(command -v Rscript)"
         R_HOME="$(Rscript -e 'cat(R.home())')"
         echo "Found system R at: $R_HOME"
         echo "Copying R installation to $R_PORTABLE..."

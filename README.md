@@ -33,7 +33,7 @@ Choose this when you:
 
 ### 1) Prerequisites
 
-- R installed locally (portable build tooling targets **R 4.6.0**; source mode should use a modern compatible R release).
+- R installed locally (portable build tooling defaults to **R 4.5.2**, maintained in `portable/R_VERSION`; source mode should use a modern compatible R release).
 - System libraries as required by your OS for Bioconductor/CRAN packages.
 - Git clone or downloaded source tree.
 
@@ -83,7 +83,7 @@ For complete operational details:
 
 ### Portable quick facts
 
-- Includes launcher + bundled R + bundled packages + app source.
+- Includes launcher + bundled R + bundled packages + app source. Linux/macOS builds require the matching native R to be preinstalled; the Windows bundler downloads R automatically.
 - Intended to run without requiring local R/RStudio installation.
 - Is normally built locally from the source repository; public portable binaries are not the authoritative installation path.
 - Provides platform-specific packaging (Windows installer, macOS app/dmg, Linux AppImage/archive) via scripts under `portable/installers/` and `portable/scripts/`.
