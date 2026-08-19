@@ -16,7 +16,7 @@ portable binaries are not normally published as GitHub Release assets.
 4. [Bundling a Portable Distribution (Linux/macOS)](#4-bundling-a-portable-distribution-linuxmacos)
 5. [Bundling a Portable Distribution (Windows)](#5-bundling-a-portable-distribution-windows)
 6. [Testing the Build](#6-testing-the-build)
-7. [Creating Optional Local Packages](#7-creating-optional-local-packages)
+7. [Stage 2: Creating Optional Local Packages](#7-stage-2-creating-optional-local-packages)
 8. [Build Artifact Types and CI](#8-build-artifact-types-and-ci)
 9. [Launcher CLI Reference](#9-launcher-cli-reference)
 10. [Architecture Overview](#10-architecture-overview)
@@ -103,7 +103,8 @@ xcode-select --install
   absent.
 - **Internet access** to CRAN and the Go module proxy/GitHub for R, packages,
   and the pinned launcher-resource helper
-- **Inno Setup 6** (for building the installer):
+- **Inno Setup 6** (only for the optional Windows installer packaging stage;
+  it is not used to build the basic portable bundle):
   ```
   choco install innosetup -y
   ```
@@ -225,6 +226,9 @@ build matrix instead (see [section 8](#8-build-artifact-types-and-ci)).
 
 ## 4. Bundling a Portable Distribution (Linux/macOS)
 
+This is **stage 1: basic bundling**. Complete and test this stage before using
+any optional platform packager in section 7.
+
 Linux and macOS currently require the requested, matching native R to be
 preinstalled and selected on `PATH`; the script validates the exact version
 before copying it. On Linux, Ubuntu/Debian-family systems are the currently
@@ -323,6 +327,10 @@ caches), rather than before every launch.
 ---
 
 ## 5. Bundling a Portable Distribution (Windows)
+
+This is **stage 1: basic bundling**. It produces a runnable directory, not an
+installer. Inno Setup is used only by the optional Windows-installer stage in
+section 7; the PowerShell bundler neither requires nor invokes it.
 
 The `bundle-r-windows.ps1` script does the same thing as `bundle-r.sh` but for
 Windows, using PowerShell. Unlike Linux/macOS, it downloads R automatically. It
@@ -471,13 +479,21 @@ up after 7 days.
 
 ---
 
-## 7. Creating Optional Local Packages
+## 7. Stage 2: Creating Optional Local Packages
 
-After bundling into `dist/`, a maintainer can create platform-specific packages
-for local testing or explicitly approved distribution. Creating one of these
-files does not publish it and does not make it an authoritative release asset.
+After creating and testing the basic `dist/` bundle in stage 1, a maintainer can
+run one platform-specific stage-2 packager for local testing or explicitly
+approved distribution. These scripts consume the basic bundle; they do not
+replace it. Creating one of these files does not publish it and does not make it
+an authoritative release asset.
 
 ### Windows — Inno Setup
+
+The source installer definition is
+`portable/installers/windows/MiraProt.iss`. It expects the stage-1 Windows
+bundle in the repository-root `dist/` directory and is compiled with **Inno
+Setup 6**. Inno Setup is Windows-installer-only: it is not a prerequisite for
+the basic bundle, macOS DMG, or Linux AppImage.
 
 ```powershell
 & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" `
@@ -485,7 +501,10 @@ files does not publish it and does not make it an authoritative release asset.
   portable\installers\windows\MiraProt.iss
 ```
 
-This creates `output/MiraProt-1.0.0-windows-setup.exe`. The installer:
+The definition fixes its output directory to repository-root `output/`, so the
+result is `output/MiraProt-<version>-windows-setup.exe` (for the example,
+`output/MiraProt-1.0.0-windows-setup.exe`). This locally produced setup
+executable is unsigned. The installer:
 - Installs to `C:\Program Files\MiraProt` by default (user can change)
 - Optionally creates a desktop shortcut
 - Does **not** require admin rights (`PrivilegesRequired=lowest`)
@@ -493,8 +512,10 @@ This creates `output/MiraProt-1.0.0-windows-setup.exe`. The installer:
 
 ### macOS — DMG
 
-This is optional packaging, separate from the basic flat directory produced by
-`portable/scripts/bundle-r.sh`. Run it on a host whose native architecture is
+The actual packaging script is
+`portable/installers/macos/create-dmg.sh`. It requires a macOS host with the
+standard `bash`, `hdiutil`, `sed`, `cp`, `du`, `cut`, `mkdir`, `rm`, `ln`,
+`chmod`, and `uname` tools. Run it on a host whose native architecture is
 compatible with the copied R runtime, compiled R packages, and Go launcher:
 
 ```bash
@@ -505,7 +526,11 @@ bash portable/installers/macos/create-dmg.sh \
 ```
 
 This creates `output/MiraProt-1.0.0-macos-<uname-m>.dmg` (generally
-`MiraProt-<version>-macos-<uname-m>.dmg`) containing `MiraProt.app`. The script:
+`MiraProt-<version>-macos-<uname-m>.dmg`) containing `MiraProt.app`. If
+`--output-dir` is omitted, the output directory is the invocation working
+directory. The architecture suffix is exactly the packaging host's `uname -m`
+(normally `x86_64` or `arm64`); the script does not inspect, convert, or merge
+the bundled binaries. The script:
 1. Creates a `MiraProt.app` bundle with the standard macOS structure
 2. Places the launcher in `Contents/MacOS/`
 3. Places R, packages, and the Shiny app in `Contents/Resources/`
@@ -536,6 +561,13 @@ the flat directory. Never advise or require disabling Gatekeeper globally.
 
 ### Linux — AppImage
 
+The actual packaging script is
+`portable/installers/linux/create-appimage.sh`. It requires Linux plus `bash`,
+`cp`, `du`, `cut`, `mkdir`, `rm`, `chmod`, `readlink`, `uname`, and an
+executable `appimagetool`. If `appimagetool` is not on `PATH`, the script also
+requires `curl` and network access and temporarily downloads the
+host-architecture AppImage tool into the output directory.
+
 ```bash
 bash portable/installers/linux/create-appimage.sh \
   --dist-dir dist \
@@ -543,11 +575,37 @@ bash portable/installers/linux/create-appimage.sh \
   --output-dir output
 ```
 
-This creates `output/MiraProt-1.0.0-linux-<arch>.AppImage`. The script:
+This creates `output/MiraProt-1.0.0-linux-<arch>.AppImage`. If `--output-dir`
+is omitted, the output directory is the invocation working directory. Both the
+filename suffix and the `ARCH` passed to `appimagetool` come from the packaging
+host's `uname -m` (with only `amd64` translated to `x86_64` for a downloaded
+tool). The script does not cross-compile or validate the architectures already
+inside the bundle, so the launcher, R, and native R packages must match the
+Linux host architecture. The script:
 1. Downloads `appimagetool` automatically if not in PATH
 2. Creates an AppDir with the launcher, app, R, and packages
 3. Generates `AppRun`, `.desktop`, and icon files
 4. Packages everything into a single executable AppImage
+
+The resulting AppImage is unsigned. The script performs no code signing and
+provides no authenticity or publisher identity; signing, if required for an
+approved distribution, is a separate release process.
+
+### Generated launcher resources versus disposable build products
+
+Some generated inputs are intentionally committed because reproducible
+launcher builds consume them: `portable/launcher/MiraProt.ico` is the Windows
+icon, and `portable/launcher/icon_data.go` embeds the tray icon bytes. The
+launcher resource configuration
+`portable/launcher/winres/winres.json` is also committed source configuration,
+not disposable output. Keep these files under version control.
+
+By contrast, `portable/launcher/*.syso`,
+`portable/launcher/MiraProt-launcher`, and
+`portable/launcher/MiraProt-launcher.exe` are disposable, locally regenerated
+build products and must not be committed. Optional packaging outputs such as
+DMGs, setup executables, AppImages, temporary `MiraProt.app`/`MiraProt.AppDir`
+trees, and a downloaded `appimagetool` are disposable as well.
 
 ---
 
