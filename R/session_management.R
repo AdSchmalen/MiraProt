@@ -399,23 +399,6 @@ check_thread_health <- function(include_orphaned_check = FALSE) {
   return(!cleanup_triggered)
 }
 
-#' Session end cleanup (registered automatically)
-session_end_cleanup <- function(clean_orphaned = FALSE) {
-  # Suppress all warnings during cleanup
-  old_warn <- getOption("warn")
-  options(warn = -1)
-
-  tryCatch({
-    fast_thread_cleanup(verbose = FALSE, include_orphaned = clean_orphaned)
-  }, error = function(e) {
-    # Silent error handling during cleanup
-  }, finally = {
-    options(warn = old_warn)
-  })
-
-  invisible(TRUE)
-}
-
 # ========================================
 # APP STARTUP SAFETY FUNCTIONS
 # ========================================
@@ -488,14 +471,4 @@ safe_shiny_startup <- function(app_dir = ".", ...) {
 
   cat("[STARTUP] App is ready to launch\n")
   return(TRUE)
-}
-
-# Register cleanup on various exit conditions
-if (interactive()) {
-  # Only in interactive sessions (RStudio, etc.).
-  # reg.finalizer passes the finalized object (here .GlobalEnv) as the first
-  # argument to the callback function. session_end_cleanup expects a logical
-  # clean_orphaned parameter, so a wrapper is used to discard the environment
-  # argument and call session_end_cleanup with the intended default.
-  reg.finalizer(.GlobalEnv, function(e) session_end_cleanup(), onexit = TRUE)
 }

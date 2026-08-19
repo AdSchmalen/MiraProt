@@ -1,0 +1,32 @@
+cff-version: 1.2.0
+message: "If you use MiraProt in your research, please cite the software and the associated publication."
+title: "MiraProt"
+type: software
+version: "1.0.0"
+
+authors:
+  - family-names: "Schmalen"
+given-names: "Adrian"
+
+abstract: >-
+  MiraProt is an R Shiny-based platform for integrated downstream proteomics
+analysis. It connects multiple analysis workflows, including differential
+expression analysis, dimensionality reduction, functional enrichment,
+gene-set enrichment analysis, protein interaction network analysis, and
+visualization within a modular interactive application.
+
+repository-code: "https://github.com/AdSchmalen/MiraProt"
+
+license: MIT
+
+keywords:
+  - proteomics
+- bioinformatics
+- R
+- Shiny
+- differential expression
+- principal component analysis
+- gene set enrichment analysis
+- functional enrichment
+- protein interaction networks
+- research software

@@ -171,3 +171,44 @@ When adding or refactoring modules:
 - `GUIDE_PORTABLE_DEV.md`: build, packaging, and release details.
 - `Documentation/MiraProt_doc_user.R`: in-app user workflow documentation.
 - `Documentation/MiraProt_doc_tech.R`: in-app technical architecture documentation.
+
+---
+
+## License
+
+MiraProt is open-source research software distributed under the MIT License.
+
+Copyright (c) 2026 Adrian Schmalen.
+
+See [`LICENSE`](LICENSE) for the full license terms.
+
+Third-party software packages, databases, web services, and scientific
+resources used with MiraProt remain subject to their respective upstream
+licenses and terms. See [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) for
+additional information.
+
+MSigDB gene-set files are not distributed with MiraProt. Users who wish to use
+MSigDB collections must obtain them directly from MSigDB and comply with the
+applicable MSigDB terms and citation requirements.
+
+## Citation
+
+If you use MiraProt in published research, please cite the associated MiraProt
+publication and the software version used for your analysis.
+
+Machine-readable citation metadata are provided in
+[`CITATION.cff`](CITATION.cff).
+
+The publication release of MiraProt is archived in Zenodo to provide a
+persistent, version-specific software record and DOI.
+
+## Reproducibility
+
+The publication release includes an `renv.lock` file recording the R package
+environment used for the reference MiraProt release.
+
+To restore the recorded R package environment:
+
+```r
+install.packages("renv")
+renv::restore()
