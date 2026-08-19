@@ -92,10 +92,15 @@ Use the MiraProt tray icon to quit. If it was started in PowerShell and there
 is no usable tray icon, return to that window and press **Ctrl+C**. Closing only
 the browser tab may leave MiraProt running.
 
-### Linux (verified Ubuntu/Debian route only)
+### Linux (Ubuntu/Debian-family local-build path only)
 
-This is the only Linux build route currently verified. The script expects
-Ubuntu/Debian tools such as `apt-get` and `dpkg`.
+Ubuntu/Debian-family Linux is the currently implemented local-build path. The
+script expects tools such as `apt-get` and `dpkg`, and Ubuntu amd64 is the
+CI-tested Linux target. Fedora/RHEL-family, Arch-family, and openSUSE are **not
+supported by the current dependency-installation block**. Do not use or
+publish guessed `dnf`, `pacman`, or `zypper` translations until package
+mappings and complete builds for those families have been implemented and
+verified.
 
 #### Before building
 
@@ -135,6 +140,16 @@ Runtime package names for libraries such as OpenSSL can differ between
 Ubuntu/Debian releases; installing the development packages above normally
 pulls in the matching runtime packages. R itself is copied into the bundle and
 the system R is not automatically required afterward.
+
+The Linux result is relocatable within compatible systems rather than
+completely self-contained. Copied R and native R packages can retain
+dependencies on glibc, libstdc++, OpenSSL, libcurl, libxml2, font and graphics
+libraries, and desktop-integration libraries such as GTK and AppIndicator.
+For an artifact intended for other machines, build on the oldest compatible
+target distribution you plan to support. Before release, inspect native
+dependencies with platform tools such as `ldd` and `readelf`, use the target
+package manager's query tools to identify providers, and run the bundle on
+every claimed target system and architecture.
 
 #### Build
 
