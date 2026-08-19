@@ -9,12 +9,12 @@ import (
 
 // Network and timing constants, mirrored from the former Electron constants.js.
 const (
-	DefaultPort      = 3838
-	MaxPort          = 4838
-	StartupTimeoutMs = 120000
-	PollIntervalMs   = 500
+	DefaultPort       = 3838
+	MaxPort           = 4838
+	StartupTimeoutMs  = 120000
+	PollIntervalMs    = 500
 	ShutdownTimeoutMs = 5000
-	LogMaxAgeDays    = 7
+	LogMaxAgeDays     = 7
 )
 
 // AppDataDir returns the platform-specific directory for MiraProt user data
@@ -44,14 +44,17 @@ func AppDataDir() string {
 	return dir
 }
 
-// CacheDir returns the path to a named cache subdirectory.
-// In portable mode the launcher always uses a go-cache/ directory next to the
-// executable so that all data stays within the portable app folder.
-// If go-cache/ does not exist yet it is created automatically.
-// Falls back to AppDataDir only when the executable path cannot be determined.
+// CacheDir returns the writable path to a named cache subdirectory. Flat
+// portable bundles use go-cache/ next to the executable. Packaged bundles keep
+// their shipped cache read-only and use the user's application data directory.
 func CacheDir(name string) string {
 	if root := goCacheRoot(); root != "" {
 		dir := filepath.Join(root, name)
+		_ = os.MkdirAll(dir, 0o755)
+		return dir
+	}
+	if packagedGoCacheRoot() != "" {
+		dir := filepath.Join(AppDataDir(), "cache", name)
 		_ = os.MkdirAll(dir, 0o755)
 		return dir
 	}
@@ -68,7 +71,7 @@ func CacheDir(name string) string {
 	return dir
 }
 
-// goCacheRoot locates the go-cache directory next to the executable.
+// goCacheRoot locates the writable flat-bundle cache next to the executable.
 // Returns "" if no go-cache directory is found.
 func goCacheRoot() string {
 	exe, err := os.Executable()
@@ -76,14 +79,28 @@ func goCacheRoot() string {
 		return ""
 	}
 	exeDir := filepath.Dir(exe)
+	root := filepath.Join(exeDir, "go-cache")
+	if fi, err := os.Stat(root); err == nil && fi.IsDir() {
+		return root
+	}
+	return ""
+}
+
+// packagedGoCacheRoot locates a cache embedded in an AppImage or macOS app.
+// These locations may be mounted read-only and are used only as seed data.
+func packagedGoCacheRoot() string {
+	exe, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	exeDir := filepath.Dir(exe)
 	candidates := []string{
-		filepath.Join(exeDir, "go-cache"),
-		filepath.Join(exeDir, "..", "go-cache"),
+		filepath.Join(exeDir, "..", "go-cache"),              // AppImage usr/go-cache
 		filepath.Join(exeDir, "..", "Resources", "go-cache"), // macOS .app bundle
 	}
-	for _, c := range candidates {
-		if fi, err := os.Stat(c); err == nil && fi.IsDir() {
-			return c
+	for _, candidate := range candidates {
+		if fi, err := os.Stat(candidate); err == nil && fi.IsDir() {
+			return candidate
 		}
 	}
 	return ""
@@ -111,18 +128,17 @@ func LogDir() string {
 }
 
 // ShippedCacheDir returns the path to a pre-built cache subdirectory shipped
-// alongside the launcher binary inside the go-cache/ folder. Returns "" if
-// the directory does not exist.
+// either alongside the launcher or in a packaged resource location. Returns
+// "" if the directory does not exist.
 func ShippedCacheDir(name string) string {
 	exe, err := os.Executable()
 	if err != nil {
 		return ""
 	}
 	exeDir := filepath.Dir(exe)
-	candidates := []string{
-		filepath.Join(exeDir, "go-cache", name),
-		filepath.Join(exeDir, "..", "go-cache", name),
-		filepath.Join(exeDir, "..", "Resources", "go-cache", name), // macOS .app bundle
+	candidates := []string{filepath.Join(exeDir, "go-cache", name)}
+	if root := packagedGoCacheRoot(); root != "" {
+		candidates = append(candidates, filepath.Join(root, name))
 	}
 	for _, c := range candidates {
 		if fi, err := os.Stat(c); err == nil && fi.IsDir() {
@@ -153,7 +169,11 @@ func SeedCache(name string, logger *Logger) {
 
 	// Only seed when the target directory is empty (first launch).
 	entries, err := os.ReadDir(target)
-	if err == nil && len(entries) > 0 {
+	if err != nil {
+		logger.Log("LAUNCHER", "Cache seeding skipped: cannot inspect destination: "+err.Error())
+		return
+	}
+	if len(entries) > 0 {
 		// Target already has content — leave it alone.
 		return
 	}

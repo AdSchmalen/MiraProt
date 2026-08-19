@@ -92,6 +92,10 @@ cp -a "$DIST_DIR/shiny-app" "$APPDIR/usr/bin/shiny-app"
 cp -a "$DIST_DIR/r-portable" "$APPDIR/usr/bin/r-portable"
 cp -a "$DIST_DIR/r-library" "$APPDIR/usr/bin/r-library"
 
+# Keep pre-built caches outside usr/bin so the launcher recognizes them as a
+# read-only packaged seed rather than the flat bundle's writable adjacent cache.
+cp -a "$DIST_DIR/go-cache" "$APPDIR/usr/go-cache"
+
 # -----------------------------------------------------------------------
 # Step 3: Create AppRun entry point
 # -----------------------------------------------------------------------

@@ -635,13 +635,30 @@ The launcher sets these environment variables before starting the R subprocess:
 | `R_LIBS_USER` | `<exe-dir>/r-library` | Tells R where the bundled packages are |
 | `MIRAPROT_IN_PORTABLE` | `true` | Lets the app detect portable mode |
 | `MIRAPROT_PORT` | `<port>` | The actual port being used |
-| `MIRAPROT_GO_CACHE` | `<datadir>/cache/go_cache` | Gene Ontology cache directory |
-| `ANNOTATION_HUB_CACHE` | `<datadir>/cache/annotation_cache` | AnnotationHub cache directory |
+| `MIRAPROT_GO_CACHE` | `<writable-cache>/go_cache` | Gene Ontology cache directory |
+| `ANNOTATION_HUB_CACHE` | `<writable-cache>/annotation_cache` | AnnotationHub cache directory |
 | `MIRAPROT_LOG_DIR` | `<datadir>/logs` | Log file directory |
 
 Where `<exe-dir>` is the directory containing the launcher binary and
 `<datadir>` is the platform-specific application data directory (see
 [section 6, log files](#6-testing-the-build)).
+
+#### Portable cache layouts
+
+Cache behavior differs by distribution layout:
+
+- **Flat portable directory:** `go-cache/` sits directly beside the launcher.
+  It remains the writable runtime cache, preserving the self-contained portable
+  behavior. `MIRAPROT_GO_CACHE` and `ANNOTATION_HUB_CACHE` point to its
+  `go_cache/` and `annotation_cache/` subdirectories.
+- **macOS app and Linux AppImage:** the packaged `go-cache/` is immutable seed
+  data (`Contents/Resources/go-cache` in the app bundle and `usr/go-cache` in
+  the AppImage). On first launch, the launcher copies each shipped cache only
+  when its destination is empty. Runtime writes and both cache environment
+  variables use `<datadir>/cache/`; existing user caches are never overwritten.
+
+This separation is required for AppImage's read-only mount and also avoids
+modifying installed application resources on macOS.
 
 ---
 
