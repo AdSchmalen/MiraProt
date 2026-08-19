@@ -321,6 +321,13 @@ use. Those online-service requirements are separate from the build tools.
 You do not need to rebuild for each launch. Rebuild after updating MiraProt, or
 when you intentionally want newer bundled packages or a clean cache.
 
+On startup, the launcher checks the latest GitHub Release tag and may notify
+you when that tag is newer than the version you are running. MiraProt's
+authoritative distribution is source-only: the check performs no in-place
+update and does not download or install any software automatically. Obtain the
+newer source using one of the methods below, then rebuild the portable
+installation yourself.
+
 With a Git clone, update from the repository root:
 
 ```bash

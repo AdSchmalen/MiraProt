@@ -712,8 +712,11 @@ are automatically cleaned up.
 ### Update checking
 
 On startup, the launcher queries the GitHub Releases API for the latest tag.
-If a newer version is available, it prints a message to the console with a
-download link. This check is non-blocking and does not affect startup time.
+If that tag is newer than the running semantic version, it prints a message
+directing the user to obtain the newer source and rebuild the portable
+installation. The authoritative distribution is source-only: the launcher
+performs no in-place update and does not download or install software
+automatically. This check is non-blocking and does not affect startup time.
 
 ---
 
