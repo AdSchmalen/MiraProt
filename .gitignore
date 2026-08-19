@@ -14,3 +14,11 @@ portable/launcher/*.syso
 portable/r-portable/
 portable/r-library/
 portable/shiny-app/
+
+# Optional portable packaging outputs (may be written outside portable/dist/)
+**/MiraProt.app/
+**/MiraProt.AppDir/
+**/appimagetool
+**/MiraProt-*-macos-*.dmg
+**/MiraProt-*-linux-*.AppImage
+**/MiraProt-*-windows-setup.exe
