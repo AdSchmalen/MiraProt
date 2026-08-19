@@ -1,0 +1,3 @@
+# Keep this directory in Git while leaving local ontology data untracked.
+*
+!.gitignore
