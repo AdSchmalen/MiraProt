@@ -241,6 +241,11 @@ unique stage under `%TEMP%`, not directly into `r-portable`. Only a stage with
 `R.exe`, `Rscript.exe`, and `bin\x64\R.dll` that passes probes is promoted. An
 existing runtime remains recoverable until final-path validation, enabling safe
 rollback. `r-library` is the separate package library populated afterward.
+Windows R does not provide or require a top-level `VERSION` file. The absolute
+staged `R.exe --version` and `Rscript.exe --version` commands are startup probes;
+the absolute staged `Rscript.exe` running `getRversion()` is authoritative. The
+same query runs again after promotion with inherited R configuration removed,
+so an R found elsewhere on `PATH` cannot validate the portable runtime.
 
 #### Step 9 — Verify the result
 

@@ -136,7 +136,6 @@ function Test-RRuntimeStructure {
         "bin\x64\R.dll"
         "etc\Rconsole"
         "etc\Rprofile.site"
-        "VERSION"
         "library\base\DESCRIPTION"
     )
     foreach ($relativePath in $requiredFiles) {
@@ -144,6 +143,10 @@ function Test-RRuntimeStructure {
         if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
             throw "Portable R is missing required file '$relativePath' at '$path'."
         }
+    }
+    $libraryPath = Join-Path $RHome "library"
+    if (-not (Test-Path -LiteralPath $libraryPath -PathType Container)) {
+        throw "Portable R is missing required directory 'library' at '$libraryPath'."
     }
 }
 
@@ -255,10 +258,11 @@ function Test-RRuntimeProcesses {
 
     $expressionProbe = Invoke-RValidationProbe -FilePath $rscriptPath -ArgumentList @("--vanilla", "-s", "-e", "cat(as.character(getRversion()))") -Label 'Rscript.exe --vanilla -s -e "cat(as.character(getRversion()))"' -LogDirectory $LogDirectory -EventName "$EventPrefix probe R version expression"
     Assert-RProbeSucceeded -Probe $expressionProbe
-    $detectedVersion = $expressionProbe.Stdout.Trim()
-    if ([string]::IsNullOrWhiteSpace($detectedVersion)) {
+    $rawVersion = $expressionProbe.Stdout
+    if ([string]::IsNullOrWhiteSpace($rawVersion)) {
         throw "R version expression returned an empty version."
     }
+    $detectedVersion = $rawVersion.Trim()
     if ($detectedVersion -notmatch '^\d+\.\d+\.\d+$') {
         throw "R version expression returned malformed version '$detectedVersion' (expected MAJOR.MINOR.PATCH)."
     }
@@ -367,6 +371,23 @@ function Test-RInstaller {
             Write-Warning "Rejecting installer '$Path': its download did not record HTTP success."
             return $false
         }
+        $expectedInstallerName = "R-$RequestedVersion-win.exe"
+        try { $finalUri = [Uri]$DownloadRecord.FinalUrl } catch {
+            Write-Warning "Rejecting installer '$Path': recorded final URL '$($DownloadRecord.FinalUrl)' is invalid."
+            return $false
+        }
+        if ($finalUri.Scheme -cne "https") {
+            Write-Warning "Rejecting installer '$Path': final URL '$finalUri' does not use HTTPS."
+            return $false
+        }
+        if ($finalUri.Host -notmatch '(?i)(^|\.)r-project\.org$') {
+            Write-Warning "Rejecting installer '$Path': final URL host '$($finalUri.Host)' is not an r-project.org host."
+            return $false
+        }
+        if ([Uri]::UnescapeDataString((Split-Path -Leaf $finalUri.AbsolutePath)) -cne $expectedInstallerName) {
+            Write-Warning "Rejecting installer '$Path': final URL does not identify expected installer '$expectedInstallerName'."
+            return $false
+        }
         if ($DownloadRecord.ResponseContentLength -and ([int64]$DownloadRecord.ResponseContentLength -ne $length)) {
             Write-Warning "Rejecting installer '$Path': downloaded length $length does not match HTTP content length $($DownloadRecord.ResponseContentLength)."
             return $false
@@ -379,7 +400,11 @@ function Test-RInstaller {
     $metadataText = @($versionInfo.ProductName, $versionInfo.FileDescription, $versionInfo.ProductVersion, $versionInfo.FileVersion) -join " | "
     Write-Host "Installer metadata:     $metadataText"
     $metadataAvailable = -not [string]::IsNullOrWhiteSpace(($metadataText -replace '[|\s]', ''))
-    if ($metadataAvailable -and $metadataText -notmatch ('(?<!\d)' + [regex]::Escape($RequestedVersion) + '(?!\d)')) {
+    if (-not $metadataAvailable) {
+        Write-Warning "Rejecting installer '$Path': embedded file/product metadata is missing and cannot identify requested R $RequestedVersion."
+        return $false
+    }
+    if ($metadataText -notmatch ('(?<!\d)' + [regex]::Escape($RequestedVersion) + '(?!\d)')) {
         Write-Warning "Rejecting installer '$Path': file/product metadata does not identify requested R $RequestedVersion."
         return $false
     }
@@ -485,6 +510,7 @@ if ($UseExistingRuntime) {
         Remove-Item -LiteralPath $InstallerRecordPath -Force -ErrorAction SilentlyContinue
         [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
         $Downloaded = $false
+        $DownloadFailures = @()
         foreach ($RUrl in $RUrls) {
             Write-Host "Trying: $RUrl"
             $downloadPath = "$RInstaller.download"
@@ -511,15 +537,19 @@ if ($UseExistingRuntime) {
                     $Downloaded = $true
                     break
                 }
-                Write-Warning "Downloaded installer failed validation; trying another CRAN location."
+                $reason = "Downloaded installer from '$RUrl' failed local identity validation."
+                $DownloadFailures += $reason
+                Write-Warning "$reason Trying another CRAN location."
             } catch {
-                Write-Host "Installer not available at this location."
+                $reason = "Installer attempt '$RUrl' failed: $($_.Exception.Message)"
+                $DownloadFailures += $reason
+                Write-Warning $reason
             } finally {
                 Remove-Item -LiteralPath $downloadPath -Force -ErrorAction SilentlyContinue
             }
         }
         if (-not $Downloaded) {
-            throw "R $RVersion is unavailable from both the current and archived CRAN Windows installer locations. Check the version at https://cran.r-project.org/bin/windows/base/ and retry."
+            throw "No validated R $RVersion installer was acquired. Attempts: $($DownloadFailures -join ' | ')"
         }
     }
 

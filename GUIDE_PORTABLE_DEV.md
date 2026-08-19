@@ -458,6 +458,11 @@ MiraProt application version. Omit it for normal builds so
 
 The staged runtime must contain `bin\R.exe`, `bin\Rscript.exe`, and
 `bin\x64\R.dll`, and must pass version and expression probes before promotion.
+It does not rely on a top-level `VERSION` file. Absolute-path `R.exe --version`
+and `Rscript.exe --version` invocations are startup probes only; the absolute
+portable `Rscript.exe` running `getRversion()` supplies the authoritative exact
+version. Inherited R configuration is removed for every probe, preventing a
+local R on `PATH` from substituting for either staged executable.
 If `r-portable` already exists it is moved to a unique backup; the validated
 stage is promoted, validated again at its final path, and only then is the
 backup removed. A promotion failure restores the old runtime. Failed staging
