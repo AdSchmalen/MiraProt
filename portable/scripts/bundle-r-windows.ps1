@@ -56,30 +56,132 @@ if ($RVersion -notmatch '^\d+\.\d+\.\d+$') {
     throw "Invalid R version '$RVersion' (expected MAJOR.MINOR.PATCH)."
 }
 
-function Get-ValidatedRVersion {
+function Test-RRuntimeStructure {
     param(
         [Parameter(Mandatory = $true)]
-        [string]$RscriptPath
+        [string]$RHome
     )
 
-    if (-not (Test-Path -LiteralPath $RscriptPath -PathType Leaf)) {
-        throw "Rscript executable was not found at '$RscriptPath'."
+    # Check for files that identify an installed, usable R tree. In particular,
+    # do not apply an installer-size heuristic to R.exe or Rscript.exe: the
+    # launchers shipped by R are intentionally small.
+    $requiredFiles = @(
+        "bin\R.exe"
+        "bin\Rscript.exe"
+        "bin\x64\R.dll"
+        "etc\Rconsole"
+        "etc\Rprofile.site"
+        "VERSION"
+        "library\base\DESCRIPTION"
+    )
+    foreach ($relativePath in $requiredFiles) {
+        $path = Join-Path $RHome $relativePath
+        if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+            throw "Portable R is missing required file '$relativePath' at '$path'."
+        }
+    }
+}
+
+function Invoke-RValidationProbe {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$FilePath,
+        [Parameter(Mandatory = $true)]
+        [string[]]$ArgumentList,
+        [Parameter(Mandatory = $true)]
+        [string]$Label
+    )
+
+    Write-Host "Probe: $Label"
+    $process = New-Object System.Diagnostics.Process
+    $process.StartInfo.FileName = $FilePath
+    $process.StartInfo.UseShellExecute = $false
+    $process.StartInfo.CreateNoWindow = $true
+    $process.StartInfo.RedirectStandardOutput = $true
+    $process.StartInfo.RedirectStandardError = $true
+    # All probe arguments are fixed tokens without whitespace. Arguments is
+    # used instead of ProcessStartInfo.ArgumentList for Windows PowerShell 5.1.
+    $process.StartInfo.Arguments = ($ArgumentList -join " ")
+    try {
+        try {
+            if (-not $process.Start()) { throw "Process.Start returned false." }
+        } catch {
+            throw "Process-start exception while running '$Label' with '$FilePath': $($_.Exception.Message)"
+        }
+        $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+        $stderrTask = $process.StandardError.ReadToEndAsync()
+        $process.WaitForExit()
+        $stdout = $stdoutTask.GetAwaiter().GetResult()
+        $stderr = $stderrTask.GetAwaiter().GetResult()
+        $exitCode = [int]$process.ExitCode
+    } finally {
+        $process.Dispose()
+    }
+    $unsignedExitCode = [BitConverter]::ToUInt32([BitConverter]::GetBytes($exitCode), 0)
+    $hexExitCode = "0x{0:X8}" -f $unsignedExitCode
+    Write-Host "  stdout: $stdout"
+    Write-Host "  stderr: $stderr"
+    Write-Host "  exit code: $exitCode ($hexExitCode)"
+
+    return [pscustomobject]@{
+        Label = $Label
+        Stdout = $stdout
+        Stderr = $stderr
+        ExitCode = $exitCode
+        HexExitCode = $hexExitCode
+    }
+}
+
+function Assert-RProbeSucceeded {
+    param(
+        [Parameter(Mandatory = $true)]
+        [psobject]$Probe
+    )
+
+    if ($Probe.HexExitCode -eq "0xC0000005") {
+        throw "R process '$($Probe.Label)' terminated with access violation 0xC0000005 (signed exit code $($Probe.ExitCode))."
+    }
+    if ($Probe.ExitCode -ne 0) {
+        throw "R process '$($Probe.Label)' failed with nonzero exit code $($Probe.ExitCode) ($($Probe.HexExitCode))."
+    }
+}
+
+function Test-RRuntimeProcesses {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$RHome,
+        [Parameter(Mandatory = $true)]
+        [string]$RequestedVersion
+    )
+
+    $rPath = Join-Path $RHome "bin\R.exe"
+    $rscriptPath = Join-Path $RHome "bin\Rscript.exe"
+    $rVersionProbe = Invoke-RValidationProbe -FilePath $rPath -ArgumentList @("--version") -Label "R.exe --version"
+    Assert-RProbeSucceeded -Probe $rVersionProbe
+    if ([string]::IsNullOrWhiteSpace($rVersionProbe.Stdout)) {
+        throw "R process 'R.exe --version' returned empty output."
     }
 
-    $output = & $RscriptPath --vanilla -s -e "cat(as.character(getRversion()))"
-    $exitCode = $LASTEXITCODE
-    $detectedVersion = (@($output) -join [Environment]::NewLine).Trim()
+    $rscriptVersionProbe = Invoke-RValidationProbe -FilePath $rscriptPath -ArgumentList @("--version") -Label "Rscript.exe --version"
+    Assert-RProbeSucceeded -Probe $rscriptVersionProbe
+    if ([string]::IsNullOrWhiteSpace($rscriptVersionProbe.Stdout)) {
+        throw "R process 'Rscript.exe --version' returned empty output."
+    }
 
-    if ($exitCode -ne 0 -or [string]::IsNullOrWhiteSpace($detectedVersion)) {
-        throw "Unable to detect the R version using '$RscriptPath' (exit code $exitCode): the process failed or returned an empty version."
+    $expressionProbe = Invoke-RValidationProbe -FilePath $rscriptPath -ArgumentList @("--vanilla", "-s", "-e", "cat(as.character(getRversion()))") -Label 'Rscript.exe --vanilla -s -e "cat(as.character(getRversion()))"'
+    Assert-RProbeSucceeded -Probe $expressionProbe
+    $detectedVersion = $expressionProbe.Stdout.Trim()
+    if ([string]::IsNullOrWhiteSpace($detectedVersion)) {
+        throw "R version expression returned an empty version."
     }
     if ($detectedVersion -notmatch '^\d+\.\d+\.\d+$') {
-        throw "Rscript at '$RscriptPath' returned invalid version '$detectedVersion' (exit code $exitCode; expected MAJOR.MINOR.PATCH)."
+        throw "R version expression returned malformed version '$detectedVersion' (expected MAJOR.MINOR.PATCH)."
     }
-    if ($detectedVersion -ne $RVersion) {
-        throw "R version mismatch for '$RscriptPath' (exit code $exitCode): requested R $RVersion, but detected R $detectedVersion."
+    # The exact requested-version comparison deliberately follows successful
+    # expression execution and output validation.
+    if ($detectedVersion -cne $RequestedVersion) {
+        throw "R version mismatch: requested R $RequestedVersion, but detected R $detectedVersion."
     }
-
     return $detectedVersion
 }
 
@@ -205,9 +307,10 @@ New-Item -ItemType Directory -Force -Path $RLibrary   | Out-Null
 $RscriptPath = Join-Path $RPortable "bin\Rscript.exe"
 $UseExistingRuntime = $false
 
-if (Test-Path -LiteralPath $RscriptPath -PathType Leaf) {
+if (Test-Path -LiteralPath $RPortable -PathType Container) {
     try {
-        $InstalledVersion = Get-ValidatedRVersion -RscriptPath $RscriptPath
+        Test-RRuntimeStructure -RHome $RPortable
+        $InstalledVersion = Test-RRuntimeProcesses -RHome $RPortable -RequestedVersion $RVersion
         $UseExistingRuntime = $true
     } catch {
         Write-Warning "Existing portable R is incomplete or invalid and will be replaced: $($_.Exception.Message)"
@@ -284,7 +387,8 @@ if ($UseExistingRuntime) {
             throw "R installer '$RInstaller' failed with exit code $installerExitCode. The cached installer may be removed and downloaded again before retrying."
         }
 
-        $InstalledVersion = Get-ValidatedRVersion -RscriptPath $StagedRscriptPath
+        Test-RRuntimeStructure -RHome $RStaging
+        $InstalledVersion = Test-RRuntimeProcesses -RHome $RStaging -RequestedVersion $RVersion
         if (Test-Path -LiteralPath $RPortable) {
             Remove-Item -LiteralPath $RPortable -Recurse -Force
         }

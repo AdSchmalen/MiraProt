@@ -10,13 +10,21 @@ try {
 package main
 import ("fmt"; "os"; "path/filepath")
 func main() {
-  if len(os.Args) == 2 {
+  if len(os.Args) == 2 && os.Args[1] != "--version" {
     if os.Getenv("FAKE_INSTALL_EXIT") != "" { os.Exit(17) }
     if os.Getenv("FAKE_INSTALL_NO_RSCRIPT") == "" {
-      dst := filepath.Join(os.Args[1], "bin", "Rscript.exe")
-      os.MkdirAll(filepath.Dir(dst), 0755)
-      data, _ := os.ReadFile(os.Args[0]); os.WriteFile(dst, data, 0755)
+      data, _ := os.ReadFile(os.Args[0])
+      for _, rel := range []string{"bin/R.exe", "bin/Rscript.exe"} {
+        dst := filepath.Join(os.Args[1], rel); os.MkdirAll(filepath.Dir(dst), 0755); os.WriteFile(dst, data, 0755)
+      }
+      for _, rel := range []string{"bin/x64/R.dll", "etc/Rconsole", "etc/Rprofile.site", "VERSION", "library/base/DESCRIPTION"} {
+        dst := filepath.Join(os.Args[1], rel); os.MkdirAll(filepath.Dir(dst), 0755); os.WriteFile(dst, []byte("fixture"), 0644)
+      }
     }
+    return
+  }
+  if len(os.Args) == 2 && os.Args[1] == "--version" {
+    fmt.Fprint(os.Stdout, "R version 4.5.2")
     return
   }
   fmt.Fprint(os.Stdout, os.Getenv("FAKE_R_STDOUT"))
@@ -47,6 +55,12 @@ func main() {
         if (-not $NoExistingRuntime) {
             New-Item -ItemType Directory -Force -Path (Split-Path $rscript) | Out-Null
             Copy-Item $helper $rscript
+            Copy-Item $helper (Join-Path $OutputDir "r-portable\bin\R.exe")
+            foreach ($relativePath in @("bin\x64\R.dll", "etc\Rconsole", "etc\Rprofile.site", "VERSION", "library\base\DESCRIPTION")) {
+                $fixturePath = Join-Path (Join-Path $OutputDir "r-portable") $relativePath
+                New-Item -ItemType Directory -Force -Path (Split-Path $fixturePath) | Out-Null
+                Set-Content -LiteralPath $fixturePath -Value "fixture"
+            }
         } elseif ($PartialRuntime) {
             New-Item -ItemType Directory -Force -Path (Join-Path $OutputDir "r-portable\lib") | Out-Null
             Set-Content (Join-Path $OutputDir "r-portable\lib\partial.txt") "partial"
@@ -79,8 +93,8 @@ func main() {
     Invoke-Case valid "4.5.2" -ExpectedStatus 0 -ExpectedMessages @("validation completed") | Out-Null
     Invoke-Case wrong "4.5.1" -ExpectedStatus 1 -ExpectedMessages @("R version mismatch", "requested R 4.5.2") | Out-Null
     Invoke-Case empty-zero "" -ExpectedStatus 1 -ExpectedMessages @("returned an empty version") | Out-Null
-    Invoke-Case empty-nonzero "" -VersionFailure -VersionError "loader failed" -ExpectedStatus 1 -ExpectedMessages @("exit code 23", "empty version") | Out-Null
-    Invoke-Case missing-executable "4.5.2" -NoExistingRuntime -InstallerOmitsRscript -ExpectedStatus 1 -ExpectedMessages @("Rscript executable was not found") | Out-Null
+    Invoke-Case empty-nonzero "" -VersionFailure -VersionError "loader failed" -ExpectedStatus 1 -ExpectedMessages @("nonzero exit code 23", "0x00000017") | Out-Null
+    Invoke-Case missing-executable "4.5.2" -NoExistingRuntime -InstallerOmitsRscript -ExpectedStatus 1 -ExpectedMessages @("missing required file") | Out-Null
     Invoke-Case failed-installer "4.5.2" -NoExistingRuntime -InstallerFailure -ExpectedStatus 1 -ExpectedMessages @("failed with exit code 17") | Out-Null
     Invoke-Case invalid-cache "4.5.2" -NoExistingRuntime -InvalidInstaller -ExpectedStatus 1 -ExpectedMessages @("missing or invalid", "refusing to continue") | Out-Null
     Invoke-Case partial-runtime "4.5.2" -NoExistingRuntime -PartialRuntime -ExpectedStatus 0 -ExpectedMessages @("Portable R installed", "validation completed") | Out-Null
