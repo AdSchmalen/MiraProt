@@ -3,6 +3,9 @@
 #
 # Usage:
 #   ./bundle-r.sh [--r-version VERSION] [--output-dir DIRECTORY]
+#   Ordinary users should omit --r-version: portable/R_VERSION supplies the
+#   maintained R runtime default. This option does not select MiraProt's
+#   application version.
 #
 # Environment variables (fallbacks when the corresponding option is omitted):
 #   R_VERSION   — R version to bundle (default: portable/R_VERSION)
@@ -28,12 +31,14 @@ usage() {
 Usage: $0 [--r-version VERSION] [--output-dir DIRECTORY]
 
 Options:
-  --r-version VERSION   R version to bundle (default: portable/R_VERSION)
+  --r-version VERSION   R runtime version to bundle, not the MiraProt version
+                        (default: portable/R_VERSION; normally omit this option)
   --output-dir DIRECTORY
                         Output directory (default: portable/dist)
   -h, --help            Show this help message
 
 R_VERSION and OUTPUT_DIR provide fallbacks. Command-line options take precedence.
+MiraProt's application version is independent of the selected R runtime.
 EOF
 }
 

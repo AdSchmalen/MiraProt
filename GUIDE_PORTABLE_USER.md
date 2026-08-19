@@ -232,6 +232,16 @@ To run: ...\portable\dist\MiraProt-launcher.exe
 The basic bundle does not require Inno Setup. Inno Setup is only used by
 developers who deliberately create a separate Windows installer.
 
+`-RVersion` is an advanced override for the **R runtime**, not a MiraProt
+application-version selector. Ordinary users should omit it so the maintained
+value in `portable\R_VERSION` is used. MiraProt's own version comes from
+Git/build metadata and `R/version_info.R`, independently of R, the launcher, a
+platform installer, and the saved-session schema. R is installed first into a
+unique stage under `%TEMP%`, not directly into `r-portable`. Only a stage with
+`R.exe`, `Rscript.exe`, and `bin\x64\R.dll` that passes probes is promoted. An
+existing runtime remains recoverable until final-path validation, enabling safe
+rollback. `r-library` is the separate package library populated afterward.
+
 #### Step 9 — Verify the result
 
 ```powershell
@@ -266,6 +276,24 @@ Check that the bundled library can load Shiny:
 
 **Expected:** `OK`. If this check stops with an error, package installation was
 incomplete; use the package troubleshooting below before launching MiraProt.
+
+If runtime installation fails, the bundler retains the failed stage and a
+separate installer/probe log directory by default and prints both paths. Put
+the printed stage path in `$stage` to inspect the evidence:
+
+```powershell
+$stage = 'C:\path\printed\by\the\bundler'; $logs = "$stage-logs"
+Get-Item "$stage\bin\R.exe", "$stage\bin\Rscript.exe", "$stage\bin\x64\R.dll" | Select FullName,Length,LastWriteTime,@{n='FileVersion';e={$_.VersionInfo.FileVersion}},@{n='ProductVersion';e={$_.VersionInfo.ProductVersion}}
+Get-ChildItem Env: | Where-Object Name -in 'R_HOME','R_ARCH','R_LIBS','R_LIBS_USER','R_LIBS_SITE','R_ENVIRON','R_ENVIRON_USER','R_PROFILE','R_PROFILE_USER'
+& "$stage\bin\R.exe" --version; $code=$LASTEXITCODE; '{0} (0x{1:X8})' -f $code,[uint32]$code
+& "$stage\bin\Rscript.exe" --version; $code=$LASTEXITCODE; '{0} (0x{1:X8})' -f $code,[uint32]$code
+& "$stage\bin\Rscript.exe" --vanilla -s -e "cat(as.character(getRversion()))"; $code=$LASTEXITCODE; "`n$code (0x$('{0:X8}' -f [uint32]$code))"
+Get-ChildItem $logs; Get-Content "$logs\installer.log"
+```
+
+These show file metadata, inherited R variables (ignored for bundler probes),
+signed/hex exit statuses, and expression output. Probe logs retain stdout and
+stderr. Do not manually promote a failed stage; retain it when asking for help.
 
 #### Step 10 — Start and stop MiraProt
 
@@ -387,8 +415,10 @@ bash portable/scripts/bundle-r.sh --output-dir portable/dist
 ```
 
 Using `bash` is intentional until executable-bit behavior is verified. The
-script also accepts `--r-version VERSION`. Command-line options take precedence
-over the `R_VERSION` and `OUTPUT_DIR` environment-variable fallbacks. With no
+script also accepts `--r-version VERSION`, which selects only the R runtime,
+not the MiraProt application version. Ordinary users should omit it so
+`portable/R_VERSION` supplies the maintained default. Command-line options take
+precedence over the `R_VERSION` and `OUTPUT_DIR` environment-variable fallbacks. With no
 output option or environment override, the output is always `portable/dist`,
 resolved from the script's location rather than the current working directory.
 The finished launcher is:
@@ -445,8 +475,10 @@ bash portable/scripts/bundle-r.sh --output-dir portable/dist
 ```
 
 This is the complete **basic bundling** workflow. `portable/scripts/bundle-r.sh`
-also accepts `--r-version VERSION`; its command-line options override the
-`R_VERSION` and `OUTPUT_DIR` environment-variable fallbacks. When neither an
+also accepts `--r-version VERSION`, which selects only R, not the MiraProt
+application version. Ordinary users should omit it and use the maintained
+`portable/R_VERSION` default. Its command-line options override the `R_VERSION`
+and `OUTPUT_DIR` environment-variable fallbacks. When neither an
 output option nor `OUTPUT_DIR` is supplied, the default remains
 `portable/dist` from any working directory because it is resolved relative to
 the script. The script produces a flat distribution directory containing the

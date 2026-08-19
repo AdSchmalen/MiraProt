@@ -33,7 +33,7 @@ Choose this when you:
 
 ### 1) Prerequisites
 
-- R installed locally (portable build tooling defaults to **R 4.5.2**, maintained in `portable/R_VERSION`; source mode should use a modern compatible R release).
+- R installed locally (portable build tooling reads its maintained R runtime default from `portable/R_VERSION`; source mode should use a modern compatible R release).
 - System libraries as required by your OS for Bioconductor/CRAN packages.
 - Git clone or downloaded source tree.
 
@@ -87,6 +87,19 @@ For complete operational details:
 - Intended to run without requiring local R/RStudio installation.
 - Is normally built locally from the source repository; public portable binaries are not the authoritative installation path.
 - Provides platform-specific packaging (Windows installer, macOS app/dmg, Linux AppImage/archive) via scripts under `portable/installers/` and `portable/scripts/`.
+
+### R runtime version versus MiraProt version
+
+The bundlers' optional `-RVersion` (Windows) and `--r-version` (Linux/macOS)
+arguments select the **R runtime placed in `r-portable`**. They do not select
+the MiraProt application version. Ordinary users should omit these arguments;
+`portable/R_VERSION` is the maintained default. An override is intended for a
+maintainer deliberately testing a different, exactly matching R installation.
+
+MiraProt application versioning is derived independently from Git/build
+metadata and the product-version logic in `R/version_info.R`. It is not the R
+version, launcher version, Windows installer version, or saved-session schema
+version; each of those has its own compatibility and release purpose.
 
 ---
 

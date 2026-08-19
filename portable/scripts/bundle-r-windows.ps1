@@ -3,6 +3,9 @@
 # Usage:
 #   .\bundle-r-windows.ps1 [-RVersion VERSION] [-OutputDir ".\dist"]
 #       [-KeepFailedStaging <bool>] [-AllowUnverifiedRInstaller]
+# Ordinary users should omit -RVersion: portable\R_VERSION supplies the
+# maintained R runtime default. -RVersion does not select the MiraProt
+# application version, which comes from Git/build metadata and R/version_info.R.
 #
 # KeepFailedStaging defaults to $true so a failed R installation and its logs
 # remain available for diagnosis. Pass -KeepFailedStaging:$false to remove a
