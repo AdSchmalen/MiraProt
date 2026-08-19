@@ -243,9 +243,11 @@ existing runtime remains recoverable until final-path validation, enabling safe
 rollback. `r-library` is the separate package library populated afterward.
 Windows R does not provide or require a top-level `VERSION` file. The absolute
 staged `R.exe --version` and `Rscript.exe --version` commands are startup probes;
-the absolute staged `Rscript.exe` running `getRversion()` is authoritative. The
-same query runs again after promotion with inherited R configuration removed,
-so an R found elsewhere on `PATH` cannot validate the portable runtime.
+PowerShell invokes those executables natively, and the absolute staged
+`Rscript.exe --vanilla <version-probe.R>` runs a temporary UTF-8 script that
+calls `getRversion()` for the authoritative exact-version check. The same query
+runs again after promotion with inherited R configuration removed, so an R
+found elsewhere on `PATH` cannot validate the portable runtime.
 
 #### Step 9 — Verify the result
 
@@ -292,13 +294,16 @@ Get-Item "$stage\bin\R.exe", "$stage\bin\Rscript.exe", "$stage\bin\x64\R.dll" | 
 Get-ChildItem Env: | Where-Object Name -in 'R_HOME','R_ARCH','R_LIBS','R_LIBS_USER','R_LIBS_SITE','R_ENVIRON','R_ENVIRON_USER','R_PROFILE','R_PROFILE_USER'
 & "$stage\bin\R.exe" --version; $code=$LASTEXITCODE; '{0} (0x{1:X8})' -f $code,[uint32]$code
 & "$stage\bin\Rscript.exe" --version; $code=$LASTEXITCODE; '{0} (0x{1:X8})' -f $code,[uint32]$code
-& "$stage\bin\Rscript.exe" --vanilla -s -e "cat(as.character(getRversion()))"; $code=$LASTEXITCODE; "`n$code (0x$('{0:X8}' -f [uint32]$code))"
-Get-ChildItem $logs; Get-Content "$logs\installer.log"
+$probe = Join-Path ([IO.Path]::GetTempPath()) ("miraprot-r-version-" + [guid]::NewGuid().ToString("N") + ".R")
+[IO.File]::WriteAllText($probe, "cat(as.character(getRversion()))`n", (New-Object Text.UTF8Encoding($false)))
+try { & "$stage\bin\Rscript.exe" --vanilla $probe; $code=$LASTEXITCODE; "`n$code (0x$('{0:X8}' -f [uint32]$code))" } finally { Remove-Item $probe -Force -ErrorAction SilentlyContinue }
+Get-ChildItem $logs; Get-Content "$logs\installer.log"; Get-Content "$logs\*probe*.log"
 ```
 
 These show file metadata, inherited R variables (ignored for bundler probes),
-signed/hex exit statuses, and expression output. Probe logs retain stdout and
-stderr. Do not manually promote a failed stage; retain it when asking for help.
+signed/hex exit statuses, and runtime-version output. Probe logs retain the
+native command, stdout, and stderr. Do not manually promote a failed stage;
+retain it when asking for help.
 
 #### Step 10 — Start and stop MiraProt
 
