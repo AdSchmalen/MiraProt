@@ -20,21 +20,24 @@ $ErrorActionPreference = "Stop"
 $ScriptDir  = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ProjectRoot = (Resolve-Path (Join-Path $ScriptDir "..\..")).Path
 
-# Fail early, before downloading or modifying a partial bundle.
-if (-not (Get-Command go -ErrorAction SilentlyContinue)) {
+# Fail early, before downloading or modifying a partial bundle. The isolated
+# process tests opt out of host/network preflights, but still exercise the real
+# runtime and installer control flow below.
+$BundlerTestMode = ($env:MIRAPROT_BUNDLER_TEST_MODE -eq "1")
+if (-not $BundlerTestMode -and -not (Get-Command go -ErrorAction SilentlyContinue)) {
     throw "Go was not found on PATH. Install Go 1.22 or later from https://go.dev/dl/ and reopen PowerShell."
 }
 $HasGitMetadata = Test-Path (Join-Path $ProjectRoot ".git")
-if ($HasGitMetadata -and -not (Get-Command git -ErrorAction SilentlyContinue)) {
+if (-not $BundlerTestMode -and $HasGitMetadata -and -not (Get-Command git -ErrorAction SilentlyContinue)) {
     throw "This is a Git checkout, but Git was not found on PATH. Install Git or build from a source archive without .git metadata."
 }
 
-try {
+if (-not $BundlerTestMode) { try {
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
     Invoke-WebRequest -Uri "https://cloud.r-project.org/" -Method Head -UseBasicParsing -TimeoutSec 15 | Out-Null
 } catch {
     throw "Internet preflight failed: cannot reach CRAN at https://cloud.r-project.org/. Check DNS, proxy, firewall, and TLS settings, then retry. $($_.Exception.Message)"
-}
+} }
 
 try {
     New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
@@ -154,6 +157,10 @@ function Test-RInstaller {
         return $false
     }
 
+    if ($BundlerTestMode) {
+        return $true
+    }
+
     # Downloads use a temporary suffix until validation succeeds, but CRAN's
     # checksum manifest contains the final installer filename.
     $installerName = (Split-Path -Leaf $Path) -replace '\.download$', ''
@@ -212,7 +219,11 @@ if ($UseExistingRuntime) {
 } else {
     Write-Host "--- Downloading R $RVersion for Windows ---"
 
-    $RInstaller = Join-Path $env:TEMP "R-$RVersion-win.exe"
+    $RInstaller = if ($BundlerTestMode -and $env:MIRAPROT_TEST_INSTALLER_PATH) {
+        $env:MIRAPROT_TEST_INSTALLER_PATH
+    } else {
+        Join-Path $env:TEMP "R-$RVersion-win.exe"
+    }
     $RUrls = @(
         "https://cran.r-project.org/bin/windows/base/R-$RVersion-win.exe"
         "https://cran.r-project.org/bin/windows/base/old/$RVersion/R-$RVersion-win.exe"
@@ -220,6 +231,8 @@ if ($UseExistingRuntime) {
 
     if (Test-RInstaller -Path $RInstaller -SourceUrls $RUrls) {
         Write-Host "Using validated cached installer: $RInstaller"
+    } elseif ($BundlerTestMode) {
+        throw "Cached R installer '$RInstaller' is missing or invalid; refusing to continue with an unvalidated installer."
     } else {
         Remove-Item -LiteralPath $RInstaller -Force -ErrorAction SilentlyContinue
         [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
@@ -260,9 +273,15 @@ if ($UseExistingRuntime) {
         "/COMPONENTS=main,x64"
     )
     try {
-        $process = Start-Process -FilePath $RInstaller -ArgumentList $installArgs -Wait -NoNewWindow -PassThru
-        if ($process.ExitCode -ne 0) {
-            throw "R installer '$RInstaller' failed with exit code $($process.ExitCode). The cached installer may be removed and downloaded again before retrying."
+        if ($BundlerTestMode -and $env:MIRAPROT_TEST_INSTALLER_COMMAND) {
+            & $env:MIRAPROT_TEST_INSTALLER_COMMAND $RStaging
+            $installerExitCode = $LASTEXITCODE
+        } else {
+            $process = Start-Process -FilePath $RInstaller -ArgumentList $installArgs -Wait -NoNewWindow -PassThru
+            $installerExitCode = $process.ExitCode
+        }
+        if ($installerExitCode -ne 0) {
+            throw "R installer '$RInstaller' failed with exit code $installerExitCode. The cached installer may be removed and downloaded again before retrying."
         }
 
         $InstalledVersion = Get-ValidatedRVersion -RscriptPath $StagedRscriptPath
@@ -279,6 +298,11 @@ if ($UseExistingRuntime) {
     Write-Host "Portable R installed at: $RPortable"
 }
 Write-Host ""
+
+if ($BundlerTestMode) {
+    Write-Host "Portable R validation completed; stopping before package installation."
+    exit 0
+}
 
 # -----------------------------------------------------------------------
 # Step 2: Install R packages
