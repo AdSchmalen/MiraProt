@@ -217,7 +217,9 @@ if [ -d "$GO_CACHE/annotation_cache" ] && [ -d "$GO_CACHE/go_cache" ]; then
 else
   echo "--- Pre-building AnnotationHub cache into $GO_CACHE ---"
   mkdir -p "$GO_CACHE"
-  "$R_PORTABLE/bin/Rscript" "$SCRIPT_DIR/prebuild-cache.R" "$GO_CACHE" "$R_LIBRARY"
+  if ! "$R_PORTABLE/bin/Rscript" "$SCRIPT_DIR/prebuild-cache.R" "$GO_CACHE" "$R_LIBRARY"; then
+    echo "WARNING: Cache pre-build failed - portable app will download on first use" >&2
+  fi
 fi
 echo ""
 
