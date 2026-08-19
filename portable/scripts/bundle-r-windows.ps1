@@ -5,8 +5,9 @@
 #
 # Prerequisites:
 #   - PowerShell 5.1+
-#   - Internet access (to download R installer)
+#   - Internet access (to download R, Go tools, and R packages)
 #   - Go toolchain (for building the launcher)
+#   - Git when building from a Git checkout (source archives are also supported)
 
 [CmdletBinding()]
 param(
@@ -19,6 +20,32 @@ $ErrorActionPreference = "Stop"
 $ScriptDir  = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ProjectRoot = (Resolve-Path (Join-Path $ScriptDir "..\..")).Path
 
+# Fail early, before downloading or modifying a partial bundle.
+if (-not (Get-Command go -ErrorAction SilentlyContinue)) {
+    throw "Go was not found on PATH. Install Go 1.22 or later from https://go.dev/dl/ and reopen PowerShell."
+}
+$HasGitMetadata = Test-Path (Join-Path $ProjectRoot ".git")
+if ($HasGitMetadata -and -not (Get-Command git -ErrorAction SilentlyContinue)) {
+    throw "This is a Git checkout, but Git was not found on PATH. Install Git or build from a source archive without .git metadata."
+}
+
+try {
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+    Invoke-WebRequest -Uri "https://cloud.r-project.org/" -Method Head -UseBasicParsing -TimeoutSec 15 | Out-Null
+} catch {
+    throw "Internet preflight failed: cannot reach CRAN at https://cloud.r-project.org/. Check DNS, proxy, firewall, and TLS settings, then retry. $($_.Exception.Message)"
+}
+
+try {
+    New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
+    $OutputDir = (Resolve-Path $OutputDir).Path
+    $WriteProbe = Join-Path $OutputDir (".miraprot-write-test-" + [guid]::NewGuid().ToString("N"))
+    [IO.File]::WriteAllText($WriteProbe, "write test")
+    Remove-Item $WriteProbe -Force
+} catch {
+    throw "Output path '$OutputDir' cannot be created or written. Choose a writable local directory. $($_.Exception.Message)"
+}
+
 if (-not $RVersion) {
     $RVersion = (Get-Content (Join-Path $ScriptDir "..\R_VERSION") -Raw).Trim()
 }
@@ -30,10 +57,6 @@ Write-Host "=== MiraProt Portable Bundler (Windows) ===" -ForegroundColor Cyan
 Write-Host "R version: $RVersion"
 Write-Host "Output:    $OutputDir"
 Write-Host ""
-
-# Create output directory and resolve to absolute path so it stays correct after Push-Location
-New-Item -ItemType Directory -Force -Path $OutputDir  | Out-Null
-$OutputDir = (Resolve-Path $OutputDir).Path
 
 $RPortable = Join-Path $OutputDir "r-portable"
 $RLibrary  = Join-Path $OutputDir "r-library"
@@ -111,6 +134,8 @@ Write-Host ""
 # Step 2: Install R packages
 # -----------------------------------------------------------------------
 Write-Host "--- Installing R packages into $RLibrary ---"
+Write-Host "The installer prefers compatible Windows binary packages when repositories provide them."
+Write-Host "Rtools is needed only for dependencies that must compile from source; install-packages.R may attempt to install Rtools automatically if build tools are required and missing."
 
 $InstallScript = Join-Path $ScriptDir "install-packages.R"
 & $RscriptPath $InstallScript $RLibrary
@@ -248,9 +273,17 @@ if ($LASTEXITCODE -ge 8) {
 $fileCount = (Get-ChildItem -Path $ShinyApp -Recurse -File).Count
 $sizeMB = [math]::Round((Get-ChildItem -Path $ShinyApp -Recurse -File | Measure-Object -Property Length -Sum).Sum / 1MB, 1)
 Write-Host "App copied to: $ShinyApp ($fileCount files, $sizeMB MB)"
-$commitCount = git -C $ProjectRoot rev-list --count HEAD
-$commitSha = git -C $ProjectRoot rev-parse --short=7 HEAD
-$commitDate = git -C $ProjectRoot log -1 --format=%cs
+if ($HasGitMetadata) {
+    $commitCount = git -C $ProjectRoot rev-list --count HEAD
+    $commitSha = git -C $ProjectRoot rev-parse --short=7 HEAD
+    $commitDate = git -C $ProjectRoot log -1 --format=%cs
+    if ($LASTEXITCODE -ne 0) { throw "Git metadata exists but BUILD_INFO could not be generated. Verify that the checkout and HEAD are valid." }
+} else {
+    Write-Host "No .git metadata found; writing archive-safe BUILD_INFO values."
+    $commitCount = "unknown"
+    $commitSha = "unknown"
+    $commitDate = "unknown"
+}
 @(
     "COMMIT_COUNT=$commitCount"
     "COMMIT_SHA=$commitSha"
@@ -267,7 +300,7 @@ $LauncherDir = Join-Path $ScriptDir "..\launcher"
 
 Push-Location $LauncherDir
 try {
-    $version = git -C $ProjectRoot describe --tags --always 2>$null
+    $version = if ($HasGitMetadata) { git -C $ProjectRoot describe --tags --always 2>$null } else { "dev" }
     if (-not $version) { $version = "dev" }
 
     $env:GOOS = "windows"
@@ -279,12 +312,20 @@ try {
     # go-winres produces rsrc_windows_amd64.syso which the Go toolchain
     # only links on GOOS=windows, avoiding linker errors on other platforms.
     Write-Host "Generating Windows resources (exe icon)..."
-    if (-not (Get-Command go-winres -ErrorAction SilentlyContinue)) {
-        Write-Host "Installing go-winres..."
-        go install github.com/tc-hib/go-winres@latest
+    $GoWinresVersion = "v0.3.3"
+    $GoBin = (go env GOBIN).Trim()
+    if (-not $GoBin) {
+        $GoPath = ((go env GOPATH).Trim() -split [IO.Path]::PathSeparator)[0]
+        $GoBin = Join-Path $GoPath "bin"
+    }
+    $GoWinres = Join-Path $GoBin "go-winres.exe"
+    Write-Host "Installing reviewed go-winres $GoWinresVersion to $GoWinres..."
+    go install "github.com/tc-hib/go-winres@$GoWinresVersion"
+    if ($LASTEXITCODE -ne 0 -or -not (Test-Path $GoWinres)) {
+        throw "go-winres $GoWinresVersion installation failed or did not create '$GoWinres'."
     }
     go run gen_ico.go
-    go-winres make
+    & $GoWinres make
 
     Write-Host "Compiling launcher (version: $version)..."
     go build `
