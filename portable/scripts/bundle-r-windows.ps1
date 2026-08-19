@@ -2,7 +2,7 @@
 #
 # Usage:
 #   .\bundle-r-windows.ps1 [-RVersion VERSION] [-OutputDir ".\dist"]
-#       [-KeepFailedStaging <bool>]
+#       [-KeepFailedStaging <bool>] [-AllowUnverifiedRInstaller]
 #
 # KeepFailedStaging defaults to $true so a failed R installation and its logs
 # remain available for diagnosis. Pass -KeepFailedStaging:$false to remove a
@@ -18,7 +18,10 @@
 param(
     [string]$RVersion,
     [string]$OutputDir = (Join-Path $PSScriptRoot "..\dist"),
-    [switch]$KeepFailedStaging = $true
+    [switch]$KeepFailedStaging = $true,
+    # Intended only for historical installers for which CRAN publishes no
+    # checksum and Windows cannot establish the expected publisher identity.
+    [switch]$AllowUnverifiedRInstaller
 )
 
 $ErrorActionPreference = "Stop"
@@ -266,7 +269,10 @@ function Test-RInstaller {
         [Parameter(Mandatory = $true)]
         [string]$Path,
         [Parameter(Mandatory = $true)]
-        [string[]]$SourceUrls
+        [string[]]$SourceUrls,
+        [Parameter(Mandatory = $true)]
+        [string]$RequestedVersion,
+        [psobject]$DownloadRecord
     )
 
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $false }
@@ -288,10 +294,44 @@ function Test-RInstaller {
         return $true
     }
 
+    if ($DownloadRecord) {
+        Write-Host "Installer source:       $($DownloadRecord.SourceUrl)"
+        Write-Host "HTTP success:           $($DownloadRecord.HttpSuccess) (status $($DownloadRecord.StatusCode))"
+        Write-Host "Final response URL:     $($DownloadRecord.FinalUrl)"
+        Write-Host "HTTP content length:    $($DownloadRecord.ContentLength)"
+        if (-not $DownloadRecord.HttpSuccess) {
+            Write-Warning "Rejecting installer '$Path': its download did not record HTTP success."
+            return $false
+        }
+        if ($DownloadRecord.ResponseContentLength -and ([int64]$DownloadRecord.ResponseContentLength -ne $length)) {
+            Write-Warning "Rejecting installer '$Path': downloaded length $length does not match HTTP content length $($DownloadRecord.ResponseContentLength)."
+            return $false
+        }
+    } else {
+        Write-Host "Installer source: cached file (no recorded HTTP response)"
+    }
+
+    $versionInfo = (Get-Item -LiteralPath $Path).VersionInfo
+    $metadataText = @($versionInfo.ProductName, $versionInfo.FileDescription, $versionInfo.ProductVersion, $versionInfo.FileVersion) -join " | "
+    Write-Host "Installer metadata:     $metadataText"
+    $metadataAvailable = -not [string]::IsNullOrWhiteSpace(($metadataText -replace '[|\s]', ''))
+    if ($metadataAvailable -and $metadataText -notmatch ('(?<!\d)' + [regex]::Escape($RequestedVersion) + '(?!\d)')) {
+        Write-Warning "Rejecting installer '$Path': file/product metadata does not identify requested R $RequestedVersion."
+        return $false
+    }
+
+    $signature = Get-AuthenticodeSignature -LiteralPath $Path
+    $signerSubject = if ($signature.SignerCertificate) { $signature.SignerCertificate.Subject } else { "<none>" }
+    $expectedSigner = ($signerSubject -match '(?i)(R Core Team|R Foundation)')
+    $trustedSignature = ($signature.Status -eq [System.Management.Automation.SignatureStatus]::Valid -and $expectedSigner)
+    Write-Host "Authenticode status:    $($signature.Status)"
+    Write-Host "Authenticode signer:    $signerSubject"
+
     # Downloads use a temporary suffix until validation succeeds, but CRAN's
     # checksum manifest contains the final installer filename.
     $installerName = (Split-Path -Leaf $Path) -replace '\.download$', ''
     $foundChecksum = $false
+    $checksumVerified = $false
     $actualMd5 = $null
     foreach ($sourceUrl in $SourceUrls) {
         $expectedMd5 = Get-CranInstallerMd5 -InstallerUrl $sourceUrl -InstallerName $installerName
@@ -301,18 +341,27 @@ function Test-RInstaller {
                 $actualMd5 = (Get-FileHash -LiteralPath $Path -Algorithm MD5).Hash.ToUpperInvariant()
             }
             if ($actualMd5 -eq $expectedMd5) {
+                $checksumVerified = $true
                 Write-Host "Verified installer against the checksum published by CRAN."
                 return $true
             }
         }
     }
-    if ($foundChecksum) {
+    if ($foundChecksum -and -not $checksumVerified) {
         Write-Warning "Rejecting installer '$Path': its checksum does not match CRAN."
         return $false
     }
-
-    Write-Warning "CRAN did not provide a checksum for this installer; validated its size and Windows PE header only."
-    return $true
+    if ($trustedSignature -and $metadataAvailable) {
+        if (-not $foundChecksum) { Write-Warning "CRAN did not publish a checksum; accepting the valid expected signature and matching R metadata." }
+        return $true
+    }
+    $reason = "Authenticode status '$($signature.Status)', expected signer=$expectedSigner, version metadata available=$metadataAvailable"
+    if ($AllowUnverifiedRInstaller) {
+        Write-Warning "Explicit opt-in accepted installer whose identity could not otherwise be established ($reason)."
+        return $true
+    }
+    Write-Warning "Rejecting installer '$Path': insufficient installer identity ($reason). Use -AllowUnverifiedRInstaller only after independently confirming this installer."
+    return $false
 }
 
 Write-Host "=== MiraProt Portable Bundler (Windows) ===" -ForegroundColor Cyan
@@ -356,13 +405,20 @@ if ($UseExistingRuntime) {
         "https://cran.r-project.org/bin/windows/base/R-$RVersion-win.exe"
         "https://cran.r-project.org/bin/windows/base/old/$RVersion/R-$RVersion-win.exe"
     )
+    $InstallerRecordPath = "$RInstaller.source.json"
+    $CachedDownloadRecord = $null
+    if (Test-Path -LiteralPath $InstallerRecordPath -PathType Leaf) {
+        try { $CachedDownloadRecord = Get-Content -LiteralPath $InstallerRecordPath -Raw | ConvertFrom-Json }
+        catch { Write-Warning "Ignoring unreadable installer source record '$InstallerRecordPath'." }
+    }
 
-    if (Test-RInstaller -Path $RInstaller -SourceUrls $RUrls) {
+    if (Test-RInstaller -Path $RInstaller -SourceUrls $RUrls -RequestedVersion $RVersion -DownloadRecord $CachedDownloadRecord) {
         Write-Host "Using validated cached installer: $RInstaller"
     } elseif ($BundlerTestMode) {
         throw "Cached R installer '$RInstaller' is missing or invalid; refusing to continue with an unvalidated installer."
     } else {
         Remove-Item -LiteralPath $RInstaller -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $InstallerRecordPath -Force -ErrorAction SilentlyContinue
         [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
         $Downloaded = $false
         foreach ($RUrl in $RUrls) {
@@ -370,9 +426,24 @@ if ($UseExistingRuntime) {
             $downloadPath = "$RInstaller.download"
             try {
                 Remove-Item -LiteralPath $downloadPath -Force -ErrorAction SilentlyContinue
-                Invoke-WebRequest -Uri $RUrl -OutFile $downloadPath -UseBasicParsing
-                if (Test-RInstaller -Path $downloadPath -SourceUrls @($RUrl)) {
+                $response = Invoke-WebRequest -Uri $RUrl -OutFile $downloadPath -UseBasicParsing -PassThru
+                $statusCode = [int]$response.StatusCode
+                $finalUrl = if ($response.BaseResponse.ResponseUri) { [string]$response.BaseResponse.ResponseUri.AbsoluteUri } else { [string]$RUrl }
+                $responseContentLength = $null
+                if ($response.Headers['Content-Length']) { $responseContentLength = [int64]$response.Headers['Content-Length'] }
+                $downloadedLength = (Get-Item -LiteralPath $downloadPath).Length
+                $downloadRecord = [pscustomobject]@{
+                    HttpSuccess = ($statusCode -ge 200 -and $statusCode -lt 300)
+                    StatusCode = $statusCode
+                    FinalUrl = $finalUrl
+                    ContentLength = $downloadedLength
+                    ResponseContentLength = $responseContentLength
+                    SourceUrl = $RUrl
+                    RecordedAtUtc = [DateTime]::UtcNow.ToString('o')
+                }
+                if (Test-RInstaller -Path $downloadPath -SourceUrls @($RUrl) -RequestedVersion $RVersion -DownloadRecord $downloadRecord) {
                     Move-Item -LiteralPath $downloadPath -Destination $RInstaller -Force
+                    $downloadRecord | ConvertTo-Json | Set-Content -LiteralPath $InstallerRecordPath -Encoding UTF8
                     $Downloaded = $true
                     break
                 }
@@ -405,6 +476,7 @@ if ($UseExistingRuntime) {
         "/NORESTART"
         "/SUPPRESSMSGBOXES"
         "/COMPONENTS=main,x64"
+        "/LOG=$InstallerLog"
     )
     $PromotionStarted = $false
     $PromotionCompleted = $false
@@ -415,12 +487,12 @@ if ($UseExistingRuntime) {
             & $env:MIRAPROT_TEST_INSTALLER_COMMAND $RStaging *> $InstallerLog
             $installerExitCode = $LASTEXITCODE
         } else {
-            $process = Start-Process -FilePath $RInstaller -ArgumentList $installArgs -Wait -NoNewWindow -PassThru -RedirectStandardOutput $InstallerLog -RedirectStandardError "$InstallerLog.stderr"
+            $process = Start-Process -FilePath $RInstaller -ArgumentList $installArgs -Wait -NoNewWindow -PassThru
             $installerExitCode = $process.ExitCode
         }
         Write-LifecycleEvent "installer exit ($installerExitCode)"
         if ($installerExitCode -ne 0) {
-            throw "R installer '$RInstaller' failed with exit code $installerExitCode. The cached installer may be removed and downloaded again before retrying."
+            throw "R installer '$RInstaller' failed with exit code $installerExitCode. Installer log: '$InstallerLog'. The cached installer may be removed and downloaded again before retrying."
         }
 
         Write-LifecycleEvent "staging static checks start"
@@ -485,7 +557,7 @@ if ($UseExistingRuntime) {
             Write-Host "Failed staging retained at: $RStaging" -ForegroundColor Yellow
             Write-Host "Failure logs retained at: $StagingLogs" -ForegroundColor Yellow
         }
-        Write-Error "Portable R installation failed before package installation: $($failure.Exception.Message)"
+        Write-Error "Portable R installation failed before package installation: $($failure.Exception.Message) Installer log: '$InstallerLog'."
         exit 1
     }
 
