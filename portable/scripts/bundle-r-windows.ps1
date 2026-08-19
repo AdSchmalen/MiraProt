@@ -232,42 +232,22 @@ if (Test-Path $ShinyApp) {
     Remove-Item $ShinyApp -Recurse -Force
 }
 
-# Use robocopy for efficient directory copy with exclusions
-$excludeDirs = @(".git", "cache", "portable", ".Rproj.user", ".Ruserdata", "user_data", "dist")
-# If OutputDir lives inside the project root, exclude it explicitly to avoid
-# recursively copying previously generated portable bundles into shiny-app/.
-if ($OutputDir.StartsWith($ProjectRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
-    $excludeDirs += $OutputDir
+# Runtime payload manifest. Keep synchronized with bundle-r.sh and CI.
+foreach ($runtimeDir in @("R", "modules", "AutoAssign", "GSEA")) {
+    $source = Join-Path $ProjectRoot $runtimeDir
+    $destination = Join-Path $ShinyApp $runtimeDir
+    New-Item -ItemType Directory -Force -Path $destination | Out-Null
+    & robocopy $source $destination /E /NFL /NDL /NJH /NJS /NP *> $null
+    if ($LASTEXITCODE -ge 8) { throw "Failed to copy runtime directory '$runtimeDir' (robocopy exit $LASTEXITCODE)." }
 }
-$excludeFiles = @(".RData", ".Rhistory")
-
-$robocopyArgs = @(
-    $ProjectRoot
-    $ShinyApp
-    "/E"       # Copy subdirectories including empty ones
-    "/NFL"     # No file list
-    "/NDL"     # No directory list
-    "/NJH"     # No job header
-    "/NJS"     # No job summary
-    "/NP"      # No progress percentage
-)
-
-foreach ($dir in $excludeDirs) {
-    $robocopyArgs += "/XD"
-    $robocopyArgs += $dir
+$DocumentationDestination = Join-Path $ShinyApp "Documentation"
+New-Item -ItemType Directory -Force -Path $DocumentationDestination | Out-Null
+& robocopy (Join-Path $ProjectRoot "Documentation") $DocumentationDestination "*.R" /NFL /NDL /NJH /NJS /NP *> $null
+if ($LASTEXITCODE -ge 8) { throw "Failed to copy runtime Documentation sources (robocopy exit $LASTEXITCODE)." }
+foreach ($runtimeFile in @("app.R", "MiraProt_icon.png")) {
+    Copy-Item (Join-Path $ProjectRoot $runtimeFile) (Join-Path $ShinyApp $runtimeFile) -Force
 }
-foreach ($file in $excludeFiles) {
-    $robocopyArgs += "/XF"
-    $robocopyArgs += $file
-}
-
-# Suppress all robocopy output (including locale-specific text)
-& robocopy @robocopyArgs *> $null
-# robocopy returns non-zero for success (1 = files copied), only 8+ is error
-if ($LASTEXITCODE -ge 8) {
-    Write-Error "File copy failed with robocopy exit code $LASTEXITCODE"
-    exit 1
-}
+$global:LASTEXITCODE = 0
 
 # Report results in English
 $fileCount = (Get-ChildItem -Path $ShinyApp -Recurse -File).Count

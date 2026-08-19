@@ -267,6 +267,37 @@ R_VERSION=4.5.2 OUTPUT_DIR=portable/dist ./portable/scripts/bundle-r.sh
 
 ### What it does (step by step)
 
+#### Shiny application payload manifest
+
+Every basic bundler and the CI workflow assemble `shiny-app/` from the same
+runtime allowlist rather than copying the repository and maintaining a growing
+exclusion list:
+
+- `app.R`, the application entry point;
+- `R/` and `modules/`, including all nested runtime R modules;
+- `Documentation/*.R`, because `app.R` loads those files to build the in-app
+  documentation UI (non-runtime Markdown design/review sources are omitted);
+- `AutoAssign/`, containing the built-in rule templates read at runtime;
+- `GSEA/`, including the checked-in GMT collections. The resolved portable
+  data policy is to ship these gene-set data files so GSEA works without a
+  separate data download; and
+- `MiraProt_icon.png`, plus `BUILD_INFO`, which each build generates after the
+  copy so version reporting works without `.git` in the artifact.
+
+Everything else is excluded unless runtime code begins to require it. In
+particular, top-level `scripts/`, `tests/`, `benchmarks/`, repository guides and
+README sources, Git/build metadata, caches, user data, and the `portable/`
+tooling itself are development or build inputs, not application payload.
+
+An allowlist is also the recursion guard. Output commonly lives below the
+source tree (`dist/` or `portable/dist/`); copying only the named runtime paths
+means neither that output directory nor an older bundle nested inside it can
+be copied into `shiny-app/`. The destination is removed before assembly so
+files removed from the manifest cannot survive from a previous build. Keep the
+manifest synchronized in `portable/scripts/bundle-r.sh`,
+`portable/scripts/bundle-r-windows.ps1`, and
+`.github/workflows/portable-build.yml` whenever a new runtime path is added.
+
 1. **Copies R** — Copies your system R installation into `dist/r-portable/`.
 2. **Installs system dependencies** (Linux only) — Checks for and installs
    eight missing development packages via `apt-get`:
@@ -282,11 +313,9 @@ R_VERSION=4.5.2 OUTPUT_DIR=portable/dist ./portable/scripts/bundle-r.sh
    runtime download is the supported fallback on every platform. It then merges
    any project source caches as described in [Portable cache resolution and
    assembly](#portable-cache-resolution-and-assembly).
-5. **Copies the Shiny application** — Uses `rsync` to copy the project
-   (excluding `.git`, `cache/`, `portable/`, `scripts/`, `tests/`, etc.) into
-   `dist/shiny-app/`. The top-level `scripts/` and `tests/` directories remain
-   in the source checkout for development and pre-package validation, but are
-   omitted from the generated runtime distribution.
+5. **Copies the Shiny application** — Uses the runtime allowlist above to
+   assemble `dist/shiny-app/`. Development and validation inputs remain in the
+   source checkout but are omitted from the generated runtime distribution.
 6. **Builds the Go launcher** — Compiles the launcher into `dist/MiraProt-launcher`.
 
 The CI workflow adds five development libraries beyond the bundler's eight:
@@ -361,8 +390,9 @@ cd C:\path\to\MiraProt
    required when a dependency must compile from source; note that
    `install-packages.R` may currently try to install Rtools automatically when
    it detects that build tools are missing.
-4. **Copies the Shiny application** — Uses `robocopy` (built into Windows) to
-   copy the project into `dist\shiny-app\`.
+4. **Copies the Shiny application** — Uses `robocopy` (built into Windows) and
+   the same runtime allowlist as the Unix bundler and CI to assemble
+   `dist\shiny-app\`.
 5. **Builds the Go launcher** — Compiles into `dist\MiraProt-launcher.exe`.
 
 ### Troubleshooting Windows launcher resources
