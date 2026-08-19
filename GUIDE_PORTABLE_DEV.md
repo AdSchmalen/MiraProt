@@ -241,12 +241,19 @@ test claim; do not treat translation as permission to combine architectures.
 ```bash
 cd /path/to/MiraProt
 chmod +x portable/scripts/bundle-r.sh
-./portable/scripts/bundle-r.sh --r-version 4.5.2 --output-dir ./dist
+./portable/scripts/bundle-r.sh --r-version 4.5.2 --output-dir portable/dist
 ```
 
-Or using environment variables:
+The command-line options override the `R_VERSION` and `OUTPUT_DIR` environment
+variables. If an option is omitted, its environment variable is used; if that
+is also unset, the R version comes from `portable/R_VERSION` and the output is
+`portable/dist`. The default output is resolved relative to the script, so it
+is `portable/dist` regardless of the working directory from which the script
+is invoked.
+
+Or use the documented environment-variable fallbacks:
 ```bash
-R_VERSION=4.5.2 OUTPUT_DIR=./dist ./portable/scripts/bundle-r.sh
+R_VERSION=4.5.2 OUTPUT_DIR=portable/dist ./portable/scripts/bundle-r.sh
 ```
 
 ### What it does (step by step)

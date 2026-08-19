@@ -2,11 +2,12 @@
 # bundle-r.sh — Create a portable MiraProt distribution for Linux or macOS
 #
 # Usage:
-#   ./bundle-r.sh [--r-version VERSION] [--output-dir ./dist]
+#   ./bundle-r.sh [--r-version VERSION] [--output-dir DIRECTORY]
 #
-# Environment variables (override defaults):
+# Environment variables (fallbacks when the corresponding option is omitted):
 #   R_VERSION   — R version to bundle (default: portable/R_VERSION)
 #   OUTPUT_DIR  — Output directory (default: portable/dist)
+# Command-line options take precedence over these environment variables.
 #
 # Prerequisites:
 #   - R must be installed (system-wide or via rig)
@@ -22,26 +23,46 @@ DEFAULT_R_VERSION="$(tr -d '[:space:]' < "$SCRIPT_DIR/../R_VERSION")"
 R_VERSION="${R_VERSION:-$DEFAULT_R_VERSION}"
 OUTPUT_DIR="${OUTPUT_DIR:-$SCRIPT_DIR/../dist}"
 
+usage() {
+  cat <<EOF
+Usage: $0 [--r-version VERSION] [--output-dir DIRECTORY]
+
+Options:
+  --r-version VERSION   R version to bundle (default: portable/R_VERSION)
+  --output-dir DIRECTORY
+                        Output directory (default: portable/dist)
+  -h, --help            Show this help message
+
+R_VERSION and OUTPUT_DIR provide fallbacks. Command-line options take precedence.
+EOF
+}
+
+usage_error() {
+  echo "ERROR: $1" >&2
+  usage >&2
+  exit 2
+}
+
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --r-version)
-      [ "$#" -ge 2 ] || { echo "ERROR: --r-version requires a value." >&2; exit 2; }
+      [ "$#" -ge 2 ] && [ -n "$2" ] && [[ "$2" != -* ]] || \
+        usage_error "--r-version requires a value."
       R_VERSION="$2"
       shift 2
       ;;
     --output-dir)
-      [ "$#" -ge 2 ] || { echo "ERROR: --output-dir requires a value." >&2; exit 2; }
+      [ "$#" -ge 2 ] && [ -n "$2" ] && [[ "$2" != -* ]] || \
+        usage_error "--output-dir requires a value."
       OUTPUT_DIR="$2"
       shift 2
       ;;
     -h|--help)
-      echo "Usage: $0 [--r-version VERSION] [--output-dir DIRECTORY]"
+      usage
       exit 0
       ;;
     *)
-      echo "ERROR: Unknown argument: $1" >&2
-      echo "Usage: $0 [--r-version VERSION] [--output-dir DIRECTORY]" >&2
-      exit 2
+      usage_error "Unknown argument: $1"
       ;;
   esac
 done
