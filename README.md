@@ -96,6 +96,13 @@ the MiraProt application version. Ordinary users should omit these arguments;
 `portable/R_VERSION` is the maintained default. An override is intended for a
 maintainer deliberately testing a different, exactly matching R installation.
 
+On Windows, runtime validation does not depend on a `VERSION` file. The
+bundler uses the portable `R.exe --version` and `Rscript.exe --version` as
+startup probes, then obtains the authoritative version from the absolute-path
+portable `Rscript.exe` running `getRversion()`. It isolates inherited R
+configuration and repeats these checks after promotion, before replacing the
+previous runtime permanently.
+
 MiraProt application versioning is derived independently from Git/build
 metadata and the product-version logic in `R/version_info.R`. It is not the R
 version, launcher version, Windows installer version, or saved-session schema

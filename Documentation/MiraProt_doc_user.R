@@ -347,7 +347,8 @@ render_user_miraprot_build_content <- function() {
     ),
     tags$p("Policy note: omit -RVersion/--r-version for normal builds so portable/R_VERSION supplies the maintained R runtime default."),
     tags$p("MiraProt application versioning comes from Git/build metadata and R/version_info.R. It is independent of R, launcher, installer, and session-schema versions."),
-    tags$p("A bundle keeps the runtime in r-portable and packages in r-library. On Windows, R is validated in temporary staging before safe promotion; failed stages and installer/probe logs are retained by default, and an existing runtime is restored if promotion fails."),
+    tags$p("A bundle keeps the runtime in r-portable and packages in r-library. On Windows, R is validated in temporary staging before safe promotion; failed stages and installer/probe logs are retained by default, and the previous runtime is preserved until its replacement passes final validation."),
+    tags$p("Windows validation does not use a VERSION file. Absolute portable R.exe --version and Rscript.exe --version calls are startup probes; absolute portable Rscript.exe running getRversion() supplies the authoritative version and is queried again after promotion. Inherited R configuration is isolated, so a local R on PATH cannot satisfy validation."),
 
     tags$h3("Platform-specific build commands"),
     tabsetPanel(
