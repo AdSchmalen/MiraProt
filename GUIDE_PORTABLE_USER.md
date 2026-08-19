@@ -1,201 +1,280 @@
-# MiraProt Local Portable Build — User Guide
+# Build and Run MiraProt on Your Computer
 
-MiraProt's portable desktop application is generated from the source repository
-on the computer where it will run. Public, prebuilt portable binaries are not the
-normal installation path. The standard workflow is:
+This guide creates a local MiraProt bundle from the source code. You do not
+need to be a developer, but the first build downloads R and R packages and can
+take 30–60 minutes. Allow several gigabytes of free disk space.
 
-1. obtain the MiraProt source repository;
-2. install the prerequisites for your platform;
-3. run the local bundler;
-4. optionally add external resources; and
-5. launch the generated artifact.
+## 1. Get the MiraProt source
 
-The result contains the MiraProt application, an R runtime and its packages, and
-a small launcher that opens the locally running Shiny application in your web
-browser. R and RStudio are not required *after* the bundle has been built.
+Choose **one** of these methods:
 
-## 1. Obtain the source repository
+### Option A: clone with Git
 
-Install Git, open a terminal, and clone the authoritative source repository:
+Open PowerShell (Windows) or Terminal (Linux/macOS), then run:
 
 ```bash
 git clone https://github.com/AdSchmalen/MiraProt.git
 cd MiraProt
 ```
 
-To use a particular source version, check out its branch, tag, or commit before
-building. A GitHub-generated source archive may be used instead of Git: extract
-it, open a terminal in the extracted `MiraProt` directory, and continue below.
-Do not look for an installer, AppImage, DMG, or portable archive on the Releases
-page as the normal way to install MiraProt.
+### Option B: use a source archive
 
-## 2. Install platform prerequisites
+Download a source-code ZIP or tar archive from the MiraProt repository, extract
+it, and open PowerShell or Terminal in the extracted folder. The correct folder
+contains `portable`, `app.R`, and this guide.
 
-All platforms need internet access while building (for R and package downloads),
-several gigabytes of free disk space, and:
+> **Run every build command below from this repository root.** Do not run it
+> from inside `portable` or `portable/scripts`.
 
-- **Go 1.22 or later** (`go version`)
-- **R 4.5.2** available as `Rscript` on Linux/macOS (the version must match `portable/R_VERSION` exactly)
-- **Git** to clone and later update the source
+An archive is fine for a one-time build. A Git clone is easier to update later.
+
+## 2. Build on your operating system
+
+Build tools are used to assemble the bundle; that does not mean they are all
+needed to run it. In particular, **R, Go, Git, compilers, and package installers
+used during assembly are not automatically runtime prerequisites of the
+finished bundle**. MiraProt includes its own copy of R and its R packages.
+Linux and macOS bundles can still depend on operating-system shared libraries,
+as described below.
 
 ### Windows
 
-Install:
+#### Before building
 
-- [Go](https://go.dev/dl/)
-- PowerShell 5.1 or later (included with Windows 10/11)
+You need:
 
-Linux and macOS currently copy a matching, preinstalled native R; they do not
-download or select R automatically. The Windows bundler downloads and installs
-its own R 4.5.2 copy into the generated bundle, so a system R installation is
-not required. The maintained default is stored in `portable/R_VERSION`;
-explicit version options override it.
+- Windows PowerShell 5.1 or newer;
+- Git (also needed when building from an archive because the script records
+  version information);
+- Go 1.22 or newer; and
+- internet access for R, Go tools, and R package downloads.
 
-### macOS
+The basic bundle does **not** require a normal system installation of R. The
+script downloads the required R version into the bundle. It also does **not**
+require Inno Setup; that is only for making a separate installer.
 
-Install R, Go, and the Xcode command-line tools. For example, with Homebrew:
+Most R packages have ready-made Windows binaries. If a package instead has to
+compile from source and reports that build tools are missing, install the
+Rtools release appropriate for the bundled R version and retry. Rtools is a
+fallback for assembly, not a normal runtime requirement.
 
-```bash
-brew install go r
-xcode-select --install
+#### Build
+
+From the repository root in PowerShell, run:
+
+```powershell
+.\portable\scripts\bundle-r-windows.ps1
 ```
 
-`rsync` is included with macOS.
+When it finishes, the launcher is:
 
-### Ubuntu/Debian Linux
+```text
+portable\dist\MiraProt-launcher.exe
+```
 
-Install R, Go, `rsync`, a compiler, and the package/system-tray development
-libraries:
+#### Launch and stop
+
+Double-click `MiraProt-launcher.exe`, or run:
+
+```powershell
+.\portable\dist\MiraProt-launcher.exe
+```
+
+Use the MiraProt tray icon to quit. If it was started in PowerShell and there
+is no usable tray icon, return to that window and press **Ctrl+C**. Closing only
+the browser tab may leave MiraProt running.
+
+### Linux (verified Ubuntu/Debian route only)
+
+This is the only Linux build route currently verified. The script expects
+Ubuntu/Debian tools such as `apt-get` and `dpkg`.
+
+#### Before building
+
+Install R matching the exact version in `portable/R_VERSION`, Git, Go, `rsync`,
+and `gcc`. The following development libraries are used by the bundler or when
+R packages and the tray-enabled launcher are compiled:
 
 ```bash
 sudo apt-get update
-sudo apt-get install -y r-base golang-go rsync gcc \
+sudo apt-get install -y \
+  r-base golang-go git rsync gcc \
   libfreetype6-dev libfontconfig1-dev libharfbuzz-dev libfribidi-dev \
   libtiff5-dev libjpeg-dev libpng-dev librsvg2-dev \
   libcurl4-openssl-dev libssl-dev libxml2-dev \
   libgtk-3-dev libayatana-appindicator3-dev
 ```
 
-Equivalent packages may be used on another supported Linux distribution. The
-bundler itself currently expects Debian/Ubuntu package tooling when it needs to
-install a missing library.
+The bundling script itself checks for and, when absent, installs these eight
+packages: `libfreetype6-dev`, `libfontconfig1-dev`, `libharfbuzz-dev`,
+`libfribidi-dev`, `libtiff5-dev`, `libjpeg-dev`, `libpng-dev`, and
+`librsvg2-dev`. Installing the full list above first also covers compilation of
+the R packages and Go launcher.
 
-## 3. Run the local bundler
-
-Run the command from the repository root. A first build commonly takes 30–60
-minutes because R packages must be downloaded and compiled.
-
-### Windows (PowerShell)
-
-```powershell
-.\portable\scripts\bundle-r-windows.ps1 -RVersion "4.5.2" -OutputDir ".\portable\dist"
-```
-
-### macOS or Linux
+**Build libraries versus runtime libraries:** the `-dev` packages, `gcc`, Go,
+Git, and the package installer are assembly tools. The completed bundle still
+uses Linux shared libraries supplied by the operating system. Keep the runtime
+counterparts of the graphics/network libraries above installed (FreeType,
+Fontconfig, HarfBuzz, FriBidi, TIFF, JPEG, PNG, librsvg, libcurl, OpenSSL, and
+libxml2). The tray launcher additionally needs `libgtk-3-0` and
+`libayatana-appindicator3-1`:
 
 ```bash
-chmod +x portable/scripts/bundle-r.sh
-./portable/scripts/bundle-r.sh --r-version 4.5.2 --output-dir ./portable/dist
+sudo apt-get install -y libgtk-3-0 libayatana-appindicator3-1
 ```
 
-The generated local artifact is `portable/dist/`, with this principal layout:
+Runtime package names for libraries such as OpenSSL can differ between
+Ubuntu/Debian releases; installing the development packages above normally
+pulls in the matching runtime packages. R itself is copied into the bundle and
+the system R is not automatically required afterward.
+
+#### Build
+
+Confirm that `Rscript --version` reports the version in `portable/R_VERSION`,
+then run this exact command from the repository root:
+
+```bash
+bash portable/scripts/bundle-r.sh
+```
+
+Using `bash` is intentional until executable-bit behavior is verified. The
+finished launcher is:
 
 ```text
-portable/dist/
-├── MiraProt-launcher       # MiraProt-launcher.exe on Windows
-├── shiny-app/
-├── r-portable/
-├── r-library/
-└── go-cache/
+portable/dist/MiraProt-launcher
 ```
 
-This directory is generated output, is normally ignored by Git, and should not
-be committed. Keep it if you plan to run the same build again.
-
-## 4. Add optional external resources
-
-This step is optional. Most features work without adding anything after the
-build; resources needed by online modules can be fetched and cached at runtime.
-
-To preseed annotation data, place compatible cache content in the generated
-artifact before launching:
-
-- GO/organism data: `portable/dist/go-cache/go_cache/`
-- BioMart data: `portable/dist/go-cache/go_cache/BioMart_Cache/`
-- AnnotationHub data: `portable/dist/go-cache/annotation_cache/`
-
-Preserve each cache's directory structure and do not merge independent
-AnnotationHub cache databases. As an alternative, place project caches under
-`cache/GO_Cache/` or `cache/BioMart_Cache/` **before** running the bundler; the
-bundler seeds them into the corresponding generated locations.
-
-## 5. Launch the locally generated artifact
-
-### Windows
-
-Double-click:
-
-```text
-portable\dist\MiraProt-launcher.exe
-```
-
-Or run it from PowerShell:
-
-```powershell
-.\portable\dist\MiraProt-launcher.exe
-```
-
-### macOS or Linux
+#### Launch and stop
 
 ```bash
 ./portable/dist/MiraProt-launcher
 ```
 
-The launcher starts its bundled R/Shiny process and normally opens the default
-browser automatically. If it does not, open `http://127.0.0.1:3838`. It may use
-the next available port if 3838 is occupied.
+Quit from the tray icon. When running from a terminal, **Ctrl+C** also stops it.
+Closing only the browser tab may not stop the background process.
 
-The same generated launcher can be used repeatedly without rebuilding. Closing
-and reopening MiraProt does not reinstall R or its packages. Generally rebuild
-only when you check out newer MiraProt source or intentionally want to change
-the bundled R version, packages, caches, or other bundled environment. Re-run
-the same bundler command to rebuild; remove `portable/dist/` first when you need
-a completely clean environment.
+### macOS
 
-## Updating MiraProt
+#### Before building
 
-Update the source checkout, then rebuild the local artifact:
+You need Git, Go 1.22 or newer, `rsync` (included with macOS), internet access,
+and a native installation of the exact R version in `portable/R_VERSION`.
+Install the Xcode Command Line Tools when an R package or the launcher must be
+compiled from source:
 
 ```bash
-git pull --ff-only
-rm -rf portable/dist
-./portable/scripts/bundle-r.sh --r-version 4.5.2 --output-dir ./portable/dist
+xcode-select --install
 ```
 
-On Windows, use `Remove-Item -Recurse -Force .\portable\dist` and rerun the
-PowerShell bundler. Updating source files alone does not modify an already
-generated artifact because the bundler copied the application into it.
+The architecture must match throughout the build. On an Intel Mac, use Intel
+(`x86_64`) R and Go. On an Apple Silicon Mac, use native Apple Silicon
+(`arm64`) R and Go. Do not mix an Intel R running through Rosetta with a native
+Apple Silicon build (or the reverse), because compiled packages may not load.
 
-## Runtime data and internet access
+R, Go, Git, Xcode's compiler, and package installers used to assemble the
+bundle are not automatically required to run the result. The copied R runtime
+and compiled packages may, however, continue to use compatible macOS system
+libraries. Moving a bundle to a different Mac therefore requires the same CPU
+architecture and a compatible macOS version.
 
-Most analysis remains local. GO/AnnotationHub may need internet access the first
-time an organism is used, STRING connects for each network query, and biomaRt
-connects to Ensembl for annotation queries. Downloaded caches and logs are kept
-with the portable cache or in the platform application-data location.
+#### Build
 
-| OS | Application-data directory |
+Confirm that `Rscript --version` reports the version in `portable/R_VERSION`,
+then run from the repository root:
+
+```bash
+bash portable/scripts/bundle-r.sh
+```
+
+The basic workflow creates a **flat launcher**, not an application or disk
+image:
+
+```text
+portable/dist/MiraProt-launcher
+```
+
+Optional DMG packaging is deliberately outside this basic workflow.
+
+#### Launch and stop
+
+```bash
+./portable/dist/MiraProt-launcher
+```
+
+Quit from the tray icon, or press **Ctrl+C** in the Terminal window that
+started it. Closing only the browser tab may leave MiraProt running.
+
+## 3. What to expect when launching
+
+The launcher starts the bundled R/Shiny application and normally opens the
+default browser. If no page opens, try `http://127.0.0.1:3838`. MiraProt selects
+another available port when 3838 is already occupied.
+
+Keep the **entire** `portable/dist` folder together: the launcher needs the
+neighboring `r-portable`, `r-library`, `shiny-app`, and cache folders. Put the
+repository and finished bundle in a location where your account can write,
+such as your Documents folder. Avoid read-only media, protected system folders,
+and locations managed with restrictive corporate permissions. MiraProt writes
+logs and working data to these application-data locations:
+
+| System | Application-data location |
 |---|---|
 | Windows | `%LOCALAPPDATA%\MiraProt` |
 | macOS | `~/Library/Application Support/MiraProt` |
 | Linux | `~/.local/share/MiraProt` |
 
-## Troubleshooting
+Some features still need internet access while running: STRING and biomaRt use
+online services, and organism/AnnotationHub data may be downloaded on first
+use. Those online-service requirements are separate from the build tools.
 
-- Run the launcher from a terminal with `--debug` and inspect the latest file
-  in the application-data `logs/` directory.
-- If another instance is reported, close it; stale `launcher.lock` files can be
-  removed from the application-data directory.
-- Select a different preferred port with `--port 5000`.
-- On Linux, install `libgtk-3-0` and `libayatana-appindicator3-1` if the tray
-  icon is unavailable. The application can still run from a terminal.
-- For detailed build and packaging diagnostics, see `GUIDE_PORTABLE_DEV.md`.
+## 4. Rebuild or update
+
+You do not need to rebuild for each launch. Rebuild after updating MiraProt, or
+when you intentionally want newer bundled packages or a clean cache.
+
+With a Git clone, update from the repository root:
+
+```bash
+git pull --ff-only
+```
+
+For a source archive, download and extract the newer archive instead. Then
+delete the old generated `portable/dist` folder and run the platform's build
+command again. On Windows PowerShell:
+
+```powershell
+Remove-Item -Recurse -Force .\portable\dist
+.\portable\scripts\bundle-r-windows.ps1
+```
+
+On verified Ubuntu/Debian or macOS:
+
+```bash
+rm -rf portable/dist
+bash portable/scripts/bundle-r.sh
+```
+
+Deleting `portable/dist` is important for a completely clean rebuild. Updating
+the source alone does not change a bundle that was already generated.
+
+## 5. Quick failure recovery
+
+1. **Build stops immediately:** verify that the terminal is at the repository
+   root and that Git and Go are found (`git --version`, `go version`). On
+   Linux/macOS also check `Rscript --version` and `rsync --version`.
+2. **The requested R version does not match (Linux/macOS):** install/select the
+   exact version shown in `portable/R_VERSION`, remove `portable/dist`, and
+   rebuild. Windows downloads that version automatically.
+3. **An R package will not install:** check internet access and read the first
+   missing-library message. Reinstall the Linux build-library list above; on
+   macOS install Xcode Command Line Tools; on Windows use Rtools only when the
+   error says source compilation is required.
+4. **A partial build behaves strangely:** delete `portable/dist` and rebuild.
+5. **The launcher says another instance is running:** stop the existing
+   instance. If it has crashed, remove `launcher.lock` from the application-data
+   location in the table above, then retry.
+6. **The browser does not open:** visit `http://127.0.0.1:3838`, or start the
+   launcher with `--port 5000` and visit that port.
+7. **More detail is needed:** start the launcher from a terminal with `--debug`
+   and inspect the newest file in the application-data `logs` folder. See
+   `GUIDE_PORTABLE_DEV.md` for advanced build and packaging diagnostics.
