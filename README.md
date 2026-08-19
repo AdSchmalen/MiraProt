@@ -3,7 +3,7 @@
 MiraProt is a modular Shiny application for proteomics analysis with two supported execution modes:
 
 1. **Developer mode (local R / RStudio):** run directly from source.
-2. **Portable mode (standalone desktop package):** run via bundled launcher + bundled R runtime.
+2. **Portable mode (locally generated desktop package):** build from this source repository, then run via the bundled launcher + R runtime.
 
 This README is a practical entry point for both audiences and is aligned with the in-app documentation architecture (`Documentation/MiraProt_doc_ui.R`, `Documentation/MiraProt_doc_user.R`, `Documentation/MiraProt_doc_tech.R`).
 
@@ -23,9 +23,9 @@ Choose this when you:
 
 Choose this when you:
 
-- want fastest onboarding for non-R users,
+- want a repeatable local desktop artifact,
 - need a reproducible desktop bundle with launcher and preinstalled packages,
-- want distribution across Windows/macOS/Linux without manual package setup.
+- want to bundle the package environment once and launch it repeatedly.
 
 ---
 
@@ -85,6 +85,7 @@ For complete operational details:
 
 - Includes launcher + bundled R + bundled packages + app source.
 - Intended to run without requiring local R/RStudio installation.
+- Is normally built locally from the source repository; public portable binaries are not the authoritative installation path.
 - Provides platform-specific packaging (Windows installer, macOS app/dmg, Linux AppImage/archive) via scripts under `portable/installers/` and `portable/scripts/`.
 
 ---
