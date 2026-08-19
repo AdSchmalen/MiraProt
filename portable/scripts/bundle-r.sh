@@ -114,83 +114,112 @@ run_with_clean_r_environment() {
   env "${unset_args[@]}" "$@"
 }
 
-validate_r_version() {
-  local rscript="$1" rscript_path actual error_file status name
-  local probe_env_args=() contaminated=()
-  rscript_path="$(cd "$(dirname "$rscript")" && pwd -P)/$(basename "$rscript")"
-  error_file="$(mktemp "${TMPDIR:-/tmp}/miraprot-r-version.XXXXXX")"
+capture_process() {
+  local capture_dir had_errexit=0
+  capture_dir="$(mktemp -d "${TMPDIR:-/tmp}/miraprot-process.XXXXXX")"
+  [[ $- == *e* ]] && had_errexit=1
+  set +e
+  "$@" >"$capture_dir/stdout" 2>"$capture_dir/stderr"
+  PROCESS_STATUS=$?
+  [ "$had_errexit" -eq 0 ] || set -e
+  PROCESS_STDOUT="$(cat "$capture_dir/stdout")"
+  PROCESS_STDERR="$(cat "$capture_dir/stderr")"
+  rm -rf "$capture_dir"
+}
 
-  # Keep the isolation self-contained so this probe can also be sourced by the
-  # process-level test harness without running the rest of the bundler.
+print_process_failure() {
+  local label="$1" executable="$2"
+  echo "ERROR: $label failed to start or exited unsuccessfully." >&2
+  echo "Executable: $executable" >&2
+  echo "Exit status: $PROCESS_STATUS" >&2
+  echo "Captured standard output:" >&2
+  [ -z "$PROCESS_STDOUT" ] && echo "(no standard output)" >&2 || printf '%s\n' "$PROCESS_STDOUT" >&2
+  echo "Captured standard error:" >&2
+  [ -z "$PROCESS_STDERR" ] && echo "(no standard error)" >&2 || printf '%s\n' "$PROCESS_STDERR" >&2
+  case "$PLATFORM" in
+    linux)
+      echo "Shared-library diagnostics (ldd):" >&2
+      ldd "$executable" >&2 2>&1 || true
+      echo "Resolve any 'not found' libraries above (Ubuntu/Debian packages), then retry." >&2
+      ;;
+    darwin)
+      echo "Host architecture (uname -m): $(uname -m)" >&2
+      echo "Executable architecture metadata:" >&2
+      file "$executable" >&2 2>&1 || true
+      echo "Ensure R and Rscript match the Intel (x86_64) or Apple Silicon (arm64) host architecture." >&2
+      ;;
+  esac
+}
+
+print_captured_stderr() {
+  if [ -n "$PROCESS_STDERR" ]; then
+    echo "Captured standard error:" >&2
+    printf '%s\n' "$PROCESS_STDERR" >&2
+  fi
+}
+
+validate_r_installation() {
+  local r_command="$1" rscript_command="$2" r_path rscript_path name actual combined
+  local probe_env_args=() contaminated=()
+
   for name in R_HOME R_ARCH R_LIBS R_LIBS_USER R_LIBS_SITE R_ENVIRON R_ENVIRON_USER R_PROFILE R_PROFILE_USER; do
     probe_env_args+=( -u "$name" )
-    if [[ -v "$name" ]]; then contaminated+=("$name"); fi
+    [[ -v "$name" ]] && contaminated+=("$name")
   done
-  if [ "${#contaminated[@]}" -gt 0 ]; then
-    printf 'Ignoring inherited R environment variables: %s\n' \
-      "$(IFS=', '; echo "${contaminated[*]}")" >&2
-  fi
-  if ! actual="$(env "${probe_env_args[@]}" "$rscript_path" --vanilla -s -e 'cat(as.character(getRversion()))' 2>"$error_file")"; then
-    status="${PIPESTATUS[0]}"
-    echo "ERROR: Failed to query the R version." >&2
-    echo "Rscript: $rscript_path" >&2
-    echo "Exit status: $status" >&2
-    echo "Captured standard output:" >&2
-    if [ -n "$actual" ]; then
-      printf '%s\n' "$actual" >&2
-    else
-      echo "(no standard output)" >&2
-    fi
-    echo "Captured standard error:" >&2
-    if [ -s "$error_file" ]; then
-      cat "$error_file" >&2
-    else
-      echo "(no standard error)" >&2
-    fi
-    case "$PLATFORM" in
-      linux)
-        echo "Suggestion: inspect missing shared libraries with: ldd '$rscript_path'" >&2
-        ;;
-      darwin)
-        echo "Suggestion: verify that uname -m, R, and the launcher all use matching architectures." >&2
-        ;;
-    esac
-    rm -f "$error_file"
-    exit 1
-  fi
-  rm -f "$error_file"
+  [ "${#contaminated[@]}" -eq 0 ] || printf 'Ignoring inherited R environment variables: %s\n' \
+    "$(IFS=', '; echo "${contaminated[*]}")" >&2
 
-  # R normally emits no surrounding whitespace, but tolerate it while retaining
-  # an explicit distinction between no version and a malformed version.
-  actual="$(printf '%s' "$actual" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
-  if [ -z "$actual" ]; then
-    echo "ERROR: $rscript_path returned an empty R version." >&2
-    exit 1
+  r_path="$(command -v -- "$r_command" 2>/dev/null || true)"
+  rscript_path="$(command -v -- "$rscript_command" 2>/dev/null || true)"
+  if [ -z "$r_path" ] || [ ! -x "$r_path" ]; then
+    echo "ERROR: Missing executable R: $r_command" >&2
+    return 1
   fi
-  if [[ ! "$actual" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-    echo "ERROR: $rscript_path returned malformed R version '$actual' (expected MAJOR.MINOR.PATCH)." >&2
-    exit 1
+  if [ -z "$rscript_path" ] || [ ! -x "$rscript_path" ]; then
+    echo "ERROR: Missing executable Rscript: $rscript_command" >&2
+    return 1
   fi
+
+  capture_process env "${probe_env_args[@]}" "$r_path" --version
+  if [ "$PROCESS_STATUS" -ne 0 ]; then print_process_failure "R --version" "$r_path"; return 1; fi
+  combined="$(printf '%s\n%s' "$PROCESS_STDOUT" "$PROCESS_STDERR" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+  if [ -z "$combined" ]; then echo "ERROR: R --version returned empty output: $r_path" >&2; print_captured_stderr; return 1; fi
+  if [[ ! "$combined" =~ R[[:space:]]+version[[:space:]]+([0-9]+\.[0-9]+\.[0-9]+) ]]; then
+    echo "ERROR: R --version returned malformed output: $combined" >&2; print_captured_stderr; return 1
+  fi
+  actual="${BASH_REMATCH[1]}"
+  if [ "$actual" != "$R_VERSION" ]; then echo "ERROR: Requested R $R_VERSION, but R --version reports R $actual." >&2; print_captured_stderr; return 1; fi
+
+  capture_process env "${probe_env_args[@]}" "$rscript_path" --version
+  if [ "$PROCESS_STATUS" -ne 0 ]; then print_process_failure "Rscript --version" "$rscript_path"; return 1; fi
+  combined="$(printf '%s\n%s' "$PROCESS_STDOUT" "$PROCESS_STDERR" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+  if [ -z "$combined" ]; then echo "ERROR: Rscript --version returned empty output: $rscript_path" >&2; print_captured_stderr; return 1; fi
+  if [[ ! "$combined" =~ version[[:space:]]+([0-9]+\.[0-9]+\.[0-9]+) ]]; then
+    echo "ERROR: Rscript --version returned malformed output: $combined" >&2; print_captured_stderr; return 1
+  fi
+  actual="${BASH_REMATCH[1]}"
+  if [ "$actual" != "$R_VERSION" ]; then echo "ERROR: Requested R $R_VERSION, but Rscript --version reports R $actual." >&2; print_captured_stderr; return 1; fi
+
+  capture_process env "${probe_env_args[@]}" "$rscript_path" --vanilla -s -e 'cat(as.character(getRversion()))'
+  if [ "$PROCESS_STATUS" -ne 0 ]; then print_process_failure "R version expression" "$rscript_path"; return 1; fi
+  actual="$(printf '%s' "$PROCESS_STDOUT" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+  if [ -z "$actual" ]; then echo "ERROR: R version expression returned empty output: $rscript_path" >&2; print_captured_stderr; return 1; fi
+  if [[ ! "$actual" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then echo "ERROR: R version expression returned malformed output: '$actual'." >&2; print_captured_stderr; return 1; fi
   if [ "$actual" != "$R_VERSION" ]; then
-    echo "ERROR: Requested R $R_VERSION, but $rscript_path is R $actual." >&2
-    echo "Linux/macOS bundling requires the requested R version to be preinstalled and selected in PATH." >&2
+    echo "ERROR: Requested R $R_VERSION, but the R version expression reports R $actual." >&2
+    print_captured_stderr
     echo "Install/select R $R_VERSION (for example: rig add $R_VERSION && rig default $R_VERSION), then retry." >&2
-    exit 1
+    return 1
   fi
-
-  # The process-level test suite stops here, before copying R or installing
-  # anything. This hook is deliberately accepted only with the exact value 1.
-  if [ "${MIRAPROT_TEST_VALIDATE_ONLY:-0}" = 1 ]; then
-    echo "R version $actual validated successfully."
-    exit 0
-  fi
+  echo "R version $actual validated successfully."
 }
 
 # -----------------------------------------------------------------------
 # Step 1: Obtain portable R
 # -----------------------------------------------------------------------
 if [ -f "$R_PORTABLE/bin/Rscript" ]; then
-  validate_r_version "$R_PORTABLE/bin/Rscript"
+  validate_r_installation "$R_PORTABLE/bin/R" "$R_PORTABLE/bin/Rscript"
+  if [ "${MIRAPROT_TEST_VALIDATE_ONLY:-0}" = 1 ]; then exit 0; fi
   echo "--- R already present at $R_PORTABLE ---"
 else
   echo "--- Setting up portable R $R_VERSION ---"
@@ -199,8 +228,9 @@ else
     linux)
       # On Linux, link the system R installation into r-portable/
       # Install R via: apt install r-base, or rig add <version>
-      if command -v Rscript &>/dev/null; then
-        validate_r_version "$(command -v Rscript)"
+      if command -v R &>/dev/null && command -v Rscript &>/dev/null; then
+        validate_r_installation "$(command -v R)" "$(command -v Rscript)"
+        if [ "${MIRAPROT_TEST_VALIDATE_ONLY:-0}" = 1 ]; then exit 0; fi
         R_BIN_DIR="$(dirname "$(command -v Rscript)")"
         R_HOME="$(run_with_clean_r_environment Rscript --vanilla -s -e 'cat(R.home())')"
         echo "Found system R at: $R_HOME"
@@ -224,8 +254,13 @@ else
 
     darwin)
       # On macOS, use the system/Homebrew/rig R installation
-      if command -v Rscript &>/dev/null; then
-        validate_r_version "$(command -v Rscript)"
+      if [[ "$ARCH" != x86_64 && "$ARCH" != arm64 ]]; then
+        echo "ERROR: Unsupported macOS architecture: $ARCH (expected x86_64 or arm64)." >&2
+        exit 1
+      fi
+      if command -v R &>/dev/null && command -v Rscript &>/dev/null; then
+        validate_r_installation "$(command -v R)" "$(command -v Rscript)"
+        if [ "${MIRAPROT_TEST_VALIDATE_ONLY:-0}" = 1 ]; then exit 0; fi
         R_HOME="$(run_with_clean_r_environment Rscript --vanilla -s -e 'cat(R.home())')"
         echo "Found system R at: $R_HOME"
         echo "Copying R installation to $R_PORTABLE..."
@@ -254,6 +289,10 @@ else
 
   echo "Portable R ready at: $R_PORTABLE"
 fi
+
+# Wrapper repair above can change which binary is reached. Validate the exact
+# final paths before any package installation or other R execution.
+validate_r_installation "$R_PORTABLE/bin/R" "$R_PORTABLE/bin/Rscript"
 echo ""
 
 # -----------------------------------------------------------------------
