@@ -8,11 +8,8 @@ try {
     $helperSource = Join-Path $TempRoot "fake-r.go"
     @'
 package main
-import ("encoding/json"; "fmt"; "os"; "path/filepath"; "strings"; "syscall")
+import ("fmt"; "os"; "path/filepath"; "strings"; "syscall")
 func main() {
-  if os.Getenv("FAKE_ECHO_ARGS") != "" {
-    data, _ := json.Marshal(os.Args[1:]); fmt.Print(string(data)); return
-  }
   if len(os.Args) == 2 && os.Args[1] != "--version" {
     if os.Getenv("FAKE_INSTALL_EXIT") != "" { os.Exit(17) }
     if os.Getenv("FAKE_INSTALL_NO_RSCRIPT") == "" {
@@ -31,11 +28,7 @@ func main() {
   base := strings.ToLower(filepath.Base(os.Args[0]))
   prefix := "FAKE_RSCRIPT_"; if base == "r.exe" { prefix = "FAKE_R_" }
   if os.Getenv("FAKE_REQUIRE_CLEAN") != "" {
-    expectedHome := filepath.Dir(filepath.Dir(os.Args[0]))
-    if !strings.EqualFold(filepath.Clean(os.Getenv("R_HOME")), filepath.Clean(expectedHome)) {
-      fmt.Fprintf(os.Stderr, "R_HOME was not controlled staged home: got %q, want %q", os.Getenv("R_HOME"), expectedHome); os.Exit(29)
-    }
-    for _, name := range []string{"R_ARCH","R_LIBS","R_LIBS_USER","R_LIBS_SITE","R_ENVIRON","R_ENVIRON_USER","R_PROFILE","R_PROFILE_USER"} {
+    for _, name := range []string{"R_HOME","R_ARCH","R_LIBS","R_LIBS_USER","R_LIBS_SITE","R_ENVIRON","R_ENVIRON_USER","R_PROFILE","R_PROFILE_USER"} {
       if os.Getenv(name) != "" { fmt.Fprint(os.Stderr, "inherited "+name); os.Exit(29) }
     }
   }
@@ -47,6 +40,15 @@ func main() {
     if os.Getenv(prefix+"VERSION_EXIT") != "" { os.Exit(23) }
     return
   }
+  if base == "rscript.exe" {
+    if len(os.Args) != 3 || os.Args[1] != "--vanilla" || !strings.EqualFold(filepath.Ext(os.Args[2]), ".r") {
+      fmt.Fprintf(os.Stderr, "expected --vanilla and one .R probe path, got %q", os.Args[1:]); os.Exit(31)
+    }
+    probe, err := os.ReadFile(os.Args[2])
+    if err != nil || string(probe) != "cat(as.character(getRversion()))\n" {
+      fmt.Fprintf(os.Stderr, "invalid version probe script %q: %v", os.Args[2], err); os.Exit(32)
+    }
+  }
   fmt.Fprint(os.Stdout, os.Getenv("FAKE_R_STDOUT"))
   fmt.Fprint(os.Stderr, os.Getenv("FAKE_R_STDERR"))
   if os.Getenv("FAKE_R_EXIT") != "" { os.Exit(23) }
@@ -56,32 +58,14 @@ func main() {
     & go build -o $helper $helperSource
     if ($LASTEXITCODE -ne 0) { throw "Could not build fake process helper." }
 
-    # Exercise the production ProcessStartInfo.Arguments encoder, not
-    # PowerShell's native invocation binder.  These values cover the Windows
-    # quoting boundaries that the former space-join launcher discarded.
-    . $Bundler -HelpersOnly
-    $argumentCases = @(
-        "cat(as.character(getRversion()))",
-        'value with spaces',
-        'embedded "quotes"',
-        'C:\path with spaces\trailing\',
-        '',
-        '--vanilla', '-s', '-e', 'cat(as.character(getRversion()))'
-    )
-    $env:FAKE_ECHO_ARGS = "1"
-    try {
-        $argumentProbe = Invoke-RValidationProbe -FilePath $helper -ArgumentList $argumentCases -Label "argument-vector regression probe" -EventName "test argument vector" -RHome $TempRoot
-    } finally {
-        Remove-Item Env:FAKE_ECHO_ARGS -ErrorAction SilentlyContinue
-    }
-    Assert-RProbeSucceeded -Probe $argumentProbe
-    $receivedArguments = @($argumentProbe.Stdout | ConvertFrom-Json)
-    if ($receivedArguments.Count -ne $argumentCases.Count) { throw "Argument-vector probe changed the argument count." }
-    for ($i = 0; $i -lt $argumentCases.Count; $i++) {
-        if ($receivedArguments[$i] -cne $argumentCases[$i]) {
-            throw "Argument-vector probe changed argument $i; expected '$($argumentCases[$i])', received '$($receivedArguments[$i])'."
-        }
-    }
+    # Force every temporary probe script and capture file through a path with
+    # spaces, exercising PowerShell's native argument binding.
+    $originalTemp = $env:TEMP
+    $originalTmp = $env:TMP
+    $probeTemp = Join-Path $TempRoot "native probe files with spaces"
+    New-Item -ItemType Directory -Force -Path $probeTemp | Out-Null
+    $env:TEMP = $probeTemp
+    $env:TMP = $probeTemp
     function Invoke-Case {
         param(
             [string]$Name, [string]$VersionOutput, [switch]$VersionFailure,
@@ -169,9 +153,9 @@ func main() {
     Invoke-Case wrong "4.5.1" -ExpectedStatus 1 -ExpectedMessages @("R version mismatch", "requested R 4.5.2") | Out-Null
     Invoke-Case empty-zero "" -ExpectedStatus 1 -ExpectedMessages @("returned an empty version") | Out-Null
     Invoke-Case malformed "R version 4.5.2" -ExpectedStatus 1 -ExpectedMessages @("malformed version", "expected MAJOR.MINOR.PATCH") | Out-Null
-    Invoke-Case r-startup-stderr-banner "4.5.2" -RStartupOutput "" -RStartupError "R version 4.5.2 (2025-10-31 ucrt)" -ExpectedStatus 0 -ExpectedMessages @('Rscript.exe --vanilla -s -e "cat(as.character(getRversion()))"', "validation completed") | Out-Null
+    Invoke-Case r-startup-stderr-banner "4.5.2" -RStartupOutput "" -RStartupError "R version 4.5.2 (2025-10-31 ucrt)" -ExpectedStatus 0 -ExpectedMessages @('Rscript.exe --vanilla <version-probe.R>', "validation completed") | Out-Null
     Invoke-Case r-startup-stdout-banner "4.5.2" -RStartupError "" -ExpectedStatus 0 -ExpectedMessages @("validation completed") | Out-Null
-    Invoke-Case rscript-startup-stderr-banner "4.5.2" -RscriptStartupOutput "" -RscriptStartupError "Rscript (R) version 4.5.2" -ExpectedStatus 0 -ExpectedMessages @('Rscript.exe --vanilla -s -e "cat(as.character(getRversion()))"', "validation completed") | Out-Null
+    Invoke-Case rscript-startup-stderr-banner "4.5.2" -RscriptStartupOutput "" -RscriptStartupError "Rscript (R) version 4.5.2" -ExpectedStatus 0 -ExpectedMessages @('Rscript.exe --vanilla <version-probe.R>', "validation completed") | Out-Null
     Invoke-Case rscript-startup-stdout-banner "4.5.2" -RscriptStartupError "" -ExpectedStatus 0 -ExpectedMessages @("validation completed") | Out-Null
     Invoke-Case r-startup-failure "4.5.2" -RStartupOutput "" -RStartupError "loader failure" -RStartupFailure -ExpectedStatus 1 -ExpectedMessages @("R.exe --version", "loader failure", "nonzero exit code 23") | Out-Null
     Invoke-Case rscript-startup-failure "4.5.2" -RscriptStartupOutput "" -RscriptStartupError "startup failure" -RscriptStartupFailure -ExpectedStatus 1 -ExpectedMessages @("Rscript.exe --version", "startup failure", "nonzero exit code 23") | Out-Null
@@ -195,5 +179,7 @@ func main() {
     } finally { Remove-Item $outside -Recurse -Force -ErrorAction SilentlyContinue }
     Write-Host "bundle-r-windows isolated process checks passed"
 } finally {
+    $env:TEMP = $originalTemp
+    $env:TMP = $originalTmp
     Remove-Item $TempRoot -Recurse -Force -ErrorAction SilentlyContinue
 }
