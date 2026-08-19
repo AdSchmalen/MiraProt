@@ -224,9 +224,17 @@ Linux and macOS currently require the requested, matching native R to be
 preinstalled and selected on `PATH`; the script validates the exact version
 before copying it. On Linux, Ubuntu/Debian-family systems are the currently
 implemented local-build path, while Ubuntu amd64 is the CI-tested Linux target.
-The `bundle-r.sh` script creates a relocatable distribution directory containing
-the launcher, a copy of R, all R packages, and the Shiny application; Linux
-output is relocatable within compatible systems, not completely self-contained.
+The `bundle-r.sh` script performs basic bundling: it creates a flat, relocatable
+distribution directory containing a native launcher, a copy of R, all R
+packages, and the Shiny application. It does not create a macOS `.app` or DMG;
+that optional packaging step is described separately in section 7. Linux output
+is relocatable within compatible systems, not completely self-contained.
+
+On macOS, the copied R runtime, compiled R packages, Go launcher, and optional
+packaging host must have compatible native architectures. CI provides evidence
+for Intel (`x86_64`) on `macos-13` and Apple Silicon (`arm64`) on `macos-14`.
+No universal binary is assembled, and Rosetta operation is not supported by a
+test claim; do not treat translation as permission to combine architectures.
 
 ### Running the bundler
 
@@ -458,6 +466,10 @@ This creates `output/MiraProt-1.0.0-windows-setup.exe`. The installer:
 
 ### macOS — DMG
 
+This is optional packaging, separate from the basic flat directory produced by
+`portable/scripts/bundle-r.sh`. Run it on a host whose native architecture is
+compatible with the copied R runtime, compiled R packages, and Go launcher:
+
 ```bash
 bash portable/installers/macos/create-dmg.sh \
   --dist-dir dist \
@@ -465,13 +477,35 @@ bash portable/installers/macos/create-dmg.sh \
   --output-dir output
 ```
 
-This creates `output/MiraProt-1.0.0-macos-<arch>.dmg` containing a `.app`
-bundle. The script:
+This creates `output/MiraProt-1.0.0-macos-<uname-m>.dmg` (generally
+`MiraProt-<version>-macos-<uname-m>.dmg`) containing `MiraProt.app`. The script:
 1. Creates a `MiraProt.app` bundle with the standard macOS structure
 2. Places the launcher in `Contents/MacOS/`
 3. Places R, packages, and the Shiny app in `Contents/Resources/`
 4. Substitutes the version into `Info.plist`
 5. Packages everything into a compressed DMG with an Applications symlink
+
+The script does not combine Intel and Apple Silicon code into a universal
+binary. The matrix's `macos-13` Intel and `macos-14` Apple Silicon jobs are the
+CI evidence for the two separate native outputs; they are not evidence of
+Rosetta compatibility.
+
+The locally created app is unsigned and unnotarized. Consequently Gatekeeper
+or a downloaded file's quarantine attribute can produce a warning, refusal, or
+explicit-open prompt at runtime. Diagnose this separately from compilation:
+successful R-package and Go build logs establish compilation, while `codesign
+--verify --deep --strict /path/to/MiraProt.app`, `spctl --assess --type execute
+--verbose=4 /path/to/MiraProt.app`, and `xattr -p com.apple.quarantine
+/path/to/MiraProt.app` inspect signature/policy/quarantine state. Signature and
+policy assessment failure is expected for an unsigned local app.
+
+Distributed builds should sign nested code and the app with the appropriate
+Developer ID, then be notarized and stapled. For a build whose source and
+contents have been independently verified and trusted locally, use Finder's
+Control-click **Open** flow. If quarantine still prevents opening, remove it
+only from that app (`xattr -dr com.apple.quarantine /path/to/MiraProt.app`) and
+retry. The same targeted inspection can be applied to the native launcher in
+the flat directory. Never advise or require disabling Gatekeeper globally.
 
 ### Linux — AppImage
 
