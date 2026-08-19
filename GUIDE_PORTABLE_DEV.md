@@ -291,6 +291,46 @@ cd C:\path\to\MiraProt
    copy the project into `dist\shiny-app\`.
 5. **Builds the Go launcher** — Compiles into `dist\MiraProt-launcher.exe`.
 
+### Troubleshooting Windows launcher resources
+
+Near the end of `portable\scripts\bundle-r-windows.ps1`, the resource-generation
+block prepares the icon and Windows metadata before `go build`:
+
+1. `go install github.com/tc-hib/go-winres@latest` installs the `go-winres`
+   build helper when PowerShell cannot find it.
+2. `go run gen_ico.go` creates the `.ico` input from the launcher artwork.
+3. `go-winres make` reads the resource configuration and generates
+   `portable\launcher\rsrc_windows_amd64.syso`.
+4. The subsequent `go build` automatically links that `.syso` file into the
+   Windows launcher.
+
+Use the following symptoms to locate failures:
+
+- **`go-winres` is not recognized / command not found:** `go install` normally
+  places the executable in `GOBIN`, or in the Go workspace's `bin` directory
+  when `GOBIN` is unset. Ensure that directory is on `PATH` in the same
+  PowerShell session, then confirm with `Get-Command go-winres` and rerun the
+  bundler. Also review any error printed by the preceding `go install
+  github.com/tc-hib/go-winres@latest` command (for example, a download or Go
+  toolchain failure).
+- **Blocked-executable or application-control message:** Windows Smart App
+  Control, or an organization-managed application-control policy, may prevent
+  `go-winres.exe` from running. This blocks a build-time helper; it does not by
+  itself show that the completed MiraProt application is incompatible. Do not
+  disable Smart App Control or weaken organizational policy as the default
+  workaround. Build on a trusted workstation or controlled VM, use GitHub
+  Actions, or use signed/trusted build infrastructure approved by your
+  organization.
+- **Missing resource symptoms:** if `go-winres make` reports an icon,
+  configuration, or output error, or if
+  `portable\launcher\rsrc_windows_amd64.syso` is absent afterward, the resource
+  step did not complete. Run `go run gen_ico.go` and then `go-winres make` from
+  `portable\launcher`, address the first reported error, and verify the `.syso`
+  exists before rerunning the build. A launcher that fails to compile because
+  resources are missing, or one built manually without the resource step that
+  lacks the expected icon/version metadata, points to this stage rather than
+  to the bundled R application.
+
 ---
 
 ## 6. Testing the Build
