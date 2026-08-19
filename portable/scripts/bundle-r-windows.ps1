@@ -24,7 +24,10 @@ param(
     [switch]$KeepFailedStaging = $true,
     # Intended only for historical installers for which CRAN publishes no
     # checksum and Windows cannot establish the expected publisher identity.
-    [switch]$AllowUnverifiedRInstaller
+    [switch]$AllowUnverifiedRInstaller,
+    # Dot-source with -HelpersOnly to load the functions without performing
+    # preflights, creating output directories, or starting the bundler.
+    [switch]$HelpersOnly
 )
 
 $ErrorActionPreference = "Stop"
@@ -88,7 +91,7 @@ $ProjectRoot = (Resolve-Path (Join-Path $ScriptDir "..\..")).Path
 # Fail early, before downloading or modifying a partial bundle. The isolated
 # process tests opt out of host/network preflights, but still exercise the real
 # runtime and installer control flow below.
-$BundlerTestMode = ($env:MIRAPROT_BUNDLER_TEST_MODE -eq "1")
+$BundlerTestMode = ($HelpersOnly -or $env:MIRAPROT_BUNDLER_TEST_MODE -eq "1")
 if (-not $BundlerTestMode -and -not (Get-Command go -ErrorAction SilentlyContinue)) {
     throw "Go was not found on PATH. Install Go 1.22 or later from https://go.dev/dl/ and reopen PowerShell."
 }
@@ -104,7 +107,7 @@ if (-not $BundlerTestMode) { try {
     throw "Networking failure: Internet preflight failed; cannot reach CRAN at https://cloud.r-project.org/. Check DNS, proxy, firewall, and TLS settings, then retry. $($_.Exception.Message)"
 } }
 
-try {
+if (-not $HelpersOnly) { try {
     New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
     $OutputDir = (Resolve-Path $OutputDir).Path
     $WriteProbe = Join-Path $OutputDir (".miraprot-write-test-" + [guid]::NewGuid().ToString("N"))
@@ -112,12 +115,12 @@ try {
     Remove-Item $WriteProbe -Force
 } catch {
     throw "Output path '$OutputDir' cannot be created or written. Choose a writable local directory. $($_.Exception.Message)"
-}
+} }
 
-if (-not $RVersion) {
+if (-not $HelpersOnly -and -not $RVersion) {
     $RVersion = (Get-Content (Join-Path $ScriptDir "..\R_VERSION") -Raw).Trim()
 }
-if ($RVersion -notmatch '^\d+\.\d+\.\d+$') {
+if (-not $HelpersOnly -and $RVersion -notmatch '^\d+\.\d+\.\d+$') {
     throw "Invalid R version '$RVersion' (expected MAJOR.MINOR.PATCH)."
 }
 
@@ -414,6 +417,7 @@ function Test-RInstaller {
         Write-Host "Installer source:       $($DownloadRecord.SourceUrl)"
         Write-Host "HTTP success:           $($DownloadRecord.HttpSuccess) (status $($DownloadRecord.StatusCode))"
         Write-Host "Final response URL:     $($DownloadRecord.FinalUrl)"
+        $responseContentLength = Get-HttpContentLength -HeaderValue $DownloadRecord.ResponseContentLength
         Write-Host "HTTP content length:    $($DownloadRecord.ResponseContentLength)"
         Write-Host "Downloaded file size:   $length"
         if (-not $DownloadRecord.HttpSuccess -or
@@ -438,10 +442,10 @@ function Test-RInstaller {
             Write-Warning "Download provenance failure: rejecting installer '$Path'; final URL does not identify expected installer '$expectedInstallerName'."
             return $false
         }
-        if ($null -eq $DownloadRecord.ResponseContentLength) {
+        if ($null -eq $responseContentLength) {
             Write-Warning "Download provenance warning: HTTP Content-Length evidence is unavailable; installer identity validation will continue using the downloaded file size and other evidence."
-        } elseif ($DownloadRecord.ResponseContentLength -ne $length) {
-            Write-Warning "Download provenance failure: HTTP Content-Length $($DownloadRecord.ResponseContentLength) bytes does not match actual downloaded size $length bytes; rejecting installer '$Path'."
+        } elseif ($responseContentLength -ne $length) {
+            Write-Warning "Download provenance failure: HTTP Content-Length $responseContentLength bytes does not match actual downloaded size $length bytes; rejecting installer '$Path'."
             return $false
         }
         $provenanceVerified = $true
@@ -517,6 +521,8 @@ function Test-RInstaller {
     Write-Warning "Installer identity/integrity failure: rejecting installer '$Path'; insufficient installer identity ($reason). Use -AllowUnverifiedRInstaller only after independently confirming this installer."
     return $false
 }
+
+if ($HelpersOnly) { return }
 
 Write-Host "=== MiraProt Portable Bundler (Windows) ===" -ForegroundColor Cyan
 Write-Host "R version: $RVersion"
