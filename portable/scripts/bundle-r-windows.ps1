@@ -85,6 +85,36 @@ function Invoke-WithCleanREnvironment {
     }
 }
 
+# ProcessStartInfo.ArgumentList is unavailable in Windows PowerShell 5.1.  Its
+# Arguments property accepts one Windows command-line string rather than an
+# argument vector, so encode every element using the quoting rules consumed by
+# CommandLineToArgvW/the Microsoft C runtime.  In particular, backslashes that
+# precede a quote or the closing quote must be doubled.
+function ConvertTo-WindowsCommandLineArgument {
+    param([Parameter(Mandatory = $true)][AllowEmptyString()][string]$Argument)
+
+    $builder = New-Object Text.StringBuilder
+    [void]$builder.Append('"')
+    $backslashes = 0
+    foreach ($character in $Argument.ToCharArray()) {
+        if ($character -eq '\') {
+            $backslashes++
+            continue
+        }
+        if ($character -eq '"') {
+            [void]$builder.Append(('\' * (($backslashes * 2) + 1)))
+            [void]$builder.Append('"')
+        } else {
+            if ($backslashes -gt 0) { [void]$builder.Append(('\' * $backslashes)) }
+            [void]$builder.Append($character)
+        }
+        $backslashes = 0
+    }
+    if ($backslashes -gt 0) { [void]$builder.Append(('\' * ($backslashes * 2))) }
+    [void]$builder.Append('"')
+    return $builder.ToString()
+}
+
 $ScriptDir  = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ProjectRoot = (Resolve-Path (Join-Path $ScriptDir "..\..")).Path
 
@@ -162,7 +192,9 @@ function Invoke-RValidationProbe {
         [Parameter(Mandatory = $true)]
         [string]$Label,
         [string]$LogDirectory,
-        [string]$EventName
+        [string]$EventName,
+        [Parameter(Mandatory = $true)]
+        [string]$RHome
     )
 
     Write-LifecycleEvent "$EventName start"
@@ -173,12 +205,16 @@ function Invoke-RValidationProbe {
     $process.StartInfo.CreateNoWindow = $true
     $process.StartInfo.RedirectStandardOutput = $true
     $process.StartInfo.RedirectStandardError = $true
-    # All probe arguments are fixed tokens without whitespace. Arguments is
-    # used instead of ProcessStartInfo.ArgumentList for Windows PowerShell 5.1.
-    $process.StartInfo.Arguments = ($ArgumentList -join " ")
+    $encodedArguments = @($ArgumentList | ForEach-Object { ConvertTo-WindowsCommandLineArgument -Argument $_ })
+    $process.StartInfo.Arguments = ($encodedArguments -join " ")
+    $process.StartInfo.WorkingDirectory = $RHome
     try {
         try {
-            $processResult = Invoke-WithCleanREnvironment -Action {
+            # --version does not load the full runtime.  Expression execution
+            # does, and R.dll must resolve its installation tree.  Never leave
+            # that resolution to an inherited host R_HOME (or to registry/path
+            # state): supply the absolute tree currently being validated.
+            $processResult = Invoke-WithCleanREnvironment -Environment @{ R_HOME = $RHome } -Action {
                 if (-not $process.Start()) { throw "Process.Start returned false." }
                 $stdoutTask = $process.StandardOutput.ReadToEndAsync()
                 $stderrTask = $process.StandardError.ReadToEndAsync()
@@ -207,7 +243,7 @@ function Invoke-RValidationProbe {
         New-Item -ItemType Directory -Force -Path $LogDirectory | Out-Null
         $safeName = $EventName -replace '[^A-Za-z0-9_.-]', '-'
         $probeLog = Join-Path $LogDirectory "$safeName.log"
-        @("Command: $FilePath $($ArgumentList -join ' ')", "Exit code: $exitCode ($hexExitCode)", "--- stdout ---", $stdout, "--- stderr ---", $stderr) |
+        @("Executable: $FilePath", "Working directory: $RHome", "Arguments: $($encodedArguments -join ' ')", "R environment: R_HOME=$RHome; other R_* overrides cleared", "Exit code: $exitCode ($hexExitCode)", "--- stdout ---", $stdout, "--- stderr ---", $stderr) |
             Set-Content -LiteralPath $probeLog -Encoding UTF8
     }
     Write-LifecycleEvent "$EventName exit ($exitCode)"
@@ -251,10 +287,10 @@ function Test-RRuntimeProcesses {
     try {
         # These probes establish native process startup only. Their human-readable
         # output is deliberately not parsed as authoritative version evidence.
-        $rVersionProbe = Invoke-RValidationProbe -FilePath $rPath -ArgumentList @("--version") -Label "R.exe --version" -LogDirectory $LogDirectory -EventName "$EventPrefix probe R.exe --version"
+        $rVersionProbe = Invoke-RValidationProbe -FilePath $rPath -ArgumentList @("--version") -Label "R.exe --version" -LogDirectory $LogDirectory -EventName "$EventPrefix probe R.exe --version" -RHome $RHome
         Assert-RProbeSucceeded -Probe $rVersionProbe
 
-        $rscriptVersionProbe = Invoke-RValidationProbe -FilePath $rscriptPath -ArgumentList @("--version") -Label "Rscript.exe --version" -LogDirectory $LogDirectory -EventName "$EventPrefix probe Rscript.exe --version"
+        $rscriptVersionProbe = Invoke-RValidationProbe -FilePath $rscriptPath -ArgumentList @("--version") -Label "Rscript.exe --version" -LogDirectory $LogDirectory -EventName "$EventPrefix probe Rscript.exe --version" -RHome $RHome
         Assert-RProbeSucceeded -Probe $rscriptVersionProbe
     } catch {
         throw "$phaseLabel failure: $($_.Exception.Message)"
@@ -262,7 +298,7 @@ function Test-RRuntimeProcesses {
 
     $comparisonLayer = if ($EventPrefix -eq "promoted") { "Promoted-runtime revalidation" } else { "Staged authoritative version comparison" }
     try {
-        $expressionProbe = Invoke-RValidationProbe -FilePath $rscriptPath -ArgumentList @("--vanilla", "-s", "-e", "cat(as.character(getRversion()))") -Label 'Rscript.exe --vanilla -s -e "cat(as.character(getRversion()))"' -LogDirectory $LogDirectory -EventName "$EventPrefix probe R version expression"
+        $expressionProbe = Invoke-RValidationProbe -FilePath $rscriptPath -ArgumentList @("--vanilla", "-s", "-e", "cat(as.character(getRversion()))") -Label 'Rscript.exe --vanilla -s -e "cat(as.character(getRversion()))"' -LogDirectory $LogDirectory -EventName "$EventPrefix probe R version expression" -RHome $RHome
         Assert-RProbeSucceeded -Probe $expressionProbe
     } catch {
         throw "$comparisonLayer failure: authoritative getRversion() probe failed. $($_.Exception.Message)"
