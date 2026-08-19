@@ -87,12 +87,50 @@ echo ""
 
 mkdir -p "$OUTPUT_DIR" "$R_LIBRARY"
 
+R_ENVIRONMENT_VARIABLES=(
+  R_HOME R_ARCH R_LIBS R_LIBS_USER R_LIBS_SITE
+  R_ENVIRON R_ENVIRON_USER R_PROFILE R_PROFILE_USER
+)
+
+log_inherited_r_environment() {
+  local name contaminated=()
+  for name in "${R_ENVIRONMENT_VARIABLES[@]}"; do
+    if [[ -v "$name" ]]; then
+      contaminated+=("$name")
+    fi
+  done
+  if [ "${#contaminated[@]}" -gt 0 ]; then
+    printf 'Ignoring inherited R environment variables: %s\n' \
+      "$(IFS=', '; echo "${contaminated[*]}")" >&2
+  fi
+}
+
+run_with_clean_r_environment() {
+  local unset_args=() name
+  log_inherited_r_environment
+  for name in "${R_ENVIRONMENT_VARIABLES[@]}"; do
+    unset_args+=( -u "$name" )
+  done
+  env "${unset_args[@]}" "$@"
+}
+
 validate_r_version() {
-  local rscript="$1" rscript_path actual error_file status
+  local rscript="$1" rscript_path actual error_file status name
+  local probe_env_args=() contaminated=()
   rscript_path="$(cd "$(dirname "$rscript")" && pwd -P)/$(basename "$rscript")"
   error_file="$(mktemp "${TMPDIR:-/tmp}/miraprot-r-version.XXXXXX")"
 
-  if ! actual="$("$rscript_path" --vanilla -s -e 'cat(as.character(getRversion()))' 2>"$error_file")"; then
+  # Keep the isolation self-contained so this probe can also be sourced by the
+  # process-level test harness without running the rest of the bundler.
+  for name in R_HOME R_ARCH R_LIBS R_LIBS_USER R_LIBS_SITE R_ENVIRON R_ENVIRON_USER R_PROFILE R_PROFILE_USER; do
+    probe_env_args+=( -u "$name" )
+    if [[ -v "$name" ]]; then contaminated+=("$name"); fi
+  done
+  if [ "${#contaminated[@]}" -gt 0 ]; then
+    printf 'Ignoring inherited R environment variables: %s\n' \
+      "$(IFS=', '; echo "${contaminated[*]}")" >&2
+  fi
+  if ! actual="$(env "${probe_env_args[@]}" "$rscript_path" --vanilla -s -e 'cat(as.character(getRversion()))' 2>"$error_file")"; then
     status="${PIPESTATUS[0]}"
     echo "ERROR: Failed to query the R version." >&2
     echo "Rscript: $rscript_path" >&2
@@ -164,7 +202,7 @@ else
       if command -v Rscript &>/dev/null; then
         validate_r_version "$(command -v Rscript)"
         R_BIN_DIR="$(dirname "$(command -v Rscript)")"
-        R_HOME="$(Rscript -e 'cat(R.home())')"
+        R_HOME="$(run_with_clean_r_environment Rscript --vanilla -s -e 'cat(R.home())')"
         echo "Found system R at: $R_HOME"
         # Copy the entire R installation for true portability
         echo "Copying R installation to $R_PORTABLE..."
@@ -188,7 +226,7 @@ else
       # On macOS, use the system/Homebrew/rig R installation
       if command -v Rscript &>/dev/null; then
         validate_r_version "$(command -v Rscript)"
-        R_HOME="$(Rscript -e 'cat(R.home())')"
+        R_HOME="$(run_with_clean_r_environment Rscript --vanilla -s -e 'cat(R.home())')"
         echo "Found system R at: $R_HOME"
         echo "Copying R installation to $R_PORTABLE..."
         cp -a "$R_HOME" "$R_PORTABLE"
@@ -255,7 +293,8 @@ fi
 # Step 3: Install R packages
 # -----------------------------------------------------------------------
 echo "--- Installing R packages into $R_LIBRARY ---"
-"$R_PORTABLE/bin/Rscript" "$SCRIPT_DIR/install-packages.R" "$R_LIBRARY"
+run_with_clean_r_environment R_LIBS_USER="$R_LIBRARY" \
+  "$R_PORTABLE/bin/Rscript" "$SCRIPT_DIR/install-packages.R" "$R_LIBRARY"
 echo ""
 
 # -----------------------------------------------------------------------
@@ -267,7 +306,8 @@ if [ -d "$GO_CACHE/annotation_cache" ] && [ -d "$GO_CACHE/go_cache" ]; then
 else
   echo "--- Pre-building AnnotationHub cache into $GO_CACHE ---"
   mkdir -p "$GO_CACHE"
-  if ! "$R_PORTABLE/bin/Rscript" "$SCRIPT_DIR/prebuild-cache.R" "$GO_CACHE" "$R_LIBRARY"; then
+  if ! run_with_clean_r_environment R_LIBS_USER="$R_LIBRARY" \
+    "$R_PORTABLE/bin/Rscript" "$SCRIPT_DIR/prebuild-cache.R" "$GO_CACHE" "$R_LIBRARY"; then
     echo "WARNING: Cache pre-build failed - portable app will download on first use" >&2
   fi
 fi
