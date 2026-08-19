@@ -333,6 +333,47 @@ internet access; later uses reuse the downloaded files. BioMart and STRING are
 online services as well. These runtime requirements are separate from the build
 tools.
 
+### Add gene sets for GSEA
+
+MiraProt discovers GSEA collections from `.gmt` files that you provide. Obtain
+the desired collections from [MSigDB](https://www.gsea-msigdb.org/gsea/msigdb/)
+or another source whose terms permit your use. MSigDB may require registration,
+authentication, and acceptance of its current terms.
+
+The correct directory depends on how MiraProt is running:
+
+| MiraProt version | Where to place `.gmt` files |
+|---|---|
+| Non-portable/source version | `<MiraProt source repository>/GSEA/` |
+| Portable flat bundle | `<portable bundle>/shiny-app/GSEA/` (with the default build: `portable/dist/shiny-app/GSEA/`) |
+| macOS `MiraProt.app` | `MiraProt.app/Contents/Resources/app/GSEA/` |
+
+For the **non-portable/source version**, add files to the top-level `GSEA/`
+folder beside `app.R`. This is the directory used when MiraProt is started from
+the repository root. Do not put source-mode GMT files in
+`portable/dist/shiny-app/GSEA/`; that is a separate copy used only by an
+already-built portable bundle.
+
+For a **portable flat bundle**, after the build completes:
+
+1. Open the exact folder `portable/dist/shiny-app/GSEA/`.
+2. Place each `.gmt` file directly in that folder. Do not put it in a
+   subdirectory: MiraProt scans only the immediate contents of `GSEA/`.
+3. If MiraProt is already running, open its GSEA module and click **Refresh
+   Gene Sets**. Restarting MiraProt also causes a fresh initial scan.
+4. Confirm that the file name appears in **Select Gene Set File** before
+   starting the analysis.
+
+Files added to the source repository's `GSEA/` folder **after** building are not
+automatically copied into an existing portable bundle. Add them to the
+portable bundle too, or rebuild the bundle.
+
+Use the lowercase `.gmt` extension. The current filename match is
+case-sensitive on case-sensitive filesystems, so a file ending in `.GMT` may
+not be listed. An AppImage is read-only after it is packaged, so add the GMT
+files to `portable/dist/shiny-app/GSEA/` **before** running
+`create-appimage.sh`; create a new AppImage when its collections change.
+
 ## 4. Rebuild or update
 
 You do not need to rebuild for each launch. Rebuild after updating MiraProt, or
