@@ -120,6 +120,16 @@ jobs:
         shell: pwsh
         run: ./tests/powershell/test-bundle-r-windows.ps1
 
+      - name: Test Windows bundler Content-Length policy (Windows PowerShell 5.1)
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: ./tests/powershell/test-bundle-r-windows-content-length.ps1
+
+      - name: Test Windows bundler Content-Length policy (PowerShell 7)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./tests/powershell/test-bundle-r-windows-content-length.ps1
+
       # ----------------------------------------------------------------
       # 4. Setup R
       # ----------------------------------------------------------------
