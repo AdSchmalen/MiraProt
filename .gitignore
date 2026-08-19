@@ -5,6 +5,9 @@
 cache/
 benchmarks/GSEA/results/
 
+# External GSEA/MSigDB collections
+GSEA/*.gmt
+
 # Portable launcher build artifacts (large, generated locally)
 portable/build/
 portable/dist/
