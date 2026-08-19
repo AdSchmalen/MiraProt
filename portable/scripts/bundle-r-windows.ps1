@@ -80,6 +80,107 @@ function Get-ValidatedRVersion {
     return $detectedVersion
 }
 
+function Test-WindowsExecutableHeader {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path
+    )
+
+    # Check both the DOS MZ header and the PE signature it points to. This
+    # catches HTML error pages and truncated downloads even when CRAN does not
+    # publish a checksum alongside an older installer.
+    try {
+        $stream = [IO.File]::OpenRead($Path)
+        try {
+            if ($stream.Length -lt 64) { return $false }
+            $reader = New-Object IO.BinaryReader($stream)
+            if ($reader.ReadUInt16() -ne 0x5A4D) { return $false }
+            $stream.Position = 0x3C
+            $peOffset = $reader.ReadUInt32()
+            if ($peOffset -gt ($stream.Length - 4)) { return $false }
+            $stream.Position = $peOffset
+            return ($reader.ReadUInt32() -eq 0x00004550)
+        } finally {
+            $stream.Dispose()
+        }
+    } catch {
+        return $false
+    }
+}
+
+function Get-CranInstallerMd5 {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$InstallerUrl,
+        [Parameter(Mandatory = $true)]
+        [string]$InstallerName
+    )
+
+    $checksumUrl = $InstallerUrl.Substring(0, $InstallerUrl.LastIndexOf('/') + 1) + "md5sum.txt"
+    try {
+        $response = Invoke-WebRequest -Uri $checksumUrl -UseBasicParsing -TimeoutSec 30
+        $checksumText = [string]$response.Content
+        foreach ($line in ($checksumText -split "`r?`n")) {
+            if ($line -match ('^\s*([0-9a-fA-F]{32})\s+\*?' + [regex]::Escape($InstallerName) + '\s*$')) {
+                return $Matches[1].ToUpperInvariant()
+            }
+        }
+    } catch {
+        Write-Verbose "No CRAN checksum available at $checksumUrl`: $($_.Exception.Message)"
+    }
+    return $null
+}
+
+function Test-RInstaller {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path,
+        [Parameter(Mandatory = $true)]
+        [string[]]$SourceUrls
+    )
+
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $false }
+
+    # R's Windows installer is normally tens of megabytes. Ten MiB is a
+    # deliberately conservative floor that rejects empty/truncated responses.
+    $minimumInstallerBytes = 10MB
+    $length = (Get-Item -LiteralPath $Path).Length
+    if ($length -lt $minimumInstallerBytes) {
+        Write-Warning "Rejecting installer '$Path': size $length bytes is implausibly small."
+        return $false
+    }
+    if (-not (Test-WindowsExecutableHeader -Path $Path)) {
+        Write-Warning "Rejecting installer '$Path': it does not have a valid Windows PE executable header."
+        return $false
+    }
+
+    # Downloads use a temporary suffix until validation succeeds, but CRAN's
+    # checksum manifest contains the final installer filename.
+    $installerName = (Split-Path -Leaf $Path) -replace '\.download$', ''
+    $foundChecksum = $false
+    $actualMd5 = $null
+    foreach ($sourceUrl in $SourceUrls) {
+        $expectedMd5 = Get-CranInstallerMd5 -InstallerUrl $sourceUrl -InstallerName $installerName
+        if ($expectedMd5) {
+            $foundChecksum = $true
+            if (-not $actualMd5) {
+                $actualMd5 = (Get-FileHash -LiteralPath $Path -Algorithm MD5).Hash.ToUpperInvariant()
+            }
+            if ($actualMd5 -eq $expectedMd5) {
+                Write-Host "Verified installer against the checksum published by CRAN."
+                return $true
+            }
+        }
+    }
+    if ($foundChecksum) {
+        Write-Warning "Rejecting installer '$Path': its checksum does not match CRAN."
+        return $false
+    }
+
+    Write-Warning "CRAN did not provide a checksum for this installer; validated its size and Windows PE header only."
+    return $true
+}
+
 Write-Host "=== MiraProt Portable Bundler (Windows) ===" -ForegroundColor Cyan
 Write-Host "R version: $RVersion"
 Write-Host "Output:    $OutputDir"
@@ -95,57 +196,85 @@ New-Item -ItemType Directory -Force -Path $RLibrary   | Out-Null
 # Step 1: Download and install portable R for Windows
 # -----------------------------------------------------------------------
 $RscriptPath = Join-Path $RPortable "bin\Rscript.exe"
+$UseExistingRuntime = $false
 
-if (Test-Path $RscriptPath) {
-    $InstalledVersion = Get-ValidatedRVersion -RscriptPath $RscriptPath
+if (Test-Path -LiteralPath $RscriptPath -PathType Leaf) {
+    try {
+        $InstalledVersion = Get-ValidatedRVersion -RscriptPath $RscriptPath
+        $UseExistingRuntime = $true
+    } catch {
+        Write-Warning "Existing portable R is incomplete or invalid and will be replaced: $($_.Exception.Message)"
+    }
+}
+
+if ($UseExistingRuntime) {
     Write-Host "--- R already present at $RPortable ---"
 } else {
     Write-Host "--- Downloading R $RVersion for Windows ---"
 
     $RInstaller = Join-Path $env:TEMP "R-$RVersion-win.exe"
+    $RUrls = @(
+        "https://cran.r-project.org/bin/windows/base/R-$RVersion-win.exe"
+        "https://cran.r-project.org/bin/windows/base/old/$RVersion/R-$RVersion-win.exe"
+    )
 
-    if (-not (Test-Path $RInstaller)) {
+    if (Test-RInstaller -Path $RInstaller -SourceUrls $RUrls) {
+        Write-Host "Using validated cached installer: $RInstaller"
+    } else {
+        Remove-Item -LiteralPath $RInstaller -Force -ErrorAction SilentlyContinue
         [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-        $RUrls = @(
-            "https://cran.r-project.org/bin/windows/base/R-$RVersion-win.exe"
-            "https://cran.r-project.org/bin/windows/base/old/$RVersion/R-$RVersion-win.exe"
-        )
         $Downloaded = $false
         foreach ($RUrl in $RUrls) {
             Write-Host "Trying: $RUrl"
+            $downloadPath = "$RInstaller.download"
             try {
-                Invoke-WebRequest -Uri $RUrl -OutFile $RInstaller -UseBasicParsing
-                $Downloaded = $true
-                break
+                Remove-Item -LiteralPath $downloadPath -Force -ErrorAction SilentlyContinue
+                Invoke-WebRequest -Uri $RUrl -OutFile $downloadPath -UseBasicParsing
+                if (Test-RInstaller -Path $downloadPath -SourceUrls @($RUrl)) {
+                    Move-Item -LiteralPath $downloadPath -Destination $RInstaller -Force
+                    $Downloaded = $true
+                    break
+                }
+                Write-Warning "Downloaded installer failed validation; trying another CRAN location."
             } catch {
-                Remove-Item $RInstaller -Force -ErrorAction SilentlyContinue
                 Write-Host "Installer not available at this location."
+            } finally {
+                Remove-Item -LiteralPath $downloadPath -Force -ErrorAction SilentlyContinue
             }
         }
         if (-not $Downloaded) {
             throw "R $RVersion is unavailable from both the current and archived CRAN Windows installer locations. Check the version at https://cran.r-project.org/bin/windows/base/ and retry."
         }
-    } else {
-        Write-Host "Using cached installer: $RInstaller"
     }
 
-    # Silent install to the portable directory
-    Write-Host "Installing R to $RPortable (this may take a few minutes)..."
+    # Install into a fresh staging directory so an incomplete prior runtime can
+    # never satisfy the post-install checks.
+    $RStaging = Join-Path $OutputDir (".r-portable-staging-" + [guid]::NewGuid().ToString("N"))
+    $StagedRscriptPath = Join-Path $RStaging "bin\Rscript.exe"
+    Write-Host "Installing R to temporary staging directory $RStaging (this may take a few minutes)..."
     $installArgs = @(
         "/VERYSILENT"
-        "/DIR=$RPortable"
+        "/DIR=$RStaging"
         "/NORESTART"
         "/SUPPRESSMSGBOXES"
         "/COMPONENTS=main,x64"
     )
-    Start-Process -FilePath $RInstaller -ArgumentList $installArgs -Wait -NoNewWindow
+    try {
+        $process = Start-Process -FilePath $RInstaller -ArgumentList $installArgs -Wait -NoNewWindow -PassThru
+        if ($process.ExitCode -ne 0) {
+            throw "R installer '$RInstaller' failed with exit code $($process.ExitCode). The cached installer may be removed and downloaded again before retrying."
+        }
 
-    if (-not (Test-Path $RscriptPath)) {
-        Write-Error "R installation failed - Rscript.exe not found at $RscriptPath"
-        exit 1
+        $InstalledVersion = Get-ValidatedRVersion -RscriptPath $StagedRscriptPath
+        if (Test-Path -LiteralPath $RPortable) {
+            Remove-Item -LiteralPath $RPortable -Recurse -Force
+        }
+        Move-Item -LiteralPath $RStaging -Destination $RPortable
+    } finally {
+        if (Test-Path -LiteralPath $RStaging) {
+            Remove-Item -LiteralPath $RStaging -Recurse -Force
+        }
     }
-
-    $InstalledVersion = Get-ValidatedRVersion -RscriptPath $RscriptPath
 
     Write-Host "Portable R installed at: $RPortable"
 }
