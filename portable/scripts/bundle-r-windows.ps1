@@ -394,12 +394,17 @@ function Test-RInstaller {
         return $true
     }
 
-    if ($DownloadRecord) {
+    # A record is evidence that this exact file was just downloaded (or was
+    # previously downloaded and retained with its response metadata).  Do not
+    # confer the same provenance on an executable found in the cache alone.
+    $provenanceVerified = $false
+    if ($null -ne $DownloadRecord) {
         Write-Host "Installer source:       $($DownloadRecord.SourceUrl)"
         Write-Host "HTTP success:           $($DownloadRecord.HttpSuccess) (status $($DownloadRecord.StatusCode))"
         Write-Host "Final response URL:     $($DownloadRecord.FinalUrl)"
         Write-Host "HTTP content length:    $($DownloadRecord.ContentLength)"
-        if (-not $DownloadRecord.HttpSuccess) {
+        if (-not $DownloadRecord.HttpSuccess -or
+            $DownloadRecord.StatusCode -lt 200 -or $DownloadRecord.StatusCode -ge 300) {
             Write-Warning "Rejecting installer '$Path': its download did not record HTTP success."
             return $false
         }
@@ -420,10 +425,12 @@ function Test-RInstaller {
             Write-Warning "Rejecting installer '$Path': final URL does not identify expected installer '$expectedInstallerName'."
             return $false
         }
-        if ($null -ne $DownloadRecord.ResponseContentLength -and $DownloadRecord.ResponseContentLength -ne $length) {
+        if ($null -ne $DownloadRecord.ResponseContentLength -and
+            $DownloadRecord.ResponseContentLength -ne $length) {
             Write-Warning "Rejecting installer '$Path': downloaded length $length does not match HTTP content length $($DownloadRecord.ResponseContentLength)."
             return $false
         }
+        $provenanceVerified = $true
     } else {
         Write-Host "Installer source: cached file (no recorded HTTP response)"
     }
@@ -441,11 +448,19 @@ function Test-RInstaller {
         return $false
     }
 
-    $signature = Get-AuthenticodeSignature -LiteralPath $Path
-    $signerSubject = if ($signature.SignerCertificate) { $signature.SignerCertificate.Subject } else { "<none>" }
+    $signature = $null
+    $signatureUnavailable = $false
+    try {
+        $signature = Get-AuthenticodeSignature -LiteralPath $Path -ErrorAction Stop
+    } catch {
+        $signatureUnavailable = $true
+        Write-Warning "Authenticode evaluation is unavailable on this platform: $($_.Exception.Message)"
+    }
+    $signerSubject = if ($signature -and $signature.SignerCertificate) { $signature.SignerCertificate.Subject } else { "<none>" }
     $expectedSigner = ($signerSubject -match '(?i)(R Core Team|R Foundation)')
-    $trustedSignature = ($signature.Status -eq [System.Management.Automation.SignatureStatus]::Valid -and $expectedSigner)
-    Write-Host "Authenticode status:    $($signature.Status)"
+    $trustedSignature = ($signature -and $signature.Status -eq [System.Management.Automation.SignatureStatus]::Valid -and $expectedSigner)
+    $signatureStatus = if ($signatureUnavailable) { "Unavailable" } elseif ($signature) { [string]$signature.Status } else { "Unavailable" }
+    Write-Host "Authenticode status:    $signatureStatus"
     Write-Host "Authenticode signer:    $signerSubject"
 
     # Downloads use a temporary suffix until validation succeeds, but CRAN's
@@ -476,7 +491,11 @@ function Test-RInstaller {
         if (-not $foundChecksum) { Write-Warning "CRAN did not publish a checksum; accepting the valid expected signature and matching R metadata." }
         return $true
     }
-    $reason = "Authenticode status '$($signature.Status)', expected signer=$expectedSigner, version metadata available=$metadataAvailable"
+    $reason = "Authenticode status '$signatureStatus', expected signer=$expectedSigner, version metadata available=$metadataAvailable"
+    if ($provenanceVerified) {
+        Write-Warning "CRAN did not publish a checksum and Authenticode could not establish trust; accepting the provenance-verified download with matching installer identity ($reason)."
+        return $true
+    }
     if ($AllowUnverifiedRInstaller) {
         Write-Warning "Explicit opt-in accepted installer whose identity could not otherwise be established ($reason)."
         return $true
