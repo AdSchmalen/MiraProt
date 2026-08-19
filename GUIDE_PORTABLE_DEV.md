@@ -278,9 +278,8 @@ exclusion list:
 - `Documentation/*.R`, because `app.R` loads those files to build the in-app
   documentation UI (non-runtime Markdown design/review sources are omitted);
 - `AutoAssign/`, containing the built-in rule templates read at runtime;
-- `GSEA/`, including the checked-in GMT collections. The resolved portable
-  data policy is to ship these gene-set data files so GSEA works without a
-  separate data download; and
+- `GSEA/`, so locally supplied GMT collections that are present at build time
+  are copied into the application payload; and
 - `MiraProt_icon.png`, plus `BUILD_INFO`, which each build generates after the
   copy so version reporting works without `.git` in the artifact.
 
@@ -352,6 +351,53 @@ not be committed. A completed artifact can be launched repeatedly without
 rerunning the bundler. Rebuild it when installing newer source or deliberately
 changing the bundled environment (R, packages, application files, or seeded
 caches), rather than before every launch.
+
+### GSEA GMT resource resolution
+
+The runtime implementation is `gsea_list_gmt_files()` in
+`modules/GSEA/GSEA_module_Gene_Sets.R`. Its default argument is `./GSEA`.
+Because the launcher starts R with the packaged Shiny application as its
+working directory, that relative path resolves as follows:
+
+| Layout | Runtime GSEA directory |
+|---|---|
+| Source tree | `<repository>/GSEA/` |
+| Flat Windows/Linux/macOS bundle | `<dist>/shiny-app/GSEA/` |
+| macOS `.app` | `MiraProt.app/Contents/Resources/app/GSEA/` |
+| Linux AppImage contents | `usr/bin/shiny-app/GSEA/` |
+
+Source mode and portable mode therefore do not share a live GMT directory.
+When the application runs from the repository root, `./GSEA` is the source
+tree's top-level `GSEA/`. During a portable build, that directory is copied to
+`shiny-app/GSEA/`; the portable launcher then sets `shiny-app/` (or the
+packaged equivalent) as R's working directory. Adding a GMT file to the source
+tree after assembly does not update an existing portable artifact. Copy it to
+the artifact's applicable directory or rebuild and repackage the artifact.
+
+`gsea_list_gmt_files()` calls `list.files()` without `recursive = TRUE`, using
+the pattern `\\.gmt$`. Only files directly inside the directory are returned;
+subdirectories are not searched. Use a lowercase `.gmt` suffix for consistent
+behavior on case-sensitive filesystems. Missing directories and directories
+with no matching files produce an empty choice list rather than a startup
+error.
+
+The helper caches each result by normalized directory path and directory
+modification time in `.gsea_gmt_file_cache`. The GSEA observer initializes its
+choices from that helper. The **Refresh Gene Sets** control calls it with
+`force_refresh = TRUE`, rescans immediately, updates the selector, and reports
+the number of files found. A restart also creates a fresh process cache.
+
+The local bundlers and CI copy the source `GSEA/` directory into
+`shiny-app/GSEA/`; the macOS and AppImage packagers then copy that Shiny payload
+unchanged into the paths above. Therefore a user-supplied collection must be
+added to the flat bundle before AppImage creation, because a mounted AppImage
+is read-only. A collection can be added directly to a writable flat bundle or
+macOS app at the paths above; a packaged AppImage must instead be rebuilt. The
+build does not download MSigDB resources or create individual GMT files.
+
+The repository ignores `GSEA/*.gmt`. The build does not download collections
+from MSigDB; GMT resources are added separately in accordance with the
+provider's current access requirements and terms.
 
 ---
 
