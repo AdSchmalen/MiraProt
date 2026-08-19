@@ -1,4 +1,0 @@
-Column,Condition,Expected
-[A-01] ORBIT_G01_canvas_cedar_1_T01_1_8001.z.ZZ.Signal,cedar,A-01_cedar
-[sample_2] ORBIT_G01_canvas_cedar_2_T01_1_8002.z.ZZ.Signal,cedar,sample_2_cedar
-[003x] ORBIT_G02_canvas_ember_field_1_T02_1_8011.z.ZZ.Signal,ember_field,003x_ember_field

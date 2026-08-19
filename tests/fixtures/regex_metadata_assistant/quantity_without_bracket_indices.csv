@@ -1,4 +1,0 @@
-Column,Condition,Expected
-ORBIT run-A cedar,cedar,run-A_cedar
-ORBIT run-B cedar,cedar,run-B_cedar
-ORBIT run-C ember_field,ember_field,run-C_ember_field

@@ -1,7 +1,0 @@
-Column,Content,Transformation
-raw_A,Raw Abundance,log2
-norm_A,Normalized Abundance,log10
-pvalue_A,Abundance Ratio p-Value,-log10
-description,Description,
-identifier,Identifier,
-Row Index,Row Index,

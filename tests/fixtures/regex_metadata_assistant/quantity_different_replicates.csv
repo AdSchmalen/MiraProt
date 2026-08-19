@@ -1,7 +1,0 @@
-Column,Condition,Expected
-[q1] ORBIT_G01_canvas_cedar_1_T01_1_8001.z.ZZ.Signal,cedar,q1_cedar
-[q2] ORBIT_G01_canvas_cedar_2_T01_1_8002.z.ZZ.Signal,cedar,q2_cedar
-[q3] ORBIT_G02_canvas_ember_field_1_T02_1_8011.z.ZZ.Signal,ember_field,q3_ember_field
-[q4] ORBIT_G02_canvas_ember_field_2_T02_1_8012.z.ZZ.Signal,ember_field,q4_ember_field
-[q5] ORBIT_G02_canvas_ember_field_3_T02_1_8013.z.ZZ.Signal,ember_field,q5_ember_field
-[q6] ORBIT_G02_canvas_ember_field_4_T02_1_8014.z.ZZ.Signal,ember_field,q6_ember_field
