@@ -8,6 +8,10 @@ ui_source = (root / "R" / "ui.R").read_text(encoding="utf-8")
 assert 'MIRAPROT_VERSION_BASE <- "1.0"' in version_source
 assert 'c("rev-list", "--count", "HEAD")' in version_source
 assert 'c("log", "-1", "--format=%cs")' in version_source
+assert 'if (file.exists(".git"))' in version_source
+assert "suppressWarnings(" in version_source
+git_guard = version_source.index('if (file.exists(".git"))')
+assert git_guard < version_source.index('c("rev-list", "--count", "HEAD")')
 assert 'version_info <- miraprot_version_info()' in ui_source
 assert 'p("Current Version: ", version_info$version)' in ui_source
 assert 'p("Commit: ", version_info$commit)' in ui_source
