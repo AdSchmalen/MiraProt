@@ -4,6 +4,29 @@ This guide creates a local MiraProt bundle from the source code. You do not
 need to be a developer, but the first build downloads R and R packages and can
 take 30–60 minutes. Allow several gigabytes of free disk space.
 
+### How to use this guide
+
+The instructions are organized as a beginner workflow rather than a list of
+developer internals:
+
+1. install the few tools needed to build on your operating system;
+2. run a check after each installation and compare the expected result;
+3. obtain the MiraProt source and verify that the terminal is in the right
+   folder;
+4. run one platform-specific build command;
+5. verify the generated launcher, then start MiraProt; and
+6. optionally add GSEA gene-set files.
+
+Commands are shown on one line whenever possible so they can be copied and
+pasted. Text marked **Expected** describes a successful checkpoint; versions
+and local paths can differ slightly.
+
+**First-time Windows user:** go directly to the complete
+[Windows walkthrough](#windows). It includes installing the tools and cloning
+the repository, so do not clone it separately in section 1 first. Linux and
+macOS users should obtain the source in section 1 before following their
+platform section.
+
 ## 1. Get the MiraProt source
 
 Choose **one** of these methods:
@@ -39,72 +62,261 @@ as described below.
 
 ### Windows
 
-#### Before building
+The Windows portable build currently targets **64-bit x86 Windows (`amd64`)**.
+It does not build a Windows ARM64 launcher. Start with a reliable internet
+connection, several gigabytes of free disk space, and enough time for the first
+package installation.
 
-You need:
+#### Step 1 — Open Windows PowerShell
 
-- Windows PowerShell 5.1 or newer;
-- Git when building from a Git checkout (an extracted source archive works
-  without Git and receives `unknown` `BUILD_INFO` commit fields);
-- Go 1.22 or newer; and
-- internet access for R, Go tools, and R package downloads.
+Open the **Start** menu, type `PowerShell`, and open **Windows PowerShell**.
+Do not choose **Run as administrator**; a normal user window is preferred.
 
-The basic bundle does **not** require a normal system installation of R. The
-script downloads the required R version into the bundle. It also does **not**
-require Inno Setup; that is only for making a separate installer.
+Check that the built-in PowerShell and Windows package manager are available:
 
-The script explains its binary-first policy before package installation.
-Compatible Windows binaries are used when the configured repositories provide
-them. If a dependency instead has to compile from source and reports that build
-tools are missing, install the Rtools release appropriate for the bundled R
-version and retry. **Rtools is needed only for source compilation**, not for
-binary packages or normal runtime use. Be aware that `install-packages.R` may
-currently attempt to install Rtools automatically after it detects missing
-build tools.
+```powershell
+$PSVersionTable.PSVersion; winget --version
+```
 
-The bundler also performs preflight checks for Go, Git when `.git` metadata
-makes it required, CRAN internet access, and a writable output path. Resolve a
-reported preflight error before retrying; this avoids leaving a partially built
-bundle for these common setup problems.
+**Expected:** a PowerShell version of at least `5.1` and a `winget` version
+such as `v1.x`. If `winget` is not found, install or update **App Installer**
+from Microsoft Store, then reopen PowerShell. Microsoft's alternative
+PowerShell installation methods are documented at
+<https://learn.microsoft.com/powershell/scripting/install/installing-powershell-on-windows>.
 
-The launcher resource helper is pinned to reviewed `go-winres` v0.3.3. Go
-installs it in `GOBIN`, or in the first `GOPATH` entry's `bin` directory when
-`GOBIN` is unset. The script asks `go env` for those locations and invokes the
-resulting full executable path, so that directory need not be added to `PATH`.
+#### Step 2 — Install the current PowerShell 7 release
 
-#### Build
+PowerShell 5.1 can run the bundler, but PowerShell 7 provides the clearest
+current command-line experience. Install the latest stable PowerShell 7
+published through Microsoft's `winget` package:
 
-From the repository root in PowerShell, run:
+```powershell
+winget install --id Microsoft.PowerShell --exact --source winget --accept-package-agreements --accept-source-agreements
+```
+
+Close Windows PowerShell. Open the Start menu again and choose
+**PowerShell 7**, then check it:
+
+```powershell
+$PSVersionTable.PSVersion
+```
+
+**Expected:** the first number under `Major` is `7`. Future `7.x` releases are
+fine; the guide does not require one particular patch number.
+
+#### Step 3 — Confirm the supported processor architecture
+
+```powershell
+[System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture
+```
+
+**Expected:** `X64`. If it reports `Arm64`, stop: the Windows bundler currently
+forces an amd64 launcher and this guide does not claim native Windows ARM64
+support.
+
+#### Step 4 — Install Git
+
+Git downloads the MiraProt source and makes later updates simple:
+
+```powershell
+winget install --id Git.Git --exact --source winget --accept-package-agreements --accept-source-agreements
+```
+
+Close and reopen PowerShell 7 so it receives the updated `PATH`, then check:
+
+```powershell
+git --version
+```
+
+**Expected:** output beginning with `git version`, for example
+`git version 2.x.x.windows.x`.
+
+#### Step 5 — Install Go
+
+Go is needed only to compile `MiraProt-launcher.exe`. It is not included in the
+finished bundle and is not needed each time MiraProt runs.
+
+```powershell
+winget install --id GoLang.Go --exact --source winget --accept-package-agreements --accept-source-agreements
+```
+
+Close and reopen PowerShell 7 again, then check:
+
+```powershell
+go version
+```
+
+**Expected:** output similar to `go version go1.22.x windows/amd64` or a newer
+Go release ending in `windows/amd64`. If `winget` cannot install Go, use the
+official Windows installer at <https://go.dev/dl/>, reopen PowerShell 7, and
+repeat `go version`.
+
+#### Step 6 — Download MiraProt with Git
+
+The following command switches to your user folder, downloads MiraProt into a
+new `MiraProt` folder, and enters it:
+
+```powershell
+Set-Location $HOME; git clone https://github.com/AdSchmalen/MiraProt.git; Set-Location "$HOME\MiraProt"
+```
+
+**Expected:** Git ends with `done.`, and the prompt's current path ends in
+`MiraProt`. If Git says the destination already exists, do not clone over it;
+enter the existing checkout with `Set-Location "$HOME\MiraProt"` and use the
+update instructions in section 4.
+
+Confirm that this is the repository root:
+
+```powershell
+Get-Location; Test-Path .\app.R; Test-Path .\portable\scripts\bundle-r-windows.ps1
+```
+
+**Expected:** the path ends in `MiraProt`, followed by `True` and `True`. Do not
+continue until both checks are `True`.
+
+If Git cannot be used, download the repository's **Source code (zip)** in a web
+browser, extract the complete archive, open PowerShell 7, and enter that folder
+with `Set-Location "C:\path\to\the\extracted\MiraProt-folder"`. Run the same
+two `Test-Path` checks before continuing.
+
+#### Step 7 — Check internet access and the selected R version
+
+Windows users do **not** install normal system R for this build. The bundler
+reads the required version from `portable\R_VERSION`, downloads that Windows R
+installer from CRAN, and installs it inside the portable output.
+
+```powershell
+Get-Content .\portable\R_VERSION; Test-NetConnection cloud.r-project.org -Port 443 | Select-Object ComputerName,TcpTestSucceeded
+```
+
+**Expected:** one R version such as `4.5.2`, and
+`TcpTestSucceeded : True`. A false connection result usually means that a
+proxy, firewall, DNS setting, or internet connection must be fixed first.
+
+Check free space on the drive containing your user folder:
+
+```powershell
+$drive=(Split-Path $HOME -Qualifier).TrimEnd(':'); [math]::Round((Get-PSDrive -Name $drive).Free / 1GB,1)
+```
+
+**Expected:** a number representing free gigabytes. At least 10 GB free is a
+practical starting point for downloads, temporary files, R, and its package
+library; actual use varies by package versions and caches.
+
+#### Step 8 — Build the portable bundle
+
+Stay in the repository root and run this one command:
 
 ```powershell
 .\portable\scripts\bundle-r-windows.ps1
 ```
 
-> **Windows security note:** Windows Smart App Control or a managed
-> application-control policy may block `go-winres.exe` while the script is
-> compiling the launcher. This affects the build helper and does not, by
-> itself, establish that the finished MiraProt application is incompatible.
-> Use a trusted build workstation or controlled VM, GitHub Actions, or other
-> signed/trusted build infrastructure rather than disabling Smart App Control
-> or weakening your organization's policy by default.
+The first build downloads portable R, installs many R packages, optionally
+prebuilds caches, copies the MiraProt application, generates Windows resources,
+and compiles the launcher. Package installation is normally the longest step.
+The CRAN/Bioconductor output can be long, can appear quiet while a package is
+compiling, and will differ as package versions change. Do not interrupt it
+while it is still producing output. A `Cache pre-build failed` warning is
+recoverable because MiraProt can download that cache at runtime. `R package
+installation failed`, `Go build failed`, another terminating red error, or a
+return to the prompt without `=== Bundle complete ===` means the build did not
+finish.
 
-When it finishes, the launcher is:
+Near the end, **Expected** output includes:
 
 ```text
-portable\dist\MiraProt-launcher.exe
+=== Bundle complete ===
+To run: ...\portable\dist\MiraProt-launcher.exe
 ```
 
-#### Launch and stop
+The basic bundle does not require Inno Setup. Inno Setup is only used by
+developers who deliberately create a separate Windows installer.
 
-Double-click `MiraProt-launcher.exe`, or run:
+#### Step 9 — Verify the result
+
+```powershell
+Test-Path .\portable\dist\MiraProt-launcher.exe; Test-Path .\portable\dist\r-portable\bin\Rscript.exe; Test-Path .\portable\dist\shiny-app\app.R
+```
+
+**Expected:** `True`, `True`, and `True`.
+
+Check the launcher without starting the application:
+
+```powershell
+.\portable\dist\MiraProt-launcher.exe --version
+```
+
+**Expected:** a line beginning with `MiraProt Launcher` and ending with
+`(windows/amd64)`.
+
+Check the bundled R runtime:
+
+```powershell
+& .\portable\dist\r-portable\bin\Rscript.exe --version
+```
+
+**Expected:** `Rscript (R) version` followed by the version printed earlier
+from `portable\R_VERSION`.
+
+Check that the bundled library can load Shiny:
+
+```powershell
+& .\portable\dist\r-portable\bin\Rscript.exe --vanilla -e ".libPaths(c(normalizePath('portable/dist/r-library'),.libPaths())); stopifnot(requireNamespace('shiny',quietly=TRUE)); cat('OK\n')"
+```
+
+**Expected:** `OK`. If this check stops with an error, package installation was
+incomplete; use the package troubleshooting below before launching MiraProt.
+
+#### Step 10 — Start and stop MiraProt
 
 ```powershell
 .\portable\dist\MiraProt-launcher.exe
 ```
 
-Use the MiraProt tray icon to quit. If it was started in PowerShell and there
-is no usable tray icon, return to that window and press **Ctrl+C**. Closing only
-the browser tab may leave MiraProt running.
+**Expected:** the launcher reports a local address, normally
+`http://127.0.0.1:3838`, and MiraProt opens in the default web browser. Keep the
+PowerShell window open while using MiraProt.
+
+Use the MiraProt tray icon to quit. If there is no usable tray icon, return to
+PowerShell and press **Ctrl+C**. Closing only the browser tab may leave MiraProt
+running. You can launch the completed bundle again without rebuilding it.
+Keep the entire `portable\dist` directory together. Normal launches use the R
+runtime and packages inside that directory; PowerShell 7, Git, Go, Rtools, and
+system R are not required merely to start the finished Windows bundle.
+
+#### Windows security and build tools
+
+During the build, the script installs the pinned `go-winres` helper through Go
+and uses it to add the icon and version information to the launcher. Windows
+Smart App Control or an organization's application-control policy can block
+that helper. Typical symptoms are a security notification, `go-winres` being
+blocked, or failure during `Generating Windows resources`.
+
+**Do not disable Smart App Control or organizational security controls as the
+standard workaround.** Smart App Control may not be designed to be switched
+back on without resetting Windows. Prefer a trusted build workstation, a
+controlled virtual machine, GitHub Actions, or signed/trusted build
+infrastructure. This is a build-time helper issue; it does not automatically
+mean that the finished MiraProt launcher is incompatible.
+
+If PowerShell blocks only `bundle-r-windows.ps1` after you downloaded a source
+ZIP, first verify that the archive came from the official MiraProt repository.
+Then remove the download marker from that one script and rerun it:
+
+```powershell
+Unblock-File .\portable\scripts\bundle-r-windows.ps1
+```
+
+Do not use `Set-ExecutionPolicy Unrestricted` or weaken the machine-wide
+execution policy for this build. PowerShell script blocking and Smart App
+Control blocking `go-winres.exe` are different problems; `Unblock-File` does
+not bypass application control.
+
+The package installer prefers Windows binary R packages. If it explicitly says
+that a dependency must compile from source and no build tools are available,
+install the Rtools release matching the version shown by
+`Get-Content .\portable\R_VERSION`, reopen PowerShell, remove the incomplete
+`portable\dist` folder, and retry. Rtools is not a normal runtime dependency.
 
 ### Linux (Ubuntu/Debian-family local-build path only)
 
