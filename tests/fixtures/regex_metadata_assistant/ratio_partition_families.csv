@@ -1,0 +1,11 @@
+Column,Content,Options,Transformation,Numerator,Denominator
+Merged_A_vs_B,Abundance Ratio,Ratio,,A,B
+Merged_C_vs_D,Abundance Ratio,Ratio,,C,D
+A_B_Abundance Ratio,Abundance Ratio,Ratio,,A,B
+C_D_Abundance Ratio,Abundance Ratio,Ratio,,C,D
+Raw_A_Rep1,Raw Abundance,A,log2,,
+Raw_B_Rep2,Raw Abundance,B,log2,,
+Raw_C_Rep1,Raw Abundance,C,log2,,
+Raw_D_Rep2,Raw Abundance,D,log2,,
+Protein IDs,Protein ID,,,,
+Gene Symbols,Gene Symbol,,,,

@@ -1,0 +1,8 @@
+Column,Content,Options
+pre_A_suf,Raw Abundance,A
+pre_B_suf,Raw Abundance,B
+pre_C_suf,Raw Abundance,C
+pre_Description_suf,Description,Description
+pre_Identifier_suf,Identifier,Identifier
+pre_Index_suf,Row Index,Index
+pre_PSM_suf,# PSMs,PSM

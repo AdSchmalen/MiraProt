@@ -1,0 +1,13 @@
+Scenario,Column,Content,Options
+one_space,prefix A,Raw Abundance,A
+one_space,prefix B,Raw Abundance,B
+repeated_spaces,prefix  A,Raw Abundance,A
+repeated_spaces,prefix   B,Raw Abundance,B
+tabs,prefix	A,Raw Abundance,A
+tabs,prefix	B,Raw Abundance,B
+comma_whitespace,"prefix, A",Raw Abundance,A
+comma_whitespace,"prefix,   B",Raw Abundance,B
+class_phrase,prefix Control Group A,Raw Abundance,Control Group A
+class_phrase,prefix Treatment Group B,Raw Abundance,Treatment Group B
+false_generalization,A x A tail,Raw Abundance,x
+false_generalization,B y B tail,Raw Abundance,y

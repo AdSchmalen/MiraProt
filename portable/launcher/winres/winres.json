@@ -1,0 +1,46 @@
+{
+  "RT_GROUP_ICON": {
+    "APP": {
+      "0409": "../MiraProt.ico"
+    }
+  },
+  "RT_MANIFEST": {
+    "#1": {
+      "0409": {
+        "identity": {
+          "name": "MiraProt.Launcher",
+          "version": "0.0.0.0"
+        },
+        "description": "MiraProt Launcher",
+        "minimum-os": "vista",
+        "execution-level": "asInvoker",
+        "dpi-awareness": "system",
+        "use-common-controls": true
+      }
+    }
+  },
+  "RT_VERSION": {
+    "#1": {
+      "0409": {
+        "fixed": {
+          "file_version": "0.0.0.0",
+          "product_version": "0.0.0.0",
+          "type": "App"
+        },
+        "info": {
+          "0409": {
+            "Comments": "",
+            "CompanyName": "MiraProt Contributors",
+            "FileDescription": "MiraProt Launcher",
+            "FileVersion": "",
+            "InternalName": "MiraProt-launcher",
+            "LegalCopyright": "MiraProt Contributors",
+            "OriginalFilename": "MiraProt-launcher.exe",
+            "ProductName": "MiraProt",
+            "ProductVersion": ""
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,5 @@
+Column,Condition,Expected
+[r1] ORBIT_G01_canvas_cedar_1_T01_1_8001.z.ZZ.Signal,cedar,r1_cedar
+[r2] ORBIT_G01_canvas_cedar_2_T01_1_8002.z.ZZ.Signal,cedar,r2_cedar
+[r3] ORBIT_G02_canvas_ember_field_1_T02_1_8011.z.ZZ.Signal,ember_field,r3_ember_field
+[r4] ORBIT_G02_canvas_ember_field_2_T02_1_8012.z.ZZ.Signal,ember_field,r4_ember_field

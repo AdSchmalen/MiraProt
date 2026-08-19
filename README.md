@@ -1,0 +1,152 @@
+# MiraProt
+
+MiraProt is a modular Shiny application for proteomics analysis with two supported execution modes:
+
+1. **Developer mode (local R / RStudio):** run directly from source.
+2. **Portable mode (standalone desktop package):** run via bundled launcher + bundled R runtime.
+
+This README is a practical entry point for both audiences and is aligned with the in-app documentation architecture (`Documentation/MiraProt_doc_ui.R`, `Documentation/MiraProt_doc_user.R`, `Documentation/MiraProt_doc_tech.R`).
+
+---
+
+## Choose your mode
+
+### A) Developer mode (R/RStudio, from source)
+
+Choose this when you:
+
+- want to inspect or change code,
+- already work in R or RStudio,
+- need module-level debugging and development workflows.
+
+### B) Portable mode (standalone app)
+
+Choose this when you:
+
+- want fastest onboarding for non-R users,
+- need a reproducible desktop bundle with launcher and preinstalled packages,
+- want distribution across Windows/macOS/Linux without manual package setup.
+
+---
+
+## Developer mode (local R / RStudio)
+
+### 1) Prerequisites
+
+- R installed locally (portable build tooling targets **R 4.6.0**; source mode should use a modern compatible R release).
+- System libraries as required by your OS for Bioconductor/CRAN packages.
+- Git clone or downloaded source tree.
+
+### 2) Install dependencies
+
+From repository root:
+
+```bash
+Rscript install.R
+```
+
+This script installs Bioconductor + CRAN + GitHub dependencies, includes fallbacks for common build-tool issues, and can be rerun safely.
+
+### 3) Run the app
+
+```bash
+Rscript -e "shiny::runApp('.')"
+```
+
+or in RStudio console:
+
+```r
+shiny::runApp('.')
+```
+
+### 4) Startup behavior (repository-verified)
+
+- `app.R` initializes session lock/cleanup behavior.
+- A shared `modEnv` is created/cleared.
+- Source files are loaded dynamically from:
+  - `modules/*.R` wrappers,
+  - most `R/*.R` infrastructure files,
+  - all `Documentation/*.R` documentation renderers.
+- UI is built through `build_ui(modEnv)`.
+- Server initializes shared `rv`, module outputs, coordination, exports, diagnostics, and session save/restore wiring.
+
+---
+
+## Portable mode (standalone edition)
+
+Portable mode is implemented under `portable/` and uses a Go launcher that starts the bundled R runtime and opens the Shiny UI in your browser.
+
+For complete operational details:
+
+- **End users:** `GUIDE_PORTABLE_USER.md`
+- **Developers/release maintainers:** `GUIDE_PORTABLE_DEV.md`
+
+### Portable quick facts
+
+- Includes launcher + bundled R + bundled packages + app source.
+- Intended to run without requiring local R/RStudio installation.
+- Provides platform-specific packaging (Windows installer, macOS app/dmg, Linux AppImage/archive) via scripts under `portable/installers/` and `portable/scripts/`.
+
+---
+
+## Internet-dependent vs offline features
+
+Most plotting and data-processing workflows can run offline once dependencies are installed.
+
+Internet is typically required for:
+
+- **GO module** (AnnotationHub retrieval/caching).
+- **STRING module** (remote STRING database queries).
+- **Annotation workflows via biomaRt** (remote Ensembl access).
+
+---
+
+## Project layout (high-level)
+
+```text
+MiraProt/
+  app.R                       # entrypoint and runtime orchestration
+  install.R                   # dependency installation script
+  update.R                    # dependency update workflow
+  R/                          # app infrastructure (UI/server wiring, coordination, diagnostics, export)
+  modules/                    # module wrappers + per-module implementation trees
+  Documentation/              # in-app user and technical documentation modules
+  portable/                   # launcher, bundling scripts, installer definitions
+  GSEA/                       # bundled gene set resources
+  AutoAssign/                 # auto-assign templates/resources
+  GUIDE_PORTABLE_USER.md      # end-user standalone guide
+  GUIDE_PORTABLE_DEV.md       # standalone build/release guide
+```
+
+---
+
+## Documentation model in this repository
+
+MiraProt keeps documentation responsibilities explicit:
+
+- `Documentation/MiraProt_doc_ui.R`: routing/navigation only.
+- `Documentation/MiraProt_doc_user.R`: user-facing content.
+- `Documentation/MiraProt_doc_tech.R`: developer-facing content.
+
+If you update architecture or workflows, update the corresponding documentation owner file to keep in-app docs and README consistent.
+
+---
+
+## Developer notes for safe extension
+
+When adding or refactoring modules:
+
+1. Add/adjust wrapper entry points under `modules/*_module.R`.
+2. Keep module internals in module-specific subdirectories.
+3. Register integration points in app-level UI/server orchestration (`R/ui.R`, `R/server_modules.R`, `R/server_coordination.R`).
+4. Keep cross-module data flow explicit via shared reactive contracts, not hidden direct dependencies.
+
+---
+
+## Support files to read next
+
+- `README.md` (this file): orientation + mode selection.
+- `GUIDE_PORTABLE_USER.md`: standalone usage details.
+- `GUIDE_PORTABLE_DEV.md`: build, packaging, and release details.
+- `Documentation/MiraProt_doc_user.R`: in-app user workflow documentation.
+- `Documentation/MiraProt_doc_tech.R`: in-app technical architecture documentation.

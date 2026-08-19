@@ -1,0 +1,31 @@
+Scenario,Column,Content,Options
+named_conditions,Raw Abundance runA_mock_1,Raw Abundance,mock
+named_conditions,Raw Abundance run17_mock_IFNy_12,Raw Abundance,mock_IFNy
+named_conditions,Raw Abundance acquisition305_AAV2_eGFP_203,Raw Abundance,AAV2_eGFP
+named_conditions,Raw Abundance lane9_AAV2_eGFP_IFNy_4,Raw Abundance,AAV2_eGFP_IFNy
+named_conditions,Found in Sample runA_mock_7,Found in Sample,mock
+named_conditions,Found in Sample run17_mock_IFNy_22,Found in Sample,mock_IFNy
+named_conditions,Found in Sample acquisition305_AAV2_eGFP_303,Found in Sample,AAV2_eGFP
+named_conditions,Found in Sample lane9_AAV2_eGFP_IFNy_14,Found in Sample,AAV2_eGFP_IFNy
+named_conditions,Found in File runA_mock_31,Found in File,mock
+named_conditions,Found in File run17_mock_IFNy_42,Found in File,mock_IFNy
+named_conditions,Found in File acquisition305_AAV2_eGFP_403,Found in File,AAV2_eGFP
+named_conditions,Found in File lane9_AAV2_eGFP_IFNy_24,Found in File,AAV2_eGFP_IFNy
+renamed_conditions,Raw Abundance runA_vehicle_1,Raw Abundance,vehicle
+renamed_conditions,Raw Abundance run17_vehicle_TNFa_12,Raw Abundance,vehicle_TNFa
+renamed_conditions,Raw Abundance acquisition305_LV9_mCherry_203,Raw Abundance,LV9_mCherry
+renamed_conditions,Raw Abundance lane9_LV9_mCherry_TNFa_4,Raw Abundance,LV9_mCherry_TNFa
+renamed_conditions,Found in Sample runA_vehicle_7,Found in Sample,vehicle
+renamed_conditions,Found in Sample run17_vehicle_TNFa_22,Found in Sample,vehicle_TNFa
+renamed_conditions,Found in Sample acquisition305_LV9_mCherry_303,Found in Sample,LV9_mCherry
+renamed_conditions,Found in Sample lane9_LV9_mCherry_TNFa_14,Found in Sample,LV9_mCherry_TNFa
+renamed_conditions,Found in File runA_vehicle_31,Found in File,vehicle
+renamed_conditions,Found in File run17_vehicle_TNFa_42,Found in File,vehicle_TNFa
+renamed_conditions,Found in File acquisition305_LV9_mCherry_403,Found in File,LV9_mCherry
+renamed_conditions,Found in File lane9_LV9_mCherry_TNFa_24,Found in File,LV9_mCherry_TNFa
+evidence_bound,Raw Abundance runA_LV9_mCherry_TNFa_rescue_high_501,Raw Abundance,LV9_mCherry_TNFa_rescue_high
+evidence_bound,Raw Abundance run17_vehicle_TNFa_prime_dose_low_52,Raw Abundance,vehicle_TNFa_prime_dose_low
+evidence_bound,Found in Sample acquisition305_LV9_mCherry_TNFa_rescue_high_601,Found in Sample,LV9_mCherry_TNFa_rescue_high
+evidence_bound,Found in Sample lane9_vehicle_TNFa_prime_dose_low_62,Found in Sample,vehicle_TNFa_prime_dose_low
+evidence_bound,Found in File runA_LV9_mCherry_TNFa_rescue_high_701,Found in File,LV9_mCherry_TNFa_rescue_high
+evidence_bound,Found in File run17_vehicle_TNFa_prime_dose_low_72,Found in File,vehicle_TNFa_prime_dose_low

@@ -1,0 +1,5 @@
+Column,Content,Options
+raw_sample_control_rep1,Raw Abundance,control
+raw_sample_treated_rep1,Raw Abundance,treated
+raw_sample_control_rep2,Raw Abundance,control
+raw_sample_treated_rep2,Raw Abundance,treated

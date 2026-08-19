@@ -1,0 +1,19 @@
+Column,Condition
+[2] SCR528_X001_proteome_mock_1_S01_1_5211.d.PG.Quantity,mock
+[3] SCR528_X001_proteome_mock_2_S01_1_5212.d.PG.Quantity,mock
+[4] SCR528_X001_proteome_mock_3_S01_1_5213.d.PG.Quantity,mock
+[6] SCR528_X002_proteome_mock_IFNy_1_S02_1_5221.d.PG.Quantity,mock_IFNy
+[7] SCR528_X002_proteome_mock_IFNy_2_S02_1_5222.d.PG.Quantity,mock_IFNy
+[8] SCR528_X002_proteome_mock_IFNy_3_S02_1_5223.d.PG.Quantity,mock_IFNy
+[10] SCR528_X003_proteome_Capsid_1_S03_1_5231.d.PG.Quantity,Capsid
+[11] SCR528_X003_proteome_Capsid_2_S03_1_5232.d.PG.Quantity,Capsid
+[12] SCR528_X003_proteome_Capsid_3_S03_1_5233.d.PG.Quantity,Capsid
+[14] SCR528_X004_proteome_Capsid_IFNy_1_S04_1_5241.d.PG.Quantity,Capsid_IFNy
+[15] SCR528_X004_proteome_Capsid_IFNy_2_S04_1_5242.d.PG.Quantity,Capsid_IFNy
+[16] SCR528_X004_proteome_Capsid_IFNy_3_S04_1_5243.d.PG.Quantity,Capsid_IFNy
+[18] SCR528_X005_proteome_AAV2_eGFP_1_S05_1_5251.d.PG.Quantity,AAV2_eGFP
+[19] SCR528_X005_proteome_AAV2_eGFP_2_S05_1_5252.d.PG.Quantity,AAV2_eGFP
+[20] SCR528_X005_proteome_AAV2_eGFP_3_S05_1_5253.d.PG.Quantity,AAV2_eGFP
+[22] SCR528_X006_proteome_AAV2_eGFP_IFNy_1_S06_1_5261.d.PG.Quantity,AAV2_eGFP_IFNy
+[23] SCR528_X006_proteome_AAV2_eGFP_IFNy_2_S06_1_5262.d.PG.Quantity,AAV2_eGFP_IFNy
+[24] SCR528_X006_proteome_AAV2_eGFP_IFNy_3_S06_1_5263.d.PG.Quantity,AAV2_eGFP_IFNy

@@ -1,0 +1,6 @@
+# Generated Windows resource objects — must not be committed
+# (they are regenerated at build time by go-winres)
+*.syso
+
+# Local build output — must not be committed
+dist/

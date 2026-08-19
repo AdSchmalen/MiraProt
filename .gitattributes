@@ -1,0 +1,21 @@
+* text=auto
+*.R text eol=lf
+*.go text eol=lf
+*.mod text eol=lf
+*.sum text eol=lf
+*.sh text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.md text eol=lf
+*.py text eol=lf
+*.json text eol=lf
+*.plist text eol=lf
+*.ps1 text eol=lf
+*.png binary
+*.ico binary
+*.syso binary
+
+.gitattributes text eol=lf
+.gitignore text eol=lf
+**/.gitignore text eol=lf
+*.iss text eol=lf

@@ -1,0 +1,511 @@
+# =============================================================================
+# MiraProt Portable Desktop Build
+# =============================================================================
+# Builds cross-platform portable distributions containing the Go launcher,
+# a bundled R installation, all R packages, and the Shiny application.
+#
+# Triggers:
+#   - Push of version tags (v1.0.0, v1.0.0-beta.1, etc.)
+#   - Manual dispatch via GitHub Actions UI
+#
+# Produces archives for:
+#   - Linux (amd64)   — .tar.gz
+#   - macOS (amd64)   — .tar.gz
+#   - macOS (arm64)   — .tar.gz
+#   - Windows (amd64) — .zip
+#
+# Build time: ~30-60 min (dominated by R package compilation on cache miss).
+# R library is cached across runs to speed up rebuilds.
+# =============================================================================
+
+name: Build Portable Desktop
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      r_version:
+        description: 'R version to bundle'
+        required: false
+        default: '4.4.1'
+
+env:
+  R_VERSION: ${{ github.event.inputs.r_version || '4.4.1' }}
+  GO_VERSION: '1.22'
+
+jobs:
+  # ===================================================================
+  # Build: one job per platform, compiles launcher + bundles R + app
+  # ===================================================================
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            name: miraprot-linux-amd64
+            archive: tar.gz
+            goos: linux
+            goarch: amd64
+          - os: macos-13
+            name: miraprot-macos-amd64
+            archive: tar.gz
+            goos: darwin
+            goarch: amd64
+          - os: macos-14
+            name: miraprot-macos-arm64
+            archive: tar.gz
+            goos: darwin
+            goarch: arm64
+          - os: windows-latest
+            name: miraprot-windows-amd64
+            archive: zip
+            goos: windows
+            goarch: amd64
+
+    runs-on: ${{ matrix.os }}
+    name: Build (${{ matrix.name }})
+
+    steps:
+      # ----------------------------------------------------------------
+      # 1. Checkout
+      # ----------------------------------------------------------------
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for git describe
+
+      # ----------------------------------------------------------------
+      # 2. Extract version from tag or git describe
+      # ----------------------------------------------------------------
+      - name: Extract version
+        id: version
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            echo "version=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=$(git describe --tags --always 2>/dev/null || echo dev)" >> "$GITHUB_OUTPUT"
+          fi
+          echo "Version: $(cat "$GITHUB_OUTPUT" | grep version | cut -d= -f2)"
+
+      # ----------------------------------------------------------------
+      # 3. Setup Go
+      # ----------------------------------------------------------------
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: portable/launcher/go.sum
+
+      # ----------------------------------------------------------------
+      # 4. Setup R
+      # ----------------------------------------------------------------
+      - name: Setup R
+        uses: r-lib/actions/setup-r@v2
+        with:
+          r-version: ${{ env.R_VERSION }}
+
+      # ----------------------------------------------------------------
+      # 5. Install system dependencies (Linux)
+      # ----------------------------------------------------------------
+      - name: Install system dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            libfreetype6-dev \
+            libfontconfig1-dev \
+            libharfbuzz-dev \
+            libfribidi-dev \
+            libtiff5-dev \
+            libjpeg-dev \
+            libpng-dev \
+            librsvg2-dev \
+            libcurl4-openssl-dev \
+            libssl-dev \
+            libxml2-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev
+
+      # ----------------------------------------------------------------
+      # 5b. Earliest static checks (fail before package install/app startup)
+      # ----------------------------------------------------------------
+      - name: Parse session save/restore R sources
+        shell: bash
+        run: |
+          Rscript -e 'parse(file="R/session_save_restore/session_save_restore_orchestration.R")'
+          Rscript -e 'parse(file="R/session_save_restore/session_save_restore_core_helpers.R")'
+          Rscript -e 'parse(file="R/session_save_restore/session_save_restore_module_registration.R")'
+          Rscript -e 'parse(file="R/session_save_restore.R")'
+
+      - name: Static package checks
+        shell: bash
+        run: |
+          git diff --check
+          python3 scripts/check-delimiter-quote-balance.py
+          python3 tests/static/test_heatmap_download_handler_source.py
+
+      # ----------------------------------------------------------------
+      # 6. Cache R library
+      # ----------------------------------------------------------------
+      - name: Cache R packages
+        uses: actions/cache@v4
+        with:
+          path: dist/r-library
+          key: r-library-${{ runner.os }}-${{ runner.arch }}-${{ env.R_VERSION }}-${{ hashFiles('portable/scripts/install-packages.R') }}
+          restore-keys: |
+            r-library-${{ runner.os }}-${{ runner.arch }}-${{ env.R_VERSION }}-
+
+      # ----------------------------------------------------------------
+      # 7. Install R packages
+      # ----------------------------------------------------------------
+      - name: Install R packages
+        shell: bash
+        run: |
+          mkdir -p dist/r-library
+          # Check if cache was restored with enough packages
+          PKG_COUNT=$(find dist/r-library -maxdepth 1 -type d 2>/dev/null | wc -l)
+          if [ "$PKG_COUNT" -lt 10 ]; then
+            echo "Cache miss or incomplete — installing R packages..."
+            Rscript portable/scripts/install-packages.R "$(pwd)/dist/r-library"
+          else
+            echo "Cache hit — $PKG_COUNT packages found, skipping install."
+          fi
+
+      # ----------------------------------------------------------------
+      # 8. Pre-build AnnotationHub cache
+      # ----------------------------------------------------------------
+      - name: Cache go-cache
+        uses: actions/cache@v4
+        with:
+          path: dist/go-cache
+          key: go-cache-${{ runner.os }}-${{ runner.arch }}-${{ env.R_VERSION }}
+
+      - name: Pre-build AnnotationHub cache
+        shell: bash
+        run: |
+          if [ -d dist/go-cache/annotation_cache ] && [ -d dist/go-cache/go_cache ]; then
+            echo "Cache hit — go-cache already present, skipping pre-build."
+          else
+            echo "Building AnnotationHub cache..."
+            mkdir -p dist/go-cache
+            Rscript portable/scripts/prebuild-cache.R "$(pwd)/dist/go-cache" "$(pwd)/dist/r-library" || {
+              echo "::warning::Cache pre-build failed — portable app will download on first launch"
+            }
+          fi
+
+      # ----------------------------------------------------------------
+      # 8b. Seed go-cache from the project's non-portable ./cache/ folder
+      # ----------------------------------------------------------------
+      # If a developer committed or restored a populated ./cache/ folder
+      # (containing GO_Cache/ and/or BioMart_Cache/), merge its contents into
+      # the portable go-cache/ so every cached database file ships with the
+      # distribution — not just the single organism downloaded by
+      # prebuild-cache.R. Maps to the runtime layout expected by the launcher:
+      #   ./cache/GO_Cache/*       -> dist/go-cache/go_cache/
+      #   ./cache/BioMart_Cache/*  -> dist/go-cache/go_cache/BioMart_Cache/
+      #
+      # Note: nested cache/GO_Cache/<orgdb>/ah_cache/ folders are preserved
+      # inside go_cache/ but NOT merged into the top-level annotation_cache/ —
+      # each is its own BiocFileCache-managed directory with a SQLite index,
+      # and merging would clobber the index and leave orphan blobs. The data
+      # needed at runtime is the per-organism <orgdb>.sqlite, which
+      # load_organism_cache() loads directly via AnnotationDbi::loadDb().
+      - name: Seed go-cache from project ./cache (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          if [ ! -d cache ]; then
+            echo "No ./cache/ folder — nothing to seed."
+            exit 0
+          fi
+          mkdir -p dist/go-cache/go_cache
+
+          if [ -d cache/GO_Cache ]; then
+            echo "Copying cache/GO_Cache -> dist/go-cache/go_cache"
+            rsync -a cache/GO_Cache/ dist/go-cache/go_cache/
+          fi
+
+          if [ -d cache/BioMart_Cache ]; then
+            echo "Copying cache/BioMart_Cache -> dist/go-cache/go_cache/BioMart_Cache"
+            mkdir -p dist/go-cache/go_cache/BioMart_Cache
+            rsync -a cache/BioMart_Cache/ dist/go-cache/go_cache/BioMart_Cache/
+          fi
+
+      - name: Seed go-cache from project ./cache (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "cache")) {
+            Write-Host "No .\cache\ folder — nothing to seed."
+            exit 0
+          }
+          New-Item -ItemType Directory -Force -Path "dist\go-cache\go_cache" | Out-Null
+
+          if (Test-Path "cache\GO_Cache") {
+            Write-Host "Copying cache\GO_Cache -> dist\go-cache\go_cache"
+            & robocopy "cache\GO_Cache" "dist\go-cache\go_cache" /E /NFL /NDL /NJH /NJS /NP *> $null
+            if ($LASTEXITCODE -ge 8) { Write-Warning "robocopy GO_Cache exit $LASTEXITCODE" }
+            $global:LASTEXITCODE = 0
+          }
+
+          if (Test-Path "cache\BioMart_Cache") {
+            Write-Host "Copying cache\BioMart_Cache -> dist\go-cache\go_cache\BioMart_Cache"
+            New-Item -ItemType Directory -Force -Path "dist\go-cache\go_cache\BioMart_Cache" | Out-Null
+            & robocopy "cache\BioMart_Cache" "dist\go-cache\go_cache\BioMart_Cache" /E /NFL /NDL /NJH /NJS /NP *> $null
+            if ($LASTEXITCODE -ge 8) { Write-Warning "robocopy BioMart_Cache exit $LASTEXITCODE" }
+            $global:LASTEXITCODE = 0
+          }
+
+      # ----------------------------------------------------------------
+      # 9. Copy portable R installation
+      # ----------------------------------------------------------------
+      - name: Bundle portable R (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          R_HOME="$(Rscript -e 'cat(R.home())')"
+          echo "Copying R from: $R_HOME"
+          cp -a "$R_HOME" dist/r-portable
+
+          # Ensure bin/ scripts exist
+          if [ ! -f dist/r-portable/bin/Rscript ]; then
+            mkdir -p dist/r-portable/bin
+            R_BIN_DIR="$(dirname "$(command -v Rscript)")"
+            cp "$R_BIN_DIR/R" dist/r-portable/bin/ 2>/dev/null || true
+            cp "$R_BIN_DIR/Rscript" dist/r-portable/bin/ 2>/dev/null || true
+          fi
+
+      - name: Bundle portable R (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $RHome = Rscript -e "cat(R.home())"
+          Write-Host "Copying R from: $RHome"
+          Copy-Item -Path $RHome -Destination "dist\r-portable" -Recurse -Force
+
+          # Ensure Rscript.exe exists at expected path
+          if (-not (Test-Path "dist\r-portable\bin\Rscript.exe")) {
+            $RBin = Split-Path (Get-Command Rscript).Source
+            Copy-Item "$RBin\R.exe" "dist\r-portable\bin\" -ErrorAction SilentlyContinue
+            Copy-Item "$RBin\Rscript.exe" "dist\r-portable\bin\" -ErrorAction SilentlyContinue
+          }
+
+      # ----------------------------------------------------------------
+      # 10. Copy Shiny application
+      # ----------------------------------------------------------------
+      - name: Copy Shiny app (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          mkdir -p dist/shiny-app
+          rsync -a \
+            --exclude='.git' \
+            --exclude='cache/' \
+            --exclude='portable/' \
+            --exclude='scripts/' \
+            --exclude='tests/' \
+            --exclude='.Rproj.user' \
+            --exclude='.RData' \
+            --exclude='.Rhistory' \
+            --exclude='.Ruserdata' \
+            --exclude='user_data/' \
+            ./ dist/shiny-app/
+
+      - name: Copy Shiny app (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $excludeDirs = @(".git", "cache", "portable", "scripts", "tests", ".Rproj.user", ".Ruserdata", "user_data")
+          $excludeFiles = @(".RData", ".Rhistory")
+
+          $args = @(".", "dist\shiny-app", "/E", "/NFL", "/NDL", "/NJH", "/NJS")
+          foreach ($d in $excludeDirs) { $args += "/XD"; $args += $d }
+          foreach ($f in $excludeFiles) { $args += "/XF"; $args += $f }
+
+          & robocopy @args | Out-Null
+          if ($LASTEXITCODE -ge 8) {
+            Write-Error "robocopy failed with exit code $LASTEXITCODE"
+            exit 1
+          }
+          # Reset exit code — robocopy returns 1 for "files copied" which is success
+          $global:LASTEXITCODE = 0
+
+      # ----------------------------------------------------------------
+      # 11. Build Go launcher
+      # ----------------------------------------------------------------
+
+      # Generate Windows exe icon + version resources (Windows builds only).
+      # go-winres produces rsrc_windows_amd64.syso which the Go toolchain
+      # only links on GOOS=windows, so it is safe for cross-platform builds.
+      - name: Generate Windows exe resources (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          go install github.com/tc-hib/go-winres@latest
+          cd portable/launcher
+          go run gen_ico.go
+          go-winres make
+
+      - name: Build Go launcher
+        shell: bash
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: ${{ runner.os == 'Linux' && '1' || '0' }}
+        run: |
+          cd portable/launcher
+
+          VERSION="${{ steps.version.outputs.version }}"
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            OUTPUT="../../dist/MiraProt-launcher.exe"
+          else
+            OUTPUT="../../dist/MiraProt-launcher"
+          fi
+
+          go build \
+            -ldflags "-s -w -X main.Version=$VERSION" \
+            -o "$OUTPUT" .
+
+          echo "Built: $OUTPUT"
+
+      # ----------------------------------------------------------------
+      # 12. Smoke test launcher
+      # ----------------------------------------------------------------
+      - name: Smoke test launcher
+        shell: bash
+        run: |
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            LAUNCHER="dist/MiraProt-launcher.exe"
+          else
+            LAUNCHER="dist/MiraProt-launcher"
+            chmod +x "$LAUNCHER"
+          fi
+          "$LAUNCHER" --version
+        # Windows bash can run .exe directly
+
+      # ----------------------------------------------------------------
+      # 13. Create archive
+      # ----------------------------------------------------------------
+      - name: Create archive (tar.gz)
+        if: matrix.archive == 'tar.gz'
+        run: |
+          tar -czf "${{ matrix.name }}.tar.gz" -C dist .
+
+      - name: Create archive (zip)
+        if: matrix.archive == 'zip'
+        shell: pwsh
+        run: |
+          Compress-Archive -Path "dist\*" -DestinationPath "${{ matrix.name }}.zip"
+
+      # ----------------------------------------------------------------
+      # 14. Create platform installer
+      # ----------------------------------------------------------------
+
+      # --- Windows: Inno Setup installer ---
+      - name: Install Inno Setup (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: choco install innosetup -y --no-progress
+
+      - name: Build Windows installer
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+          mkdir -p output
+          & $iscc /DAppVersion="${{ steps.version.outputs.version }}" `
+            "portable\installers\windows\MiraProt.iss"
+
+      - name: Upload Windows installer
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}-installer
+          path: output/MiraProt-*-windows-setup.exe
+          retention-days: 30
+
+      # --- macOS: DMG ---
+      - name: Build macOS DMG
+        if: runner.os == 'macOS'
+        run: |
+          bash portable/installers/macos/create-dmg.sh \
+            --dist-dir dist \
+            --version "${{ steps.version.outputs.version }}" \
+            --output-dir output
+
+      - name: Upload macOS DMG
+        if: runner.os == 'macOS'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}-installer
+          path: output/MiraProt-*.dmg
+          retention-days: 30
+
+      # --- Linux: AppImage ---
+      - name: Build Linux AppImage
+        if: runner.os == 'Linux'
+        run: |
+          bash portable/installers/linux/create-appimage.sh \
+            --dist-dir dist \
+            --version "${{ steps.version.outputs.version }}" \
+            --output-dir output
+
+      - name: Upload Linux AppImage
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}-installer
+          path: output/MiraProt-*.AppImage
+          retention-days: 30
+
+      # ----------------------------------------------------------------
+      # 15. Upload archive artifact
+      # ----------------------------------------------------------------
+      - name: Upload archive artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: ${{ matrix.name }}.${{ matrix.archive }}
+          retention-days: 30
+
+  # ===================================================================
+  # Release: publish artifacts to a GitHub Release (tag push only)
+  # ===================================================================
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: List artifacts
+        run: find artifacts -type f | sort
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+
+          # Collect all release files (archives + installers)
+          FILES=()
+          while IFS= read -r f; do
+            FILES+=("$f")
+          done < <(find artifacts -type f \( -name '*.tar.gz' -o -name '*.zip' -o -name '*.dmg' -o -name '*.AppImage' -o -name '*-setup.exe' \))
+
+          gh release create "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "MiraProt $TAG" \
+            --generate-notes \
+            "${FILES[@]}"
+
+          echo "Release created: $TAG"
