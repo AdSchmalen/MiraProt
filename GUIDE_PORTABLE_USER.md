@@ -157,11 +157,15 @@ Confirm that `Rscript --version` reports the version in `portable/R_VERSION`,
 then run this exact command from the repository root:
 
 ```bash
-bash portable/scripts/bundle-r.sh
+bash portable/scripts/bundle-r.sh --output-dir portable/dist
 ```
 
 Using `bash` is intentional until executable-bit behavior is verified. The
-finished launcher is:
+script also accepts `--r-version VERSION`. Command-line options take precedence
+over the `R_VERSION` and `OUTPUT_DIR` environment-variable fallbacks. With no
+output option or environment override, the output is always `portable/dist`,
+resolved from the script's location rather than the current working directory.
+The finished launcher is:
 
 ```text
 portable/dist/MiraProt-launcher
@@ -211,11 +215,16 @@ Confirm that `Rscript --version` reports the version in `portable/R_VERSION`,
 then run from the repository root:
 
 ```bash
-bash portable/scripts/bundle-r.sh
+bash portable/scripts/bundle-r.sh --output-dir portable/dist
 ```
 
 This is the complete **basic bundling** workflow. `portable/scripts/bundle-r.sh`
-produces a flat distribution directory containing the copied R runtime, R
+also accepts `--r-version VERSION`; its command-line options override the
+`R_VERSION` and `OUTPUT_DIR` environment-variable fallbacks. When neither an
+output option nor `OUTPUT_DIR` is supplied, the default remains
+`portable/dist` from any working directory because it is resolved relative to
+the script. The script produces a flat distribution directory containing the
+copied R runtime, R
 packages, Shiny application, and this native launcher; it does not create an
 application bundle or disk image:
 
