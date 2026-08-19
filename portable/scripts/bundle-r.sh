@@ -139,6 +139,13 @@ validate_r_version() {
     echo "Install/select R $R_VERSION (for example: rig add $R_VERSION && rig default $R_VERSION), then retry." >&2
     exit 1
   fi
+
+  # The process-level test suite stops here, before copying R or installing
+  # anything. This hook is deliberately accepted only with the exact value 1.
+  if [ "${MIRAPROT_TEST_VALIDATE_ONLY:-0}" = 1 ]; then
+    echo "R version $actual validated successfully."
+    exit 0
+  fi
 }
 
 # -----------------------------------------------------------------------
