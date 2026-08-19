@@ -8,8 +8,11 @@ try {
     $helperSource = Join-Path $TempRoot "fake-r.go"
     @'
 package main
-import ("fmt"; "os"; "path/filepath"; "strings"; "syscall")
+import ("encoding/json"; "fmt"; "os"; "path/filepath"; "strings"; "syscall")
 func main() {
+  if os.Getenv("FAKE_ECHO_ARGS") != "" {
+    data, _ := json.Marshal(os.Args[1:]); fmt.Print(string(data)); return
+  }
   if len(os.Args) == 2 && os.Args[1] != "--version" {
     if os.Getenv("FAKE_INSTALL_EXIT") != "" { os.Exit(17) }
     if os.Getenv("FAKE_INSTALL_NO_RSCRIPT") == "" {
@@ -28,7 +31,11 @@ func main() {
   base := strings.ToLower(filepath.Base(os.Args[0]))
   prefix := "FAKE_RSCRIPT_"; if base == "r.exe" { prefix = "FAKE_R_" }
   if os.Getenv("FAKE_REQUIRE_CLEAN") != "" {
-    for _, name := range []string{"R_HOME","R_ARCH","R_LIBS","R_LIBS_USER","R_LIBS_SITE","R_ENVIRON","R_ENVIRON_USER","R_PROFILE","R_PROFILE_USER"} {
+    expectedHome := filepath.Dir(filepath.Dir(os.Args[0]))
+    if !strings.EqualFold(filepath.Clean(os.Getenv("R_HOME")), filepath.Clean(expectedHome)) {
+      fmt.Fprintf(os.Stderr, "R_HOME was not controlled staged home: got %q, want %q", os.Getenv("R_HOME"), expectedHome); os.Exit(29)
+    }
+    for _, name := range []string{"R_ARCH","R_LIBS","R_LIBS_USER","R_LIBS_SITE","R_ENVIRON","R_ENVIRON_USER","R_PROFILE","R_PROFILE_USER"} {
       if os.Getenv(name) != "" { fmt.Fprint(os.Stderr, "inherited "+name); os.Exit(29) }
     }
   }
@@ -48,6 +55,33 @@ func main() {
     $helper = Join-Path $TempRoot "fake-process.exe"
     & go build -o $helper $helperSource
     if ($LASTEXITCODE -ne 0) { throw "Could not build fake process helper." }
+
+    # Exercise the production ProcessStartInfo.Arguments encoder, not
+    # PowerShell's native invocation binder.  These values cover the Windows
+    # quoting boundaries that the former space-join launcher discarded.
+    . $Bundler -HelpersOnly
+    $argumentCases = @(
+        "cat(as.character(getRversion()))",
+        'value with spaces',
+        'embedded "quotes"',
+        'C:\path with spaces\trailing\',
+        '',
+        '--vanilla', '-s', '-e', 'cat(as.character(getRversion()))'
+    )
+    $env:FAKE_ECHO_ARGS = "1"
+    try {
+        $argumentProbe = Invoke-RValidationProbe -FilePath $helper -ArgumentList $argumentCases -Label "argument-vector regression probe" -EventName "test argument vector" -RHome $TempRoot
+    } finally {
+        Remove-Item Env:FAKE_ECHO_ARGS -ErrorAction SilentlyContinue
+    }
+    Assert-RProbeSucceeded -Probe $argumentProbe
+    $receivedArguments = @($argumentProbe.Stdout | ConvertFrom-Json)
+    if ($receivedArguments.Count -ne $argumentCases.Count) { throw "Argument-vector probe changed the argument count." }
+    for ($i = 0; $i -lt $argumentCases.Count; $i++) {
+        if ($receivedArguments[$i] -cne $argumentCases[$i]) {
+            throw "Argument-vector probe changed argument $i; expected '$($argumentCases[$i])', received '$($receivedArguments[$i])'."
+        }
+    }
     function Invoke-Case {
         param(
             [string]$Name, [string]$VersionOutput, [switch]$VersionFailure,
