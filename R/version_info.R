@@ -20,7 +20,9 @@ MIRAPROT_VERSION_BASE <- "1.0"
 
 .miraprot_git_value <- function(args) {
   value <- tryCatch(
-    system2("git", c("-C", ".", args), stdout = TRUE, stderr = FALSE),
+    suppressWarnings(
+      system2("git", c("-C", ".", args), stdout = TRUE, stderr = FALSE)
+    ),
     error = function(e) character()
   )
   status <- attr(value, "status")
@@ -31,9 +33,15 @@ MIRAPROT_VERSION_BASE <- "1.0"
 miraprot_version_info <- function() {
   build <- .miraprot_read_build_info()
 
-  commit_count <- .miraprot_git_value(c("rev-list", "--count", "HEAD"))
-  commit_sha <- .miraprot_git_value(c("rev-parse", "--short=7", "HEAD"))
-  commit_date <- .miraprot_git_value(c("log", "-1", "--format=%cs"))
+  if (file.exists(".git")) {
+    commit_count <- .miraprot_git_value(c("rev-list", "--count", "HEAD"))
+    commit_sha <- .miraprot_git_value(c("rev-parse", "--short=7", "HEAD"))
+    commit_date <- .miraprot_git_value(c("log", "-1", "--format=%cs"))
+  } else {
+    commit_count <- NA_character_
+    commit_sha <- NA_character_
+    commit_date <- NA_character_
+  }
 
   if (is.na(commit_count)) commit_count <- build$COMMIT_COUNT %||% NA_character_
   if (is.na(commit_sha)) commit_sha <- build$COMMIT_SHA %||% NA_character_
