@@ -5,7 +5,7 @@
 # a bundled R installation, all R packages, and the Shiny application.
 #
 # Triggers:
-#   - Push of version tags (v1.0.0, v1.0.0-beta.1, etc.)
+#   - Push of version tags (produces temporary workflow artifacts only)
 #   - Manual dispatch via GitHub Actions UI
 #
 # Produces archives for:
@@ -480,43 +480,3 @@ jobs:
           name: ${{ matrix.name }}
           path: ${{ matrix.name }}.${{ matrix.archive }}
           retention-days: 30
-
-  # ===================================================================
-  # Release: publish artifacts to a GitHub Release (tag push only)
-  # ===================================================================
-  release:
-    needs: build
-    if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
-
-    permissions:
-      contents: write
-
-    steps:
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: artifacts
-
-      - name: List artifacts
-        run: find artifacts -type f | sort
-
-      - name: Create GitHub Release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          TAG="${GITHUB_REF#refs/tags/}"
-
-          # Collect all release files (archives + installers)
-          FILES=()
-          while IFS= read -r f; do
-            FILES+=("$f")
-          done < <(find artifacts -type f \( -name '*.tar.gz' -o -name '*.zip' -o -name '*.dmg' -o -name '*.AppImage' -o -name '*-setup.exe' \))
-
-          gh release create "$TAG" \
-            --repo "$GITHUB_REPOSITORY" \
-            --title "MiraProt $TAG" \
-            --generate-notes \
-            "${FILES[@]}"
-
-          echo "Release created: $TAG"

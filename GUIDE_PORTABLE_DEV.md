@@ -1,8 +1,10 @@
 # MiraProt Standalone Edition — Developer Guide
 
-This guide explains how to build, test, and release the portable desktop edition
-of MiraProt. It covers compiling the Go launcher, bundling R and all packages,
-creating platform-specific installers, and using the CI/CD pipeline.
+This guide explains how to build and test the portable desktop edition of
+MiraProt from source. It covers compiling the Go launcher, bundling R and all
+packages, creating optional platform-specific packages, and using CI builds.
+MiraProt's authoritative distribution is the source repository; generated
+portable binaries are not normally published as GitHub Release assets.
 
 ---
 
@@ -14,8 +16,8 @@ creating platform-specific installers, and using the CI/CD pipeline.
 4. [Bundling a Portable Distribution (Linux/macOS)](#4-bundling-a-portable-distribution-linuxmacos)
 5. [Bundling a Portable Distribution (Windows)](#5-bundling-a-portable-distribution-windows)
 6. [Testing the Build](#6-testing-the-build)
-7. [Creating Installers](#7-creating-installers)
-8. [CI/CD: Automated Builds and Releases](#8-cicd-automated-builds-and-releases)
+7. [Creating Optional Local Packages](#7-creating-optional-local-packages)
+8. [Build Artifact Types and CI](#8-build-artifact-types-and-ci)
 9. [Launcher CLI Reference](#9-launcher-cli-reference)
 10. [Architecture Overview](#10-architecture-overview)
 11. [Troubleshooting](#11-troubleshooting)
@@ -202,8 +204,8 @@ GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -tags=notray \
 ```
 
 Cross-compiling **with** the system tray on Linux requires the target platform's
-C toolchain and GTK headers, which is complex. Use the CI/CD pipeline instead
-(see [section 8](#8-cicd-automated-builds-and-releases)).
+C toolchain and GTK headers, which is complex. Use a native machine or the CI
+build matrix instead (see [section 8](#8-build-artifact-types-and-ci)).
 
 ---
 
@@ -252,6 +254,13 @@ dist/
 ├── r-portable/            # Portable R installation
 └── r-library/             # Pre-compiled R packages
 ```
+
+`dist/` (or `portable/dist/` when the default is used) is a **local build
+artifact**. Generated bundle directories are normally ignored by Git and must
+not be committed. A completed artifact can be launched repeatedly without
+rerunning the bundler. Rebuild it when installing newer source or deliberately
+changing the bundled environment (R, packages, application files, or seeded
+caches), rather than before every launch.
 
 ---
 
@@ -352,9 +361,11 @@ up after 7 days.
 
 ---
 
-## 7. Creating Installers
+## 7. Creating Optional Local Packages
 
-After bundling into `dist/`, you can create platform-specific installers.
+After bundling into `dist/`, a maintainer can create platform-specific packages
+for local testing or explicitly approved distribution. Creating one of these
+files does not publish it and does not make it an authoritative release asset.
 
 ### Windows — Inno Setup
 
@@ -404,16 +415,26 @@ This creates `output/MiraProt-1.0.0-linux-<arch>.AppImage`. The script:
 
 ---
 
-## 8. CI/CD: Automated Builds and Releases
+## 8. Build Artifact Types and CI
+
+Do not use “artifact” and “release asset” interchangeably. MiraProt has three
+distinct output categories:
+
+| Output | Created by | Lifetime and visibility | Distribution status |
+|---|---|---|---|
+| **Local build artifact** | A developer runs a bundler into `dist/` or `portable/dist/` | Remains on that machine until removed; normally ignored by Git | Normal portable workflow; launch it locally as often as needed |
+| **Workflow artifact** | `.github/workflows/portable-build.yml` uploads a matrix build | Attached to an Actions run for 30 days; accessible according to repository/Actions permissions | Temporary CI validation or maintainer handoff, not a public release |
+| **GitHub Release asset** | A maintainer explicitly publishes a file on a GitHub Release | Public and persistent until the release/asset is changed or deleted | Not produced by the current workflow and not the authoritative distribution path |
 
 The GitHub Actions workflow `.github/workflows/portable-build.yml` automates
-building and releasing the portable edition.
+building and testing the portable edition. It deliberately stops after
+uploading 30-day workflow artifacts: it does not call `gh release create`.
 
 ### Triggers
 
 | Trigger | When |
 |---|---|
-| Tag push | Push a tag matching `v*` (e.g., `v1.0.0`, `v1.0.0-beta.1`) |
+| Tag push | Push a tag matching `v*`; builds temporary workflow artifacts but does not publish a Release |
 | Manual dispatch | Click "Run workflow" in the GitHub Actions UI |
 
 ### Build matrix
@@ -440,7 +461,7 @@ The workflow builds on 4 platforms in parallel:
 9. Smoke test: `MiraProt-launcher --version`
 10. Create archive (`.tar.gz` or `.zip`)
 11. Build platform installer (Inno Setup / DMG / AppImage)
-12. Upload artifacts
+12. Upload 30-day workflow artifacts
 
 ### R library caching
 
@@ -449,29 +470,29 @@ includes the OS, architecture, R version, and a hash of `install-packages.R`.
 If you change the package list, the cache is invalidated and packages are
 reinstalled.
 
-### Creating a release
+### Source distribution policy
 
-```bash
-git tag v1.0.0
-git push origin v1.0.0
-```
+Tags may be pushed to validate a version across the build matrix, but a `v*`
+tag does **not** publish the resulting binaries. GitHub can still expose its
+automatically generated source archives for a tag; those are source snapshots,
+not MiraProt portable binary assets.
 
-The `release` job runs after all 4 builds succeed. It:
-1. Downloads all build artifacts
-2. Creates a GitHub Release with auto-generated release notes
-3. Uploads all archives (`.tar.gz`, `.zip`) and installers (`.exe`, `.dmg`,
-   `.AppImage`) as release assets
+Publishing portable binaries as GitHub Release assets is a separate policy
+decision. If the project owner later approves public binary distribution, that
+decision must include provenance, support, retention, signing, and update
+expectations. Only then should an explicit, permission-gated publishing job be
+added and this guide and the user guide updated together.
 
 ### Manual dispatch
 
 To trigger a build without creating a tag:
 1. Go to **Actions** > **Build Portable Desktop** in GitHub
 2. Click **Run workflow**
-3. Optionally change the R version (default: 4.6.0)
+3. Optionally change the R version (the workflow currently defaults to 4.4.1)
 4. Click **Run workflow**
 
-Build artifacts are available for download from the workflow run page for 30
-days.
+Workflow artifacts are available from the workflow run page for 30 days. They
+are temporary CI outputs, not GitHub Release assets.
 
 ---
 
