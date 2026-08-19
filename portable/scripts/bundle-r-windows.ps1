@@ -53,6 +53,33 @@ if ($RVersion -notmatch '^\d+\.\d+\.\d+$') {
     throw "Invalid R version '$RVersion' (expected MAJOR.MINOR.PATCH)."
 }
 
+function Get-ValidatedRVersion {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$RscriptPath
+    )
+
+    if (-not (Test-Path -LiteralPath $RscriptPath -PathType Leaf)) {
+        throw "Rscript executable was not found at '$RscriptPath'."
+    }
+
+    $output = & $RscriptPath --vanilla -s -e "cat(as.character(getRversion()))"
+    $exitCode = $LASTEXITCODE
+    $detectedVersion = (@($output) -join [Environment]::NewLine).Trim()
+
+    if ($exitCode -ne 0 -or [string]::IsNullOrWhiteSpace($detectedVersion)) {
+        throw "Unable to detect the R version using '$RscriptPath' (exit code $exitCode): the process failed or returned an empty version."
+    }
+    if ($detectedVersion -notmatch '^\d+\.\d+\.\d+$') {
+        throw "Rscript at '$RscriptPath' returned invalid version '$detectedVersion' (exit code $exitCode; expected MAJOR.MINOR.PATCH)."
+    }
+    if ($detectedVersion -ne $RVersion) {
+        throw "R version mismatch for '$RscriptPath' (exit code $exitCode): requested R $RVersion, but detected R $detectedVersion."
+    }
+
+    return $detectedVersion
+}
+
 Write-Host "=== MiraProt Portable Bundler (Windows) ===" -ForegroundColor Cyan
 Write-Host "R version: $RVersion"
 Write-Host "Output:    $OutputDir"
@@ -70,10 +97,7 @@ New-Item -ItemType Directory -Force -Path $RLibrary   | Out-Null
 $RscriptPath = Join-Path $RPortable "bin\Rscript.exe"
 
 if (Test-Path $RscriptPath) {
-    $InstalledVersion = (& $RscriptPath --vanilla -s -e "cat(as.character(getRversion()))").Trim()
-    if ($InstalledVersion -ne $RVersion) {
-        throw "Requested R $RVersion, but the existing portable runtime is R $InstalledVersion at $RscriptPath. Remove '$RPortable' or request R $InstalledVersion."
-    }
+    $InstalledVersion = Get-ValidatedRVersion -RscriptPath $RscriptPath
     Write-Host "--- R already present at $RPortable ---"
 } else {
     Write-Host "--- Downloading R $RVersion for Windows ---"
@@ -121,10 +145,7 @@ if (Test-Path $RscriptPath) {
         exit 1
     }
 
-    $InstalledVersion = (& $RscriptPath --vanilla -s -e "cat(as.character(getRversion()))").Trim()
-    if ($InstalledVersion -ne $RVersion) {
-        throw "CRAN installer mismatch: requested R $RVersion, but the installed runtime reports R $InstalledVersion."
-    }
+    $InstalledVersion = Get-ValidatedRVersion -RscriptPath $RscriptPath
 
     Write-Host "Portable R installed at: $RPortable"
 }
