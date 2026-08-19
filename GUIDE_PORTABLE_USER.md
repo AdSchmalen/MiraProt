@@ -66,6 +66,14 @@ From the repository root in PowerShell, run:
 .\portable\scripts\bundle-r-windows.ps1
 ```
 
+> **Windows security note:** Windows Smart App Control or a managed
+> application-control policy may block `go-winres.exe` while the script is
+> compiling the launcher. This affects the build helper and does not, by
+> itself, establish that the finished MiraProt application is incompatible.
+> Use a trusted build workstation or controlled VM, GitHub Actions, or other
+> signed/trusted build infrastructure rather than disabling Smart App Control
+> or weakening your organization's policy by default.
+
 When it finishes, the launcher is:
 
 ```text
