@@ -457,12 +457,14 @@ MiraProt application version. Omit it for normal builds so
 5. **Builds the Go launcher** — Compiles into `dist\MiraProt-launcher.exe`.
 
 The staged runtime must contain `bin\R.exe`, `bin\Rscript.exe`, and
-`bin\x64\R.dll`, and must pass version and expression probes before promotion.
+`bin\x64\R.dll`, and must pass startup and runtime version probes before promotion.
 It does not rely on a top-level `VERSION` file. Absolute-path `R.exe --version`
-and `Rscript.exe --version` invocations are startup probes only; the absolute
-portable `Rscript.exe` running `getRversion()` supplies the authoritative exact
-version. Inherited R configuration is removed for every probe, preventing a
-local R on `PATH` from substituting for either staged executable.
+and `Rscript.exe --version` invocations are startup probes only and are invoked
+natively by PowerShell. For the authoritative exact version, the bundler writes
+`getRversion()` to a temporary UTF-8 script and runs it as absolute-path
+`Rscript.exe --vanilla <version-probe.R>`. Inherited R configuration is removed
+for every probe, preventing a local R on `PATH` from substituting for either
+staged executable.
 If `r-portable` already exists it is moved to a unique backup; the validated
 stage is promoted, validated again at its final path, and only then is the
 backup removed. A promotion failure restores the old runtime. Failed staging
@@ -483,14 +485,16 @@ Get-Item "$stage\bin\R.exe", "$stage\bin\Rscript.exe", "$stage\bin\x64\R.dll" |
 Get-ChildItem Env: | Where-Object Name -in 'R_HOME','R_ARCH','R_LIBS','R_LIBS_USER','R_LIBS_SITE','R_ENVIRON','R_ENVIRON_USER','R_PROFILE','R_PROFILE_USER'
 & "$stage\bin\R.exe" --version; $code=$LASTEXITCODE; '{0} (0x{1:X8})' -f $code,[uint32]$code
 & "$stage\bin\Rscript.exe" --version; $code=$LASTEXITCODE; '{0} (0x{1:X8})' -f $code,[uint32]$code
-& "$stage\bin\Rscript.exe" --vanilla -s -e "cat(as.character(getRversion()))"; $code=$LASTEXITCODE; "`n$code (0x$('{0:X8}' -f [uint32]$code))"
-Get-ChildItem $logs; Get-Content "$logs\installer.log"
+$probe = Join-Path ([IO.Path]::GetTempPath()) ("miraprot-r-version-" + [guid]::NewGuid().ToString("N") + ".R")
+[IO.File]::WriteAllText($probe, "cat(as.character(getRversion()))`n", (New-Object Text.UTF8Encoding($false)))
+try { & "$stage\bin\Rscript.exe" --vanilla $probe; $code=$LASTEXITCODE; "`n$code (0x$('{0:X8}' -f [uint32]$code))" } finally { Remove-Item $probe -Force -ErrorAction SilentlyContinue }
+Get-ChildItem $logs; Get-Content "$logs\installer.log"; Get-Content "$logs\*probe*.log"
 ```
 
 The environment command shows inherited R variables that the bundler removes
-from child processes. The probes show expression output and signed/hex startup
-statuses (including statuses such as `0xC0000005`); probe logs retain the exact
-command, stdout, and stderr. Do not manually copy a failed stage into
+from child processes. The probes show runtime-version output and signed/hex
+startup statuses (including statuses such as `0xC0000005`); probe logs retain
+the native command, stdout, and stderr. Do not manually copy a failed stage into
 `r-portable`. Fix the cause and rerun so safe promotion and rollback remain
 active. `r-library` is separate and is populated only after runtime promotion.
 
