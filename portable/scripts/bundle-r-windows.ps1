@@ -326,6 +326,38 @@ function Get-CranInstallerMd5 {
     return $null
 }
 
+function Get-HttpContentLength {
+    param(
+        [AllowNull()]
+        [object]$HeaderValue
+    )
+
+    $normalizedLength = [int64]0
+    $hasLength = $false
+    foreach ($entry in @($HeaderValue)) {
+        foreach ($token in ([string]$entry -split ',')) {
+            $token = $token.Trim()
+            if ($token.Length -eq 0) { continue }
+
+            $parsedLength = [int64]0
+            if (-not [int64]::TryParse(
+                $token,
+                [Globalization.NumberStyles]::Integer,
+                [Globalization.CultureInfo]::InvariantCulture,
+                [ref]$parsedLength
+            )) { return $null }
+            if ($parsedLength -lt 0) { return $null }
+            if ($hasLength -and $parsedLength -ne $normalizedLength) { return $null }
+
+            $normalizedLength = $parsedLength
+            $hasLength = $true
+        }
+    }
+
+    if (-not $hasLength) { return $null }
+    return $normalizedLength
+}
+
 function Test-RInstaller {
     param(
         [Parameter(Mandatory = $true)]
@@ -388,7 +420,7 @@ function Test-RInstaller {
             Write-Warning "Rejecting installer '$Path': final URL does not identify expected installer '$expectedInstallerName'."
             return $false
         }
-        if ($DownloadRecord.ResponseContentLength -and ([int64]$DownloadRecord.ResponseContentLength -ne $length)) {
+        if ($null -ne $DownloadRecord.ResponseContentLength -and $DownloadRecord.ResponseContentLength -ne $length) {
             Write-Warning "Rejecting installer '$Path': downloaded length $length does not match HTTP content length $($DownloadRecord.ResponseContentLength)."
             return $false
         }
@@ -519,8 +551,7 @@ if ($UseExistingRuntime) {
                 $response = Invoke-WebRequest -Uri $RUrl -OutFile $downloadPath -UseBasicParsing -PassThru
                 $statusCode = [int]$response.StatusCode
                 $finalUrl = if ($response.BaseResponse.ResponseUri) { [string]$response.BaseResponse.ResponseUri.AbsoluteUri } else { [string]$RUrl }
-                $responseContentLength = $null
-                if ($response.Headers['Content-Length']) { $responseContentLength = [int64]$response.Headers['Content-Length'] }
+                $responseContentLength = Get-HttpContentLength -HeaderValue $response.Headers['Content-Length']
                 $downloadedLength = (Get-Item -LiteralPath $downloadPath).Length
                 $downloadRecord = [pscustomobject]@{
                     HttpSuccess = ($statusCode -ge 200 -and $statusCode -lt 300)
