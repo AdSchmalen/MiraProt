@@ -44,8 +44,8 @@ as described below.
 You need:
 
 - Windows PowerShell 5.1 or newer;
-- Git (also needed when building from an archive because the script records
-  version information);
+- Git when building from a Git checkout (an extracted source archive works
+  without Git and receives `unknown` `BUILD_INFO` commit fields);
 - Go 1.22 or newer; and
 - internet access for R, Go tools, and R package downloads.
 
@@ -53,10 +53,24 @@ The basic bundle does **not** require a normal system installation of R. The
 script downloads the required R version into the bundle. It also does **not**
 require Inno Setup; that is only for making a separate installer.
 
-Most R packages have ready-made Windows binaries. If a package instead has to
-compile from source and reports that build tools are missing, install the
-Rtools release appropriate for the bundled R version and retry. Rtools is a
-fallback for assembly, not a normal runtime requirement.
+The script explains its binary-first policy before package installation.
+Compatible Windows binaries are used when the configured repositories provide
+them. If a dependency instead has to compile from source and reports that build
+tools are missing, install the Rtools release appropriate for the bundled R
+version and retry. **Rtools is needed only for source compilation**, not for
+binary packages or normal runtime use. Be aware that `install-packages.R` may
+currently attempt to install Rtools automatically after it detects missing
+build tools.
+
+The bundler also performs preflight checks for Go, Git when `.git` metadata
+makes it required, CRAN internet access, and a writable output path. Resolve a
+reported preflight error before retrying; this avoids leaving a partially built
+bundle for these common setup problems.
+
+The launcher resource helper is pinned to reviewed `go-winres` v0.3.3. Go
+installs it in `GOBIN`, or in the first `GOPATH` entry's `bin` directory when
+`GOBIN` is unset. The script asks `go env` for those locations and invokes the
+resulting full executable path, so that directory need not be added to `PATH`.
 
 #### Build
 

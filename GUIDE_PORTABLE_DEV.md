@@ -98,6 +98,11 @@ xcode-select --install
 ### Windows only
 
 - **PowerShell 5.1+** (built into Windows 10/11)
+- **Git** for a Git checkout. Git is optional for an extracted source archive;
+  the bundler records `unknown` values in `BUILD_INFO` when `.git` metadata is
+  absent.
+- **Internet access** to CRAN and the Go module proxy/GitHub for R, packages,
+  and the pinned launcher-resource helper
 - **Inno Setup 6** (for building the installer):
   ```
   choco install innosetup -y
@@ -318,6 +323,12 @@ Windows, using PowerShell. Unlike Linux/macOS, it downloads R automatically. It
 checks CRAN's current installer location and then the versioned archive, and
 clearly fails if neither contains the requested release.
 
+Before doing build work, the script verifies that Go is on `PATH`, that Git is
+available when `.git` metadata is present, that CRAN is reachable, and that the
+output directory can be created and written. An extracted source archive does
+not need Git: its `BUILD_INFO` uses `unknown` commit fields and launcher version
+`dev`.
+
 ### Running the bundler
 
 ```powershell
@@ -331,7 +342,11 @@ cd C:\path\to\MiraProt
    comes from `portable/R_VERSION`).
    (`R-4.5.2-win.exe`) to your temp directory.
 2. **Silent install** — Runs the R installer silently into `dist\r-portable\`.
-3. **Installs R packages** — Same as Linux/macOS, ~30-60 minutes.
+3. **Installs R packages** — Same as Linux/macOS, ~30-60 minutes. Compatible
+   Windows binaries are preferred when repositories offer them. Rtools is only
+   required when a dependency must compile from source; note that
+   `install-packages.R` may currently try to install Rtools automatically when
+   it detects that build tools are missing.
 4. **Copies the Shiny application** — Uses `robocopy` (built into Windows) to
    copy the project into `dist\shiny-app\`.
 5. **Builds the Go launcher** — Compiles into `dist\MiraProt-launcher.exe`.
@@ -341,8 +356,8 @@ cd C:\path\to\MiraProt
 Near the end of `portable\scripts\bundle-r-windows.ps1`, the resource-generation
 block prepares the icon and Windows metadata before `go build`:
 
-1. `go install github.com/tc-hib/go-winres@latest` installs the `go-winres`
-   build helper when PowerShell cannot find it.
+1. `go install github.com/tc-hib/go-winres@v0.3.3` installs the reviewed,
+   pinned `go-winres` build helper.
 2. `go run gen_ico.go` creates the `.ico` input from the launcher artwork.
 3. `go-winres make` reads the resource configuration and generates
    `portable\launcher\rsrc_windows_amd64.syso`.
@@ -351,13 +366,12 @@ block prepares the icon and Windows metadata before `go build`:
 
 Use the following symptoms to locate failures:
 
-- **`go-winres` is not recognized / command not found:** `go install` normally
-  places the executable in `GOBIN`, or in the Go workspace's `bin` directory
-  when `GOBIN` is unset. Ensure that directory is on `PATH` in the same
-  PowerShell session, then confirm with `Get-Command go-winres` and rerun the
-  bundler. Also review any error printed by the preceding `go install
-  github.com/tc-hib/go-winres@latest` command (for example, a download or Go
-  toolchain failure).
+- **`go-winres` installation/execution fails:** `go install` places the
+  executable in `GOBIN`; when `GOBIN` is empty, it uses the first `GOPATH`
+  entry's `bin` directory. The script queries `go env GOBIN`/`go env GOPATH`,
+  constructs the full `go-winres.exe` path, and invokes that path directly, so
+  the directory does not need to be on `PATH`. Review errors from `go install
+  github.com/tc-hib/go-winres@v0.3.3` for network or toolchain failures.
 - **Blocked-executable or application-control message:** Windows Smart App
   Control, or an organization-managed application-control policy, may prevent
   `go-winres.exe` from running. This blocks a build-time helper; it does not by
