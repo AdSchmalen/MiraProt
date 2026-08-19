@@ -253,15 +253,9 @@ function Test-RRuntimeProcesses {
         # output is deliberately not parsed as authoritative version evidence.
         $rVersionProbe = Invoke-RValidationProbe -FilePath $rPath -ArgumentList @("--version") -Label "R.exe --version" -LogDirectory $LogDirectory -EventName "$EventPrefix probe R.exe --version"
         Assert-RProbeSucceeded -Probe $rVersionProbe
-        if ([string]::IsNullOrWhiteSpace($rVersionProbe.Stdout)) {
-            throw "R process 'R.exe --version' returned empty output."
-        }
 
         $rscriptVersionProbe = Invoke-RValidationProbe -FilePath $rscriptPath -ArgumentList @("--version") -Label "Rscript.exe --version" -LogDirectory $LogDirectory -EventName "$EventPrefix probe Rscript.exe --version"
         Assert-RProbeSucceeded -Probe $rscriptVersionProbe
-        if ([string]::IsNullOrWhiteSpace($rscriptVersionProbe.Stdout)) {
-            throw "R process 'Rscript.exe --version' returned empty output."
-        }
     } catch {
         throw "$phaseLabel failure: $($_.Exception.Message)"
     }

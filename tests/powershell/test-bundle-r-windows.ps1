@@ -57,6 +57,8 @@ func main() {
             [string]$MissingRequired, [switch]$FinalFailure,
             [switch]$AccessViolation, [switch]$ContaminatedEnvironment, [switch]$PartialRuntime,
             [switch]$RStartupFailure, [switch]$RscriptStartupFailure, [switch]$FakeRBeforePath,
+            [string]$RStartupOutput = "R version 4.5.2", [string]$RStartupError = "",
+            [string]$RscriptStartupOutput = "Rscript (R) version 4.5.2", [string]$RscriptStartupError = "",
             [string]$StagingRoot = "",
             [int]$ExpectedStatus, [string[]]$ExpectedMessages,
             [string]$OutputDir = (Join-Path $TempRoot $Name)
@@ -93,8 +95,10 @@ func main() {
         $env:FAKE_INSTALL_OMIT = $MissingRequired
         $env:FAKE_FINAL_FAILURE = if ($FinalFailure) { "1" } else { "" }
         $env:FAKE_R_ACCESS_VIOLATION = if ($AccessViolation) { "1" } else { "" }
-        $env:FAKE_R_VERSION_OUTPUT = "R version 4.5.2"
-        $env:FAKE_RSCRIPT_VERSION_OUTPUT = "Rscript (R) version 4.5.2"
+        $env:FAKE_R_VERSION_OUTPUT = $RStartupOutput
+        $env:FAKE_R_VERSION_ERROR = $RStartupError
+        $env:FAKE_RSCRIPT_VERSION_OUTPUT = $RscriptStartupOutput
+        $env:FAKE_RSCRIPT_VERSION_ERROR = $RscriptStartupError
         $env:FAKE_R_VERSION_EXIT = if ($RStartupFailure) { "1" } else { "" }
         $env:FAKE_RSCRIPT_VERSION_EXIT = if ($RscriptStartupFailure) { "1" } else { "" }
         $env:FAKE_R_STDOUT = $VersionOutput
@@ -131,8 +135,12 @@ func main() {
     Invoke-Case wrong "4.5.1" -ExpectedStatus 1 -ExpectedMessages @("R version mismatch", "requested R 4.5.2") | Out-Null
     Invoke-Case empty-zero "" -ExpectedStatus 1 -ExpectedMessages @("returned an empty version") | Out-Null
     Invoke-Case malformed "R version 4.5.2" -ExpectedStatus 1 -ExpectedMessages @("malformed version", "expected MAJOR.MINOR.PATCH") | Out-Null
-    Invoke-Case r-startup-failure "4.5.2" -RStartupFailure -ExpectedStatus 1 -ExpectedMessages @("R.exe --version", "nonzero exit code 23") | Out-Null
-    Invoke-Case rscript-startup-failure "4.5.2" -RscriptStartupFailure -ExpectedStatus 1 -ExpectedMessages @("Rscript.exe --version", "nonzero exit code 23") | Out-Null
+    Invoke-Case r-startup-stderr-banner "4.5.2" -RStartupOutput "" -RStartupError "R version 4.5.2 (2025-10-31 ucrt)" -ExpectedStatus 0 -ExpectedMessages @('Rscript.exe --vanilla -s -e "cat(as.character(getRversion()))"', "validation completed") | Out-Null
+    Invoke-Case r-startup-stdout-banner "4.5.2" -RStartupError "" -ExpectedStatus 0 -ExpectedMessages @("validation completed") | Out-Null
+    Invoke-Case rscript-startup-stderr-banner "4.5.2" -RscriptStartupOutput "" -RscriptStartupError "Rscript (R) version 4.5.2" -ExpectedStatus 0 -ExpectedMessages @('Rscript.exe --vanilla -s -e "cat(as.character(getRversion()))"', "validation completed") | Out-Null
+    Invoke-Case rscript-startup-stdout-banner "4.5.2" -RscriptStartupError "" -ExpectedStatus 0 -ExpectedMessages @("validation completed") | Out-Null
+    Invoke-Case r-startup-failure "4.5.2" -RStartupOutput "" -RStartupError "loader failure" -RStartupFailure -ExpectedStatus 1 -ExpectedMessages @("R.exe --version", "loader failure", "nonzero exit code 23") | Out-Null
+    Invoke-Case rscript-startup-failure "4.5.2" -RscriptStartupOutput "" -RscriptStartupError "startup failure" -RscriptStartupFailure -ExpectedStatus 1 -ExpectedMessages @("Rscript.exe --version", "startup failure", "nonzero exit code 23") | Out-Null
     Invoke-Case empty-nonzero "" -VersionFailure -VersionError "loader failed" -ExpectedStatus 1 -ExpectedMessages @("nonzero exit code 23", "0x00000017") | Out-Null
     Invoke-Case missing-executable "4.5.2" -NoExistingRuntime -InstallerOmitsRscript -FakeRBeforePath -ExpectedStatus 1 -ExpectedMessages @("missing required file", "bin\Rscript.exe") | Out-Null
     Invoke-Case failed-installer "4.5.2" -NoExistingRuntime -InstallerFailure -ExpectedStatus 1 -ExpectedMessages @("failed with exit code 17") | Out-Null
