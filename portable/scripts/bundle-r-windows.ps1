@@ -332,11 +332,16 @@ function Test-RInstaller {
 
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $false }
 
+    # Tiny locally-built executables are accepted only by the isolated test
+    # fixture.  Keeping this opt-in separate from BundlerTestMode ensures that
+    # tests can still exercise (and reject with) the production identity path.
+    $fixtureIdentity = ($BundlerTestMode -and $env:MIRAPROT_TEST_INSTALLER_FIXTURE -eq "1")
+
     # R's Windows installer is normally tens of megabytes. Ten MiB is a
     # deliberately conservative floor that rejects empty/truncated responses.
     $minimumInstallerBytes = 10MB
     $length = (Get-Item -LiteralPath $Path).Length
-    if ($length -lt $minimumInstallerBytes) {
+    if (-not $fixtureIdentity -and $length -lt $minimumInstallerBytes) {
         Write-Warning "Rejecting installer '$Path': size $length bytes is implausibly small."
         return $false
     }
@@ -345,7 +350,8 @@ function Test-RInstaller {
         return $false
     }
 
-    if ($BundlerTestMode) {
+    if ($fixtureIdentity) {
+        Write-Host "Accepting explicitly scoped local installer fixture."
         return $true
     }
 
@@ -516,7 +522,9 @@ if ($UseExistingRuntime) {
 
     # Keep this path short: deeply nested output directories can otherwise make
     # the R installer exceed legacy Windows path limits.
-    $RStaging = Join-Path $env:TEMP ("MiraProt-R-$RVersion-" + [guid]::NewGuid().ToString("N"))
+    $stagingParent = if ($BundlerTestMode -and $env:MIRAPROT_TEST_STAGING_ROOT) { $env:MIRAPROT_TEST_STAGING_ROOT } else { $env:TEMP }
+    New-Item -ItemType Directory -Force -Path $stagingParent | Out-Null
+    $RStaging = Join-Path $stagingParent ("MiraProt-R-$RVersion-" + [guid]::NewGuid().ToString("N"))
     $StagingLogs = "$RStaging-logs"
     $InstallerLog = Join-Path $StagingLogs "installer.log"
     $StagedRscriptPath = Join-Path $RStaging "bin\Rscript.exe"

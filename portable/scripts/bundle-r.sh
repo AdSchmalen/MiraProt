@@ -293,6 +293,7 @@ fi
 # Wrapper repair above can change which binary is reached. Validate the exact
 # final paths before any package installation or other R execution.
 validate_r_installation "$R_PORTABLE/bin/R" "$R_PORTABLE/bin/Rscript"
+if [ "${MIRAPROT_TEST_RUNTIME_ONLY:-0}" = 1 ]; then exit 0; fi
 echo ""
 
 # -----------------------------------------------------------------------
