@@ -1,214 +1,482 @@
 # MiraProt
 
-MiraProt is a modular Shiny application for proteomics analysis with two supported execution modes:
+**MiraProt** is a modular R Shiny application for interactive downstream proteomics analysis.
 
-1. **Developer mode (local R / RStudio):** run directly from source.
-2. **Portable mode (locally generated desktop package):** build from this source repository, then run via the bundled launcher + R runtime.
+It brings commonly used proteomics analysis and visualization workflows into a connected graphical environment, allowing results and selections to be transferred between analysis modules without repeatedly exporting and re-importing intermediate data.
 
-This README is a practical entry point for both audiences and is aligned with the in-app documentation architecture (`Documentation/MiraProt_doc_ui.R`, `Documentation/MiraProt_doc_user.R`, `Documentation/MiraProt_doc_tech.R`).
+MiraProt includes tools for data preparation, differential expression analysis, PCA and UMAP, heatmaps, functional enrichment, gene set enrichment analysis (GSEA), STRING protein-interaction networks, volcano and dot plots, set visualization, and figure composition.
 
----
+## Getting started
 
-## Choose your mode
+MiraProt can be used in two ways:
 
-### A) Developer mode (R/RStudio, from source)
+1. **Source mode** — run MiraProt directly from the repository using a local R installation.
+2. **Self-built portable mode** — build a standalone local MiraProt distribution from the provided source and build scripts.
 
-Choose this when you:
-
-- want to inspect or change code,
-- already work in R or RStudio,
-- need module-level debugging and development workflows.
-
-### B) Portable mode (standalone app)
-
-Choose this when you:
-
-- want a repeatable local desktop artifact,
-- need a reproducible desktop bundle with launcher and preinstalled packages,
-- want to bundle the package environment once and launch it repeatedly.
+Official MiraProt releases distribute **source code rather than precompiled portable application bundles**.
 
 ---
 
-## Developer mode (local R / RStudio)
+# Source mode
 
-### 1) Prerequisites
+## Requirements
 
-- R installed locally (portable build tooling reads its maintained R runtime default from `portable/R_VERSION`; source mode should use a modern compatible R release).
-- System libraries as required by your OS for Bioconductor/CRAN packages.
-- Git clone or downloaded source tree.
+To run MiraProt directly from source, you need:
 
-### 2) Install dependencies
+- R;
+- the R packages required by MiraProt;
+- an internet connection for installation and for features that access online databases.
 
-From repository root:
+RStudio is optional.
 
-```bash
-Rscript install.R
+## Download MiraProt
+
+Clone the repository:
+
+```
+git clone https://github.com/AdSchmalen/MiraProt.git
+cd MiraProt
+
 ```
 
-This script installs Bioconductor + CRAN + GitHub dependencies, includes fallbacks for common build-tool issues, and can be rerun safely.
+Alternatively, download a tagged MiraProt source release from GitHub and extract it to a local directory.
 
-### 3) Run the app
+For published analyses, use a tagged release rather than an arbitrary development version.
 
-```bash
-Rscript -e "shiny::runApp('.')"
+## Install the R environment
+
+For reproducible use of the publication release, restore the package versions recorded in `renv.lock`:
+
 ```
-
-or in RStudio console:
-
-```r
-shiny::runApp('.')
-```
-
-### 4) Startup behavior (repository-verified)
-
-- `app.R` initializes session lock/cleanup behavior.
-- A shared `modEnv` is created/cleared.
-- Source files are loaded dynamically from:
-  - `modules/*.R` wrappers,
-  - most `R/*.R` infrastructure files,
-  - all `Documentation/*.R` documentation renderers.
-- UI is built through `build_ui(modEnv)`.
-- Server initializes shared `rv`, module outputs, coordination, exports, diagnostics, and session save/restore wiring.
-
----
-
-## Portable mode (standalone edition)
-
-Portable mode is implemented under `portable/` and uses a Go launcher that starts the bundled R runtime and opens the Shiny UI in your browser.
-
-For complete operational details:
-
-- **End users:** `GUIDE_PORTABLE_USER.md`
-- **Developers/release maintainers:** `GUIDE_PORTABLE_DEV.md`
-
-### Portable quick facts
-
-- Includes launcher + bundled R + bundled packages + app source. Linux/macOS builds require the matching native R to be preinstalled; the Windows bundler downloads R automatically.
-- Intended to run without requiring local R/RStudio installation.
-- Is normally built locally from the source repository; public portable binaries are not the authoritative installation path.
-- Provides platform-specific packaging (Windows installer, macOS app/dmg, Linux AppImage/archive) via scripts under `portable/installers/` and `portable/scripts/`.
-
-### R runtime version versus MiraProt version
-
-The bundlers' optional `-RVersion` (Windows) and `--r-version` (Linux/macOS)
-arguments select the **R runtime placed in `r-portable`**. They do not select
-the MiraProt application version. Ordinary users should omit these arguments;
-`portable/R_VERSION` is the maintained default. An override is intended for a
-maintainer deliberately testing a different, exactly matching R installation.
-
-On Windows, runtime validation does not depend on a `VERSION` file. The
-bundler uses the portable `R.exe --version` and `Rscript.exe --version` as
-startup probes, then obtains the authoritative version from the absolute-path
-portable `Rscript.exe` running `getRversion()`. It isolates inherited R
-configuration and repeats these checks after promotion, before replacing the
-previous runtime permanently.
-
-MiraProt application versioning is derived independently from Git/build
-metadata and the product-version logic in `R/version_info.R`. It is not the R
-version, launcher version, Windows installer version, or saved-session schema
-version; each of those has its own compatibility and release purpose.
-
----
-
-## Internet-dependent vs offline features
-
-Most plotting and data-processing workflows can run offline once dependencies are installed.
-
-Internet is typically required for:
-
-- **GO module** (AnnotationHub retrieval/caching).
-- **STRING module** (remote STRING database queries).
-- **Annotation workflows via biomaRt** (remote Ensembl access).
-
----
-
-## Project layout (high-level)
-
-```text
-MiraProt/
-  app.R                       # entrypoint and runtime orchestration
-  install.R                   # dependency installation script
-  update.R                    # dependency update workflow
-  R/                          # app infrastructure (UI/server wiring, coordination, diagnostics, export)
-  modules/                    # module wrappers + per-module implementation trees
-  Documentation/              # in-app user and technical documentation modules
-  portable/                   # launcher, bundling scripts, installer definitions
-  GSEA/                       # bundled gene set resources
-  AutoAssign/                 # auto-assign templates/resources
-  GUIDE_PORTABLE_USER.md      # end-user standalone guide
-  GUIDE_PORTABLE_DEV.md       # standalone build/release guide
-```
-
----
-
-## Documentation model in this repository
-
-MiraProt keeps documentation responsibilities explicit:
-
-- `Documentation/MiraProt_doc_ui.R`: routing/navigation only.
-- `Documentation/MiraProt_doc_user.R`: user-facing content.
-- `Documentation/MiraProt_doc_tech.R`: developer-facing content.
-
-If you update architecture or workflows, update the corresponding documentation owner file to keep in-app docs and README consistent.
-
----
-
-## Developer notes for safe extension
-
-When adding or refactoring modules:
-
-1. Add/adjust wrapper entry points under `modules/*_module.R`.
-2. Keep module internals in module-specific subdirectories.
-3. Register integration points in app-level UI/server orchestration (`R/ui.R`, `R/server_modules.R`, `R/server_coordination.R`).
-4. Keep cross-module data flow explicit via shared reactive contracts, not hidden direct dependencies.
-
----
-
-## Support files to read next
-
-- `README.md` (this file): orientation + mode selection.
-- `GUIDE_PORTABLE_USER.md`: standalone usage details.
-- `GUIDE_PORTABLE_DEV.md`: build, packaging, and release details.
-- `Documentation/MiraProt_doc_user.R`: in-app user workflow documentation.
-- `Documentation/MiraProt_doc_tech.R`: in-app technical architecture documentation.
-
----
-
-## License
-
-MiraProt is open-source research software distributed under the MIT License.
-
-Copyright (c) 2026 Adrian Schmalen.
-
-See [`LICENSE`](LICENSE) for the full license terms.
-
-Third-party software packages, databases, web services, and scientific
-resources used with MiraProt remain subject to their respective upstream
-licenses and terms. See [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) for
-additional information.
-
-MSigDB gene-set files are not distributed with MiraProt. Users who wish to use
-MSigDB collections must obtain them directly from MSigDB and comply with the
-applicable MSigDB terms and citation requirements.
-
-## Citation
-
-If you use MiraProt in published research, please cite the associated MiraProt
-publication and the software version used for your analysis.
-
-Machine-readable citation metadata are provided in
-[`CITATION.cff`](CITATION.cff).
-
-The publication release of MiraProt is archived in Zenodo to provide a
-persistent, version-specific software record and DOI.
-
-## Reproducibility
-
-The publication release includes an `renv.lock` file recording the R package
-environment used for the reference MiraProt release.
-
-To restore the recorded R package environment:
-
-```r
 install.packages("renv")
 renv::restore()
+
+```
+
+MiraProt also provides `install.R` as a convenience installer for the required CRAN, Bioconductor, and GitHub dependencies:
+
+```
+Rscript install.R
+
+```
+
+The `renv.lock` file should be preferred when reproducing the software environment of a specific MiraProt release.
+
+## Run MiraProt
+
+From the repository root:
+
+```
+Rscript -e "shiny::runApp('.')"
+
+```
+
+or from an R/RStudio console:
+
+```
+shiny::runApp(".")
+
+```
+
+---
+
+# Self-built portable mode
+
+MiraProt includes tools for assembling a standalone local distribution.
+
+The portable build can combine the MiraProt source code, an R runtime, the required R packages, and a launcher into a locally generated application.
+
+Precompiled portable distributions, bundled R runtimes, bundled R package libraries, installers, DMG files, AppImages, and Windows setup executables are **not distributed as official MiraProt release assets**.
+
+Users who want a portable edition build it locally from the tagged MiraProt source release.
+
+Detailed instructions are provided in:
+
+- `GUIDE_PORTABLE_USER.md`
+- `GUIDE_PORTABLE_DEV.md`
+
+Third-party components included in a locally generated portable build remain subject to their respective upstream licenses.
+
+If a locally generated bundle is redistributed, the person redistributing it is responsible for complying with the applicable licenses and redistribution requirements of R, R packages, and other bundled third-party components.
+
+---
+
+# Typical workflow
+
+A typical MiraProt workflow begins in the **Data Wizard**, where proteomics tables can be imported, organized, annotated, filtered, transformed, and prepared for downstream analysis.
+
+The **Primary Data** together with its associated metadata are then made available to the downstream MiraProt analysis modules.
+
+**Secondary Data** can be used within the Data Wizard to extend or modify the Primary Data, for example through merging or pivot merging, but are not passed directly to downstream analysis modules.
+
+Once the data are prepared, analysis can continue across the different MiraProt modules. Depending on the workflow, results or selected identifiers can be transferred between modules to support connected downstream exploration.
+
+---
+
+# Major analysis features
+
+MiraProt provides interconnected functionality for common downstream proteomics workflows, including:
+
+- data import, restructuring, filtering, annotation, normalization, imputation, and transformation;
+- differential expression analysis;
+- volcano plots;
+- PCA and UMAP;
+- heatmap visualization;
+- Gene Ontology enrichment;
+- Gene Set Enrichment Analysis;
+- STRING protein-protein interaction analysis;
+- customizable dot plots;
+- Venn and set-based visualization;
+- figure and plot-grid composition;
+- export of plots and analysis results;
+- session saving and restoration.
+
+The available controls and statistical methods depend on the selected module and on the structure and metadata of the imported dataset.
+
+---
+
+# Gene Set Enrichment Analysis and MSigDB
+
+## Gene-set files are not included with MiraProt
+
+MiraProt contains the code required to perform Gene Set Enrichment Analysis, but **does not distribute gene-set database files**.
+
+This separation is intentional.
+
+To perform GSEA, you must provide one or more gene-set files in **GMT format**.
+
+MiraProt searches the following directory for these files:
+
+```
+GSEA/
+
+```
+
+Any compatible file ending in:
+
+```
+.gmt
+
+```
+
+that is placed directly in this directory can be detected by the GSEA module.
+
+For example, after adding your own gene-set files, your local directory may look like:
+
+```
+MiraProt/
+├── GSEA/
+│   ├── h.all.v2026.1.Hs.symbols.gmt
+│   ├── c2.cp.reactome.v2026.1.Hs.symbols.gmt
+│   └── c5.go.bp.v2026.1.Hs.symbols.gmt
+├── modules/
+├── R/
+├── app.R
+└── ...
+
+```
+
+The exact filenames depend on the database release and collections you choose.
+
+## Using MSigDB
+
+MiraProt is compatible with gene-set collections distributed through the **Molecular Signatures Database (MSigDB)**.
+
+MSigDB files are **not included in the MiraProt repository or its releases**.
+
+To use MSigDB gene sets:
+
+1. Visit the official MSigDB website:
+   [https://www.gsea-msigdb.org/gsea/msigdb/](https://www.gsea-msigdb.org/gsea/msigdb/)
+2. Register or sign in if required by MSigDB.
+3. Download the desired **human gene-symbol GMT collection**.
+4. Copy the downloaded `.gmt` file into the `GSEA/` directory of your MiraProt installation.
+5. Start MiraProt and open the GSEA module. The available GMT files can then be selected as gene-set resources for the analysis.
+
+You do **not** need to download every MSigDB collection. Download only the collections required for your analysis.
+
+For example, commonly used collections include:
+
+- Hallmark gene sets;
+- Reactome pathways;
+- Gene Ontology Biological Process;
+- Gene Ontology Cellular Component;
+- Gene Ontology Molecular Function.
+
+The choice of collection is part of the scientific analysis and should be documented when reporting results.
+
+## Licensing of gene-set files
+
+MSigDB and its gene-set collections are independent third-party scientific resources.
+
+Downloaded MSigDB files:
+
+- are not part of MiraProt;
+- are not licensed under the MiraProt MIT License;
+- should not be committed to the MiraProt repository;
+- remain subject to the license terms, attribution requirements, and citation requirements specified by MSigDB and the underlying collection providers.
+
+For reproducible research, record the exact MSigDB release and collection used in an analysis.
+
+For example:
+
+```
+MSigDB release: 2026.1.Hs
+Collection: Hallmark gene sets
+Identifier type: Gene Symbol
+
+```
+
+When publishing GSEA results, cite MSigDB and any underlying resources as required by the corresponding database documentation.
+
+---
+
+# Internet-dependent features
+
+Most local data processing and visualization functions can operate without an internet connection once MiraProt and its dependencies have been installed.
+
+Some features require access to external services.
+
+## AnnotationHub
+
+Gene Ontology and annotation workflows can retrieve organism-specific annotation resources through Bioconductor and AnnotationHub.
+
+Downloaded resources can be cached locally for later reuse.
+
+## Ensembl BioMart
+
+The Data Wizard annotation workflow can access Ensembl BioMart for identifier mapping and cross-species annotation.
+
+MiraProt can cache BioMart metadata and mapping tables locally so that previously downloaded information can be reused.
+
+## STRING
+
+The STRING module communicates with the STRING database to retrieve protein-interaction information.
+
+An internet connection is therefore required when new STRING information needs to be retrieved.
+
+## GSEA
+
+The GSEA analysis itself uses the local `.gmt` files supplied by the user.
+
+Once the required gene-set files and R dependencies are available locally, the gene-set database does not need to be downloaded from MSigDB during each analysis.
+
+---
+
+# Caches and downloaded resources
+
+MiraProt can cache information retrieved from external databases to improve performance and reduce repeated network requests.
+
+These caches can include resources obtained from services such as:
+
+- AnnotationHub;
+- Ensembl BioMart;
+- STRING or related external services where applicable.
+
+Cache files are generated locally and are not part of the official MiraProt source distribution.
+
+Removing a cache does not remove MiraProt itself. Required information will be downloaded again when the corresponding feature needs it.
+
+---
+
+# Project structure
+
+The main repository structure is:
+
+```
+MiraProt/
+├── app.R
+├── install.R
+├── renv.lock
+├── LICENSE
+├── THIRD_PARTY_NOTICES.md
+├── CITATION.cff
+│
+├── R/
+│   └── application-wide infrastructure
+│
+├── modules/
+│   ├── main module entry files
+│   └── module-specific implementation directories
+│
+├── Documentation/
+│   └── in-app user and technical documentation
+│
+├── GSEA/
+│   └── user-supplied GMT gene-set files
+│
+├── AutoAssign/
+│   └── Data Wizard assignment presets
+│
+├── portable/
+│   └── portable-build and launcher source
+│
+├── GUIDE_PORTABLE_USER.md
+└── GUIDE_PORTABLE_DEV.md
+
+```
+
+The root `modules/` directory contains the main module entry files. Detailed implementation code is organized in the corresponding module subdirectories.
+
+The Data Wizard uses an additional feature-based level of organization, with its main feature scripts under `modules/Data Wizard/` and detailed feature implementations in corresponding subdirectories.
+
+---
+
+# Reproducibility
+
+MiraProt releases are versioned so that analyses can be associated with a defined software state.
+
+For a reproducible analysis, record at least:
+
+- the MiraProt version;
+- the R version;
+- the package environment represented by `renv.lock`;
+- the input data and relevant preprocessing decisions;
+- external database/resource versions where applicable;
+- the MSigDB release and collection when GSEA is used.
+
+The package environment of the reference release can be restored with:
+
+```
+install.packages("renv")
+renv::restore()
+
+```
+
+A tagged MiraProt software release should be used when reproducing analyses associated with a publication.
+
+---
+
+# Session save and restore
+
+MiraProt supports saving and restoring application sessions.
+
+Session files can preserve analysis state so that work can be continued later without manually recreating all module settings.
+
+Because MiraProt can interact with external resources and locally generated caches, restoration of a session does not replace the need to retain the corresponding input data, compatible software environment, and required external resources.
+
+For long-term reproducibility, retain the MiraProt release version and the files used for the original analysis.
+
+---
+
+# Documentation
+
+MiraProt includes both user-facing and technical documentation inside the application.
+
+The user documentation explains:
+
+- how to prepare data;
+- how to use the individual analysis modules;
+- available analysis options;
+- import and export workflows;
+- GSEA resource setup;
+- session handling.
+
+Technical documentation describes the internal architecture and is intended primarily for development and maintenance.
+
+Additional information on building a portable local distribution is available in:
+
+- `GUIDE_PORTABLE_USER.md`
+- `GUIDE_PORTABLE_DEV.md`
+
+---
+
+# Third-party software and resources
+
+MiraProt depends on third-party R and Bioconductor packages and can interact with external scientific databases and services.
+
+These dependencies and resources remain subject to their respective upstream licenses and terms.
+
+The official MiraProt source release does not relicense:
+
+- R;
+- CRAN packages;
+- Bioconductor packages;
+- Go dependencies;
+- MSigDB gene-set collections;
+- AnnotationHub resources;
+- Ensembl/BioMart data;
+- STRING data;
+- other externally obtained scientific resources.
+
+Additional information is provided in:
+
+```
+THIRD_PARTY_NOTICES.md
+
+```
+
+---
+
+# License
+
+MiraProt is distributed under the **MIT License**.
+
+Copyright (c) 2026 Adrian Schmalen
+
+See:
+
+```
+LICENSE
+
+```
+
+for the full license terms.
+
+The MIT License applies to the original MiraProt software and associated material for which the copyright holder is entitled to grant that license.
+
+Third-party packages, databases, downloaded resources, and other externally provided material remain subject to their respective licenses and terms.
+
+---
+
+# Citation
+
+If you use MiraProt in published research, please cite the associated MiraProt publication and the software version used for your analysis.
+
+Machine-readable citation information is provided in:
+
+```
+CITATION.cff
+
+```
+
+The publication release of MiraProt is archived separately to provide a persistent, version-specific software record.
+
+When external resources such as MSigDB, STRING, Ensembl, AnnotationHub, or individual R/Bioconductor methods make a substantive contribution to an analysis, cite the corresponding resources and methods as appropriate.
+
+---
+
+# Research use and disclaimer
+
+MiraProt is research software intended for scientific data analysis and education.
+
+It has not been validated as a clinical diagnostic or medical decision-making system.
+
+Results generated by MiraProt should be interpreted in the context of the experimental design, data quality, selected statistical methods, analysis parameters, and relevant biological evidence.
+
+MiraProt is provided under the conditions stated in the MIT License and without warranty of any kind.
+
+---
+
+# Contributing and development
+
+MiraProt is organized as a modular Shiny application.
+
+When modifying or extending the software:
+
+- keep module entry points in the root `modules/` directory;
+- keep module-specific implementation code in the corresponding module subdirectory;
+- preserve explicit cross-module reactive interfaces;
+- update technical documentation when implementation architecture changes;
+- avoid committing generated caches or third-party scientific resources;
+- do not commit MSigDB `.gmt` files.
+
+Changes affecting scientific calculations should be tested carefully to ensure that expected analysis behavior remains reproducible.
+
+---
+
+# Repository
+
+MiraProt source code:
+
+[https://github.com/AdSchmalen/MiraProt](https://github.com/AdSchmalen/MiraProt)
