@@ -7,6 +7,8 @@
 # Depends on: modEnv (module UI functions loaded into it)
 
 build_ui <- function(modEnv) {
+  version_info <- miraprot_version_info()
+
   navbarPage(
     title = "MiraProt - Proteomics Data Analysis",
     theme = bslib::bs_theme(version = 4, bootswatch = "flatly"),
@@ -589,8 +591,9 @@ build_ui <- function(modEnv) {
                ),
 
                h3("Version Information"),
-               p("Current Version: 2.0 (Modular Architecture)"),
-               p("Last Updated: ", Sys.Date()),
+               p("Current Version: ", version_info$version),
+               p("Commit: ", version_info$commit),
+               p("Last Updated: ", version_info$last_updated),
 
                h3("Contact"),
                tags$p(

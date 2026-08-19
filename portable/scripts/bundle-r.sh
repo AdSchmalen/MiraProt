@@ -240,6 +240,11 @@ rsync -a \
   "$PROJECT_ROOT/" "$SHINY_APP/"
 
 echo "App copied to: $SHINY_APP"
+{
+  echo "COMMIT_COUNT=$(git -C "$PROJECT_ROOT" rev-list --count HEAD)"
+  echo "COMMIT_SHA=$(git -C "$PROJECT_ROOT" rev-parse --short=7 HEAD)"
+  echo "COMMIT_DATE=$(git -C "$PROJECT_ROOT" log -1 --format=%cs)"
+} > "$SHINY_APP/BUILD_INFO"
 echo ""
 
 # -----------------------------------------------------------------------

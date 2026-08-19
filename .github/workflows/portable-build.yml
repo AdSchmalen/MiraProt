@@ -332,6 +332,17 @@ jobs:
           # Reset exit code — robocopy returns 1 for "files copied" which is success
           $global:LASTEXITCODE = 0
 
+      # The packaged app excludes .git, so preserve the revision information
+      # consumed by R/version_info.R before building the archives.
+      - name: Record application revision
+        shell: bash
+        run: |
+          {
+            echo "COMMIT_COUNT=$(git rev-list --count HEAD)"
+            echo "COMMIT_SHA=$(git rev-parse --short=7 HEAD)"
+            echo "COMMIT_DATE=$(git log -1 --format=%cs)"
+          } > dist/shiny-app/BUILD_INFO
+
       # ----------------------------------------------------------------
       # 11. Build Go launcher
       # ----------------------------------------------------------------
