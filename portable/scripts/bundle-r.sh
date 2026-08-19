@@ -88,10 +88,53 @@ echo ""
 mkdir -p "$OUTPUT_DIR" "$R_LIBRARY"
 
 validate_r_version() {
-  local rscript="$1" actual
-  actual="$("$rscript" --vanilla -s -e 'cat(as.character(getRversion()))')"
+  local rscript="$1" rscript_path actual error_file status
+  rscript_path="$(cd "$(dirname "$rscript")" && pwd -P)/$(basename "$rscript")"
+  error_file="$(mktemp "${TMPDIR:-/tmp}/miraprot-r-version.XXXXXX")"
+
+  if ! actual="$("$rscript_path" --vanilla -s -e 'cat(as.character(getRversion()))' 2>"$error_file")"; then
+    status="${PIPESTATUS[0]}"
+    echo "ERROR: Failed to query the R version." >&2
+    echo "Rscript: $rscript_path" >&2
+    echo "Exit status: $status" >&2
+    echo "Captured standard output:" >&2
+    if [ -n "$actual" ]; then
+      printf '%s\n' "$actual" >&2
+    else
+      echo "(no standard output)" >&2
+    fi
+    echo "Captured standard error:" >&2
+    if [ -s "$error_file" ]; then
+      cat "$error_file" >&2
+    else
+      echo "(no standard error)" >&2
+    fi
+    case "$PLATFORM" in
+      linux)
+        echo "Suggestion: inspect missing shared libraries with: ldd '$rscript_path'" >&2
+        ;;
+      darwin)
+        echo "Suggestion: verify that uname -m, R, and the launcher all use matching architectures." >&2
+        ;;
+    esac
+    rm -f "$error_file"
+    exit 1
+  fi
+  rm -f "$error_file"
+
+  # R normally emits no surrounding whitespace, but tolerate it while retaining
+  # an explicit distinction between no version and a malformed version.
+  actual="$(printf '%s' "$actual" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+  if [ -z "$actual" ]; then
+    echo "ERROR: $rscript_path returned an empty R version." >&2
+    exit 1
+  fi
+  if [[ ! "$actual" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    echo "ERROR: $rscript_path returned malformed R version '$actual' (expected MAJOR.MINOR.PATCH)." >&2
+    exit 1
+  fi
   if [ "$actual" != "$R_VERSION" ]; then
-    echo "ERROR: Requested R $R_VERSION, but $rscript is R $actual." >&2
+    echo "ERROR: Requested R $R_VERSION, but $rscript_path is R $actual." >&2
     echo "Linux/macOS bundling requires the requested R version to be preinstalled and selected in PATH." >&2
     echo "Install/select R $R_VERSION (for example: rig add $R_VERSION && rig default $R_VERSION), then retry." >&2
     exit 1
