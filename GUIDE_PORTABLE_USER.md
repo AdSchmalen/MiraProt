@@ -300,11 +300,18 @@ default browser. If no page opens, try `http://127.0.0.1:3838`. MiraProt selects
 another available port when 3838 is already occupied.
 
 Keep the **entire** `portable/dist` folder together: the launcher needs the
-neighboring `r-portable`, `r-library`, `shiny-app`, and cache folders. Put the
-repository and finished bundle in a location where your account can write,
-such as your Documents folder. Avoid read-only media, protected system folders,
-and locations managed with restrictive corporate permissions. MiraProt writes
-logs and working data to these application-data locations:
+neighboring `r-portable`, `r-library`, and `shiny-app` folders. In a flat
+Windows, Linux, or macOS bundle, the adjacent `go-cache/` is application data,
+not a log directory: it holds the writable AnnotationHub, organism, and BioMart
+caches. If it is absent, the flat launcher creates it beside itself. Therefore
+the portable directory **must be writable by the user running MiraProt**. Put
+the repository and finished bundle in a location such as your Documents folder;
+do not run the flat bundle from read-only media, a protected system folder, or
+a location with restrictive corporate permissions.
+
+Logs and the single-instance `launcher.lock` are separate from that adjacent
+cache. They live in the per-user application-data directory below (`logs/` and
+`launcher.lock`, respectively):
 
 | System | Application-data location |
 |---|---|
@@ -312,9 +319,19 @@ logs and working data to these application-data locations:
 | macOS | `~/Library/Application Support/MiraProt` |
 | Linux | `~/.local/share/MiraProt` |
 
-Some features still need internet access while running: STRING and biomaRt use
-online services, and organism/AnnotationHub data may be downloaded on first
-use. Those online-service requirements are separate from the build tools.
+Installed package formats behave differently. A macOS `.app`/DMG or Linux
+AppImage treats its packaged `go-cache/` as read-only seed data and copies it,
+on first launch and only when the destination is empty, into
+`<application-data>/cache/`. A flat portable directory (including the Windows
+installer's installed layout) uses its adjacent writable `go-cache/` directly.
+
+Cache prebuild is optional on every platform. When a build contains no usable
+prebuilt cache—or the cache is absent on first use—MiraProt creates the writable
+cache location and AnnotationHub/organism features download the data they need
+at runtime. The first affected operation can consequently be slower and needs
+internet access; later uses reuse the downloaded files. BioMart and STRING are
+online services as well. These runtime requirements are separate from the build
+tools.
 
 ## 4. Rebuild or update
 

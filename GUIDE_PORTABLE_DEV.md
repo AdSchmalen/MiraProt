@@ -273,12 +273,17 @@ R_VERSION=4.5.2 OUTPUT_DIR=portable/dist ./portable/scripts/bundle-r.sh
    packages into `dist/r-library/`. This takes **30-60 minutes** on a fresh
    build. Packages are: 17 Bioconductor, 62 CRAN, 18 optional, 1 GitHub
    (shinyTree).
-4. **Copies the Shiny application** — Uses `rsync` to copy the project
+4. **Prebuilds and merges caches (optional)** — Attempts
+   `prebuild-cache.R`, but warns and continues if AnnotationHub is unavailable;
+   runtime download is the supported fallback on every platform. It then merges
+   any project source caches as described in [Portable cache resolution and
+   assembly](#portable-cache-resolution-and-assembly).
+5. **Copies the Shiny application** — Uses `rsync` to copy the project
    (excluding `.git`, `cache/`, `portable/`, `scripts/`, `tests/`, etc.) into
    `dist/shiny-app/`. The top-level `scripts/` and `tests/` directories remain
    in the source checkout for development and pre-package validation, but are
    omitted from the generated runtime distribution.
-5. **Builds the Go launcher** — Compiles the launcher into `dist/MiraProt-launcher`.
+6. **Builds the Go launcher** — Compiles the launcher into `dist/MiraProt-launcher`.
 
 The CI workflow adds five development libraries beyond the bundler's eight:
 `libcurl4-openssl-dev`, `libssl-dev`, `libxml2-dev`, `libgtk-3-dev`, and
@@ -304,7 +309,8 @@ dist/
 ├── MiraProt-launcher     # Go binary (or .exe on Windows)
 ├── shiny-app/             # The MiraProt R application
 ├── r-portable/            # Portable R installation
-└── r-library/             # Pre-compiled R packages
+├── r-library/             # Pre-compiled R packages
+└── go-cache/              # Optional prebuilt/seeded runtime cache
 ```
 
 `dist/` (or `portable/dist/` when the default is used) is a **local build
@@ -673,6 +679,53 @@ Cache behavior differs by distribution layout:
 
 This separation is required for AppImage's read-only mount and also avoids
 modifying installed application resources on macOS.
+
+#### Portable cache resolution and assembly
+
+The launcher resolves cache paths in `portable/launcher/config.go`:
+
+1. `CacheDir(name)` asks `goCacheRoot()` for an existing `go-cache/` beside
+   the executable. A flat Windows, Linux, or macOS distribution uses that
+   directory directly and creates the requested `name` subdirectory.
+2. If no adjacent cache exists but `packagedGoCacheRoot()` detects AppImage
+   `usr/go-cache` or macOS `Contents/Resources/go-cache`, `CacheDir()` chooses
+   `<datadir>/cache/<name>` instead. Packaged resources are seed data, never a
+   writable runtime target.
+3. Otherwise `createGoCacheRoot()` attempts to create `go-cache/` beside the
+   executable, preserving flat-bundle portability. This means the directory
+   containing a flat launcher must be writable. Only if that creation/path
+   resolution fails does `CacheDir()` finally fall back to
+   `<datadir>/cache/<name>`.
+
+`ShippedCacheDir(name)` finds a named cache either beside the launcher or in a
+packaged resource root. Before R starts, `SeedCache()` handles both
+`annotation_cache` and `go_cache`. It does nothing when no shipped cache exists,
+uses an adjacent flat cache in place, and copies packaged seed contents to the
+application-data target only when that target is empty. It never overwrites a
+user's existing cache. Logs (`<datadir>/logs`) and the single-instance lock
+(`<datadir>/launcher.lock`) always remain in application data and are not part
+of `go-cache/`.
+
+During assembly, `prebuild-cache.R` attempts to download the AnnotationHub
+index, the default `org.Hs.eg.db` resource, and derived organism metadata into
+`go-cache/annotation_cache` and `go-cache/go_cache`. This prebuild is an
+optimization, **not a required build step**: the Unix bundler, Windows bundler,
+and CI all warn and continue on failure because runtime download is supported.
+Afterward the bundlers/CI merge source `cache/GO_Cache/` into
+`go-cache/go_cache/`; source files win over same-named prebuilt files. They do
+not combine nested organism `ah_cache` databases with the top-level
+`annotation_cache`, because independent BiocFileCache indexes cannot safely be
+merged. Source `cache/BioMart_Cache/` is placed at
+`go-cache/go_cache/BioMart_Cache/`, matching BioMart's portable-mode path under
+`MIRAPROT_GO_CACHE`.
+
+Consequently a flat archive and the Windows installed/flat layout read and
+write the adjacent cache. A DMG-created macOS app and an AppImage ship the same
+data as immutable resources and seed per-user application data on first launch.
+If assembly supplied no cache, seeding is simply skipped: the first
+AnnotationHub or organism operation downloads into the resolved writable
+directory, so it is slower and requires network access, while subsequent uses
+reuse it. BioMart/STRING operations retain their own online-service needs.
 
 ---
 
