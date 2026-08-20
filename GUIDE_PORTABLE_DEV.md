@@ -915,9 +915,12 @@ When the destination AnnotationHub cache is empty, the complete default-human
 `cache/GO_Cache/org.Hs.eg.db/ah_cache/` may seed
 `go-cache/annotation_cache/`. Other per-organism AnnotationHub/BiocFileCache
 directories are never combined because their independent indexes cannot be
-safely merged. `prebuild-cache.R` validates the local hub and human SQLite
-before using its network fallback. This remains an optional optimization: the
-bundlers warn and continue on failure because runtime download is supported. A
+safely merged. Instead, `prebuild-cache.R` opens every copied per-organism
+cache strictly offline and copies any usable OrgDb SQLite payload to the
+canonical organism directory, derives missing keytypes, and rewrites metadata
+paths as relocation-safe basenames. It then validates the local hub and human
+SQLite before using the human-only network fallback. This remains an optional
+optimization: the bundlers warn and continue on failure because runtime download is supported. A
 missing BioMart cache is left absent for normal on-demand population; portable
 assembly does not trigger a full BioMart build.
 
