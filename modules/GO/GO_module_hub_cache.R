@@ -416,8 +416,20 @@ load_organism_cache <- function(orgdb_name, max_cache_age_days = 30,
         return(NULL)
       }
 
-      # Try to reconstruct from cached sqlite
-      sqlite_path <- meta$sqlite_path
+      # Portable bundles must never follow an absolute path copied from the
+      # developer's source checkout. Always prefer their own canonical file;
+      # source mode retains the metadata-first behavior.
+      canonical_path <- file.path(cache_dir, paste0(make.names(orgdb_name), ".sqlite"))
+      sqlite_path <- if (is_portable && file.exists(canonical_path)) {
+        canonical_path
+      } else if (is_portable && !is.null(meta$sqlite_path) &&
+                 nzchar(meta$sqlite_path) && !grepl("^([A-Za-z]:|[/\\\\])", meta$sqlite_path)) {
+        file.path(cache_dir, meta$sqlite_path)
+      } else if (is_portable) {
+        NULL
+      } else {
+        meta$sqlite_path
+      }
 
       # Portable relocation fallback: if the stored absolute path does not
       # exist (e.g. the prebuilt portable distribution was moved to a
@@ -425,14 +437,13 @@ load_organism_cache <- function(orgdb_name, max_cache_age_days = 30,
       # current cache directory.  This handles both prebuild and user-
       # initiated relocations transparently.
       if (!is.null(sqlite_path) && nzchar(sqlite_path) && !file.exists(sqlite_path)) {
-        canonical_path <- file.path(cache_dir, paste0(make.names(orgdb_name), ".sqlite"))
         if (file.exists(canonical_path)) {
           debug_log(paste("Stored sqlite_path missing; using canonical fallback:",
                           canonical_path), 1)
           sqlite_path <- canonical_path
 
           # Update the metadata so subsequent loads do not repeat the fallback
-          meta$sqlite_path <- normalizePath(canonical_path, mustWork = FALSE)
+          meta$sqlite_path <- if (is_portable) basename(canonical_path) else normalizePath(canonical_path, mustWork = FALSE)
           .write_cache_metadata(orgdb_name, meta, debug_log = debug_log)
         }
       }

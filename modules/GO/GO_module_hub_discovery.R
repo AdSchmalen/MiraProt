@@ -28,9 +28,18 @@ load_keytypes_from_cache <- function(orgdb_name, max_cache_age_days = 10,
   tryCatch({
     cache_dir <- get_organism_cache_dir(orgdb_name)
     keytypes_file <- file.path(cache_dir, "keytypes.rds")
+    if (nzchar(Sys.getenv("MIRAPROT_GO_CACHE", ""))) {
+      canonical_sqlite <- file.path(cache_dir, paste0(make.names(orgdb_name), ".sqlite"))
+      nested_ah <- file.path(cache_dir, "ah_cache")
+      debug_log(paste("KeyType resolver: portable disk path =", cache_dir), 2)
+      debug_log(paste("KeyType resolver: canonical SQLite",
+                      if (file.exists(canonical_sqlite)) "HIT" else "MISS"), 2)
+      debug_log(paste("KeyType resolver: nested source-compatible ah_cache",
+                      if (dir.exists(nested_ah)) "HIT" else "MISS"), 2)
+    }
 
     if (!file.exists(keytypes_file)) {
-      debug_log(paste("No keytypes cache found for", orgdb_name), 2)
+      debug_log(paste("KeyType resolver: keytypes.rds MISS for", orgdb_name), 2)
       return(NULL)
     }
 
