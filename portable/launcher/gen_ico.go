@@ -1,7 +1,7 @@
 //go:build ignore
 
 // gen_ico.go converts MiraProt_icon.png into MiraProt.ico (multi-resolution).
-// It also regenerates icon_data.go (the 32x32 system-tray icon) from the same PNG.
+// It also regenerates the platform-specific system-tray icon data from the same PNG.
 //
 // Run from portable/launcher/ with:
 //
@@ -50,7 +50,8 @@ func main() {
 
 	pngPath := filepath.Join(projectRoot, "MiraProt_icon.png")
 	icoPath := filepath.Join(projectRoot, "portable", "launcher", "MiraProt.ico")
-	iconDataPath := filepath.Join(projectRoot, "portable", "launcher", "icon_data.go")
+	windowsIconDataPath := filepath.Join(projectRoot, "portable", "launcher", "icon_data_windows.go")
+	nonWindowsIconDataPath := filepath.Join(projectRoot, "portable", "launcher", "icon_data_nonwindows.go")
 
 	// Open source PNG
 	f, err := os.Open(pngPath)
@@ -86,12 +87,24 @@ func main() {
 	}
 	fmt.Printf("Written: %s (%d sizes)\n", icoPath, len(sizes))
 
-	// Regenerate icon_data.go from the 32x32 image.
-	if err := writeIconData(iconDataPath, pngBlobs[1]); err != nil {
-		fmt.Fprintf(os.Stderr, "ERROR: cannot write icon_data.go: %v\n", err)
+	// Embed the complete ICO for Windows tray APIs.
+	icoData, err := os.ReadFile(icoPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ERROR: cannot read generated ICO: %v\n", err)
 		os.Exit(1)
 	}
-	fmt.Printf("Written: %s (32x32 tray icon)\n", iconDataPath)
+	if err := writeIconData(windowsIconDataPath, "windows", "multi-resolution ICO", icoData); err != nil {
+		fmt.Fprintf(os.Stderr, "ERROR: cannot write icon_data_windows.go: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Printf("Written: %s (Windows tray icon)\n", windowsIconDataPath)
+
+	// Embed the existing 32x32 PNG for non-Windows tray APIs.
+	if err := writeIconData(nonWindowsIconDataPath, "!windows", "32x32 PNG", pngBlobs[1]); err != nil {
+		fmt.Fprintf(os.Stderr, "ERROR: cannot write icon_data_nonwindows.go: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Printf("Written: %s (non-Windows tray icon)\n", nonWindowsIconDataPath)
 }
 
 // writeICO writes a multi-resolution ICO file.
@@ -106,9 +119,9 @@ func writeICO(path string, szs []icoSize, blobs [][]byte) error {
 	n := len(szs)
 
 	// ICO header: reserved(2) + type(2) + count(2)
-	writeU16LE(out, 0)    // reserved
-	writeU16LE(out, 1)    // type = ICO
-	writeU16LE(out, n)    // image count
+	writeU16LE(out, 0) // reserved
+	writeU16LE(out, 1) // type = ICO
+	writeU16LE(out, n) // image count
 
 	// Directory entries are 16 bytes each; images follow after the directory.
 	imageOffset := 6 + n*16
@@ -125,8 +138,8 @@ func writeICO(path string, szs []icoSize, blobs [][]byte) error {
 		size := len(blobs[i])
 
 		out.Write([]byte{byte(w), byte(h), 0, 0}) // width, height, colorCount, reserved
-		writeU16LE(out, 1)                         // planes
-		writeU16LE(out, 32)                        // bit count
+		writeU16LE(out, 1)                        // planes
+		writeU16LE(out, 32)                       // bit count
 		writeU32LE(out, size)
 		writeU32LE(out, imageOffset)
 		imageOffset += size
@@ -171,20 +184,21 @@ func resizeNearestNeighbor(src image.Image, w, h int) image.Image {
 	return dst
 }
 
-// writeIconData writes icon_data.go with the given 32x32 PNG blob.
-func writeIconData(path string, pngBlob []byte) error {
+// writeIconData writes platform-specific compiled-in tray icon data.
+func writeIconData(path, buildConstraint, description string, icon []byte) error {
 	f, err := os.Create(path)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
 
+	fmt.Fprintf(f, "//go:build %s\n\n", buildConstraint)
 	fmt.Fprintln(f, "package main")
 	fmt.Fprintln(f)
-	fmt.Fprintln(f, "// iconData is the MiraProt system-tray icon (32x32 PNG).")
+	fmt.Fprintf(f, "// iconData is the MiraProt system-tray icon (%s).\n", description)
 	fmt.Fprintln(f, "// Regenerate from MiraProt_icon.png with: go run gen_ico.go")
 	fmt.Fprintf(f, "var iconData = []byte{")
-	for i, b := range pngBlob {
+	for i, b := range icon {
 		if i%16 == 0 {
 			fmt.Fprintf(f, "\n\t")
 		}
