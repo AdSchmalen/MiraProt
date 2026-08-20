@@ -59,6 +59,7 @@ register_tables_rendering <- function(context) {
   primary_table_rendered <- context$primary_table_rendered
   additional_table_rendered <- context$additional_table_rendered
   primary_show_full_table <- context$primary_show_full_table
+  primary_preview_render_revision <- context$primary_preview_render_revision
   additional_show_full_table <- context$additional_show_full_table
   table_duplicate_counts <- context$table_duplicate_counts
   count_table_work <- function(operation) {
@@ -68,29 +69,20 @@ register_tables_rendering <- function(context) {
     debug_log(sprintf("DW DUPLICATE WORK | module=tables | operation=%s | count=%d", operation, count), 2)
   }
 
-  refresh_primary_table_style <- function(metadata = NULL, source = "metadata update") {
-    if (!isTRUE(isolate(primary_table_rendered()))) return(invisible(FALSE))
-
-    if (is.null(metadata)) metadata <- isolate(current_handson_metadata())
-    if (!is.data.frame(metadata) || nrow(metadata) < 1L ||
-        !all(c("Column", "Content", "Options") %in% names(metadata))) {
+  request_primary_preview_rerender <- function(source = "metadata update") {
+    if (isTRUE(isolate(primary_show_full_table()))) {
+      debug_log(paste0("Primary preview rerender skipped after ", source,
+                       ": full-table mode active"), 2)
+      return(invisible(FALSE))
+    }
+    if (identical(isolate(input$pause_metadata_sync), FALSE)) {
+      debug_log(paste0("Primary preview rerender skipped after ", source,
+                       ": live metadata mode active"), 2)
       return(invisible(FALSE))
     }
 
-    primary_columns <- tryCatch(names(isolate(primary_data())), error = function(e) NULL)
-    if (is.null(primary_columns)) return(invisible(FALSE))
-
-    metadata_colors <- create_content_color_mapping(unique(metadata$Content), metadata)
-    colors <- setNames(rep("#ffffff", length(primary_columns)), primary_columns)
-    matched_columns <- intersect(primary_columns, names(metadata_colors))
-    colors[matched_columns] <- metadata_colors[matched_columns]
-    session$sendCustomMessage("datawizard-table-style", list(
-      id = ns(isolate(primary_table_output_id())),
-      columnIndexes = unname(seq_along(primary_columns) - 1L),
-      columns = unname(names(colors)),
-      colors = unname(colors)
-    ))
-    debug_log(paste("Primary table style refreshed after", source), 2)
+    primary_preview_render_revision(isolate(primary_preview_render_revision()) + 1L)
+    debug_log(paste("Primary preview rerender requested after", source), 2)
     invisible(TRUE)
   }
 
@@ -636,7 +628,9 @@ register_tables_rendering <- function(context) {
 
   observeEvent(primary_table_output_id(), {
     local_output_id <- primary_table_output_id()
+    local_show_full <- isTRUE(primary_show_full_table())
     output[[local_output_id]] <- renderDT({
+      if (!local_show_full) primary_preview_render_revision()
       primary_table_rendered(FALSE)
       snapshot <- primary_table_snapshot()
       metadata <- isolate(current_handson_metadata())
@@ -775,23 +769,6 @@ register_tables_rendering <- function(context) {
     # numeric ranges and text searches are evaluated against every row.
     }, server = TRUE)
   }, ignoreInit = FALSE, priority = 100)
-
-  # Metadata edits do not change the DT identity or resend its data. They only
-  # invalidate metadata/status outputs; the next data revision applies the
-  # latest styling. This avoids remounting a large widget for a color change.
-  observeEvent(metadata_content_signature_debounced(), {
-    refresh_started <- unname(proc.time()[["elapsed"]])
-    count_table_work("downstream_choice_refresh")
-    correlation_id <- tryCatch(isolate(rv$datawizard_upload_correlation_id), error = function(e) "no-upload")
-    upload_started <- tryCatch(isolate(rv$datawizard_upload_monotonic_started), error = function(e) refresh_started)
-    debug_log(sprintf("DW LIFECYCLE | correlation_id=%s | elapsed_ms=%.3f | marker=start | phase=downstream_choice_refresh",
-                      correlation_id %||% "no-upload", 1000 * (refresh_started - upload_started)), 1)
-    refresh_primary_table_style(source = "metadata content update")
-    debug_log("Primary table metadata/style status updated without DT remount", 2)
-    debug_log(sprintf(paste0("DW LIFECYCLE | correlation_id=%s | elapsed_ms=%.3f | marker=end | ",
-                            "phase=downstream_choice_refresh"), correlation_id %||% "no-upload",
-                      1000 * (unname(proc.time()[["elapsed"]]) - upload_started)), 1)
-  }, ignoreInit = TRUE)
 
   # --------------------------------------------------------------------------
   # f. Additional data section visibility observer
@@ -980,9 +957,9 @@ register_tables_rendering <- function(context) {
 
   tables_api <- register_tables_metadata_editing(
     context,
-    refresh_primary_table_style = refresh_primary_table_style
+    request_primary_preview_rerender = request_primary_preview_rerender
   )
-  tables_api$refresh_primary_table_style <- refresh_primary_table_style
+  tables_api$request_primary_preview_rerender <- request_primary_preview_rerender
   tables_api
 
   })

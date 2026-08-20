@@ -1077,10 +1077,10 @@ modDataWizardServer <- function(id, rv, debug_level = 0) {
       })
 
       update_stage("Finalizing metadata")
-      if (isTRUE(apply_to_metadata) && isTRUE(metadata_commit_succeeded) &&
-          is.function(modules_list$tables_out$refresh_primary_table_style)) {
-        modules_list$tables_out$refresh_primary_table_style(
-          applied_metadata,
+      if (identical(source, "interactive") && isTRUE(apply_to_metadata) &&
+          isTRUE(metadata_commit_succeeded) &&
+          is.function(modules_list$tables_out$request_primary_preview_rerender)) {
+        modules_list$tables_out$request_primary_preview_rerender(
           source = "rule-set application"
         )
       }
@@ -1210,11 +1210,6 @@ modDataWizardServer <- function(id, rv, debug_level = 0) {
         table_ok <- !is.function(setter) || isTRUE(all.equal(live_table, new_meta, check.attributes = FALSE))
         canonical_ok <- isTRUE(all.equal(live_canonical, new_meta, check.attributes = FALSE))
         if (!table_ok || !canonical_ok) stop("committed metadata mirrors did not agree")
-        refresher <- modules_list$tables_out$refresh_primary_table_style
-        if (is.function(refresher)) {
-          refresher(new_meta, source = "Apply Metadata Rules")
-        }
-
         extracted_values <- unique(c(
           extract_auto_assign_condition_values_from_metadata(
             new_meta,
