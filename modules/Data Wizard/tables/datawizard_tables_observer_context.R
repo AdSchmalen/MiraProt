@@ -67,6 +67,7 @@ create_tables_observer_context <- function(input, output, session, ns, state,
   context$primary_table_rendered <- reactiveVal(FALSE)
   context$additional_table_rendered <- reactiveVal(FALSE)
   context$primary_show_full_table <- reactiveVal(FALSE)
+  context$primary_preview_render_revision <- reactiveVal(0L)
   context$additional_show_full_table <- reactiveVal(FALSE)
   context$primary_serialization_dispatched_at <- reactiveVal(NULL)
   context$table_duplicate_counts <- new.env(parent = emptyenv())

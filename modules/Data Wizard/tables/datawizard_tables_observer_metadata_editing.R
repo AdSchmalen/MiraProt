@@ -25,7 +25,7 @@
 #   context per module session, source-DAG acyclicity, and existing timing guards.
 # ============================================================================
 
-register_tables_metadata_editing <- function(context, refresh_primary_table_style = NULL) {
+register_tables_metadata_editing <- function(context, request_primary_preview_rerender = NULL) {
   with(context, {
   current_handson_metadata <- context$current_handson_metadata
   metadata_options_refresh <- context$metadata_options_refresh
@@ -429,8 +429,8 @@ register_tables_metadata_editing <- function(context, refresh_primary_table_styl
     if (isTRUE(metadata_synced)) {
       metadata_sync_pending(FALSE)
       set_metadata_sync_state(pending = FALSE)
-      if (is.function(refresh_primary_table_style)) {
-        refresh_primary_table_style(table_data, source = "manual Synchronize metadata")
+      if (is.function(request_primary_preview_rerender)) {
+        request_primary_preview_rerender(source = "manual Synchronize metadata")
       }
       showNotification("Metadata synchronized.", type = "message", duration = 3)
     } else {
