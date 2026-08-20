@@ -829,6 +829,7 @@ modDataWizardServer <- function(id, rv, debug_level = 0) {
                                         source = "interactive",
                                         update_stage = function(stage) invisible(NULL)) {
       applied_metadata <- NULL
+      metadata_commit_succeeded <- FALSE
       applied_condition_values <- character(0)
       set_metadata_assignment_state <- function(pending, state = NULL) {
         if (is.function(core_values$metadata_assignment_pending)) {
@@ -928,6 +929,10 @@ modDataWizardServer <- function(id, rv, debug_level = 0) {
                   core_values$handson_metadata(apply_res$new_meta)
                   debug_log("Metadata updated by auto-assign rules", level = 1)
                 }
+                metadata_commit_succeeded <- isTRUE(all.equal(
+                  isolate(core_values$handson_metadata()), applied_metadata,
+                  check.attributes = FALSE
+                ))
 
                 applied_condition_values <- unique(c(
                   extract_auto_assign_condition_values_from_metadata(
@@ -1045,6 +1050,13 @@ modDataWizardServer <- function(id, rv, debug_level = 0) {
       })
 
       update_stage("Finalizing metadata")
+      if (isTRUE(apply_to_metadata) && isTRUE(metadata_commit_succeeded) &&
+          is.function(modules_list$tables_out$refresh_primary_table_style)) {
+        modules_list$tables_out$refresh_primary_table_style(
+          applied_metadata,
+          source = "rule-set application"
+        )
+      }
       debug_log("apply_rules_safely finished", level = 2)
       invisible(TRUE)
     }
@@ -1171,6 +1183,10 @@ modDataWizardServer <- function(id, rv, debug_level = 0) {
         table_ok <- !is.function(setter) || isTRUE(all.equal(live_table, new_meta, check.attributes = FALSE))
         canonical_ok <- isTRUE(all.equal(live_canonical, new_meta, check.attributes = FALSE))
         if (!table_ok || !canonical_ok) stop("committed metadata mirrors did not agree")
+        refresher <- modules_list$tables_out$refresh_primary_table_style
+        if (is.function(refresher)) {
+          refresher(new_meta, source = "Apply Metadata Rules")
+        }
 
         extracted_values <- unique(c(
           extract_auto_assign_condition_values_from_metadata(
