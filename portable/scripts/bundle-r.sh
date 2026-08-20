@@ -92,6 +92,15 @@ echo ""
 
 mkdir -p "$OUTPUT_DIR" "$R_LIBRARY"
 
+for documentation_file in LICENSE.md README.md THIRD_PARTY_NOTICES.md citation.cff; do
+  if [ -f "$PROJECT_ROOT/$documentation_file" ]; then
+    echo "Including portable documentation: $documentation_file"
+    cp "$PROJECT_ROOT/$documentation_file" "$OUTPUT_DIR/$documentation_file"
+  else
+    echo "WARNING: Portable documentation file not found; skipping: $documentation_file" >&2
+  fi
+done
+
 R_ENVIRONMENT_VARIABLES=(
   R_HOME R_ARCH R_LIBS R_LIBS_USER R_LIBS_SITE
   R_ENVIRON R_ENVIRON_USER R_PROFILE R_PROFILE_USER
@@ -420,8 +429,15 @@ mkdir -p "$SHINY_APP"
 # Runtime payload manifest.  Keep this allowlist synchronized with the Windows
 # bundler and portable-build.yml; BUILD_INFO is generated immediately below.
 for runtime_dir in R modules AutoAssign GSEA; do
-  rsync -a "$PROJECT_ROOT/$runtime_dir/" "$SHINY_APP/$runtime_dir/"
+  if [ "$runtime_dir" = GSEA ]; then
+    rsync -a --exclude='*.gmt' "$PROJECT_ROOT/$runtime_dir/" "$SHINY_APP/$runtime_dir/"
+  else
+    rsync -a "$PROJECT_ROOT/$runtime_dir/" "$SHINY_APP/$runtime_dir/"
+  fi
 done
+if [ ! -f "$PROJECT_ROOT/GSEA/README.md" ]; then
+  echo "WARNING: GSEA/README.md not found; portable build will continue without it." >&2
+fi
 mkdir -p "$SHINY_APP/Documentation"
 rsync -a --include='*.R' --exclude='*' \
   "$PROJECT_ROOT/Documentation/" "$SHINY_APP/Documentation/"
