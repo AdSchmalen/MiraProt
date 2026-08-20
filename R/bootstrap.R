@@ -101,7 +101,6 @@
   "grid",           # Extract column name from plot
   "ggtangle",       # Modify Cnet plots
   "ggpubr",         # Extract legends
-  "devtools",       # Devtools for i.e. shinyTree
   "shinyBS",        # collapsible Panel
   "callr",          # run app in separate R process
   "processx",       # run system processes in the background
@@ -118,10 +117,10 @@
   "later"           # Debouncing (Plot Grid)
 ), source_label = "CRAN")
 
-# --- Devtools packages ---
+# --- Additional runtime packages ---
 .bootstrap_load_packages(c(
   "shinyTree"
-), source_label = "Devtools")
+), source_label = "CRAN/GitHub")
 
 # Clean up helper (not needed after loading)
 rm(.bootstrap_load_packages)

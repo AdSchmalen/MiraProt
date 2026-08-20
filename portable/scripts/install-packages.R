@@ -24,11 +24,67 @@ if (!dir.exists(lib_path)) {
 r_base_lib <- file.path(R.home(), "library")
 .libPaths(c(lib_path, r_base_lib))
 
+# --vanilla is the primary boundary. This guard makes accidental invocation
+# from an activated source-development renv session fail loudly instead of
+# allowing renv's install shim to redirect portable package installation.
+renv_project <- Sys.getenv("RENV_PROJECT", unset = "")
+renv_option <- getOption("renv.project.path", NULL)
+if ("renv:shims" %in% search() || nzchar(renv_project) ||
+    (!is.null(renv_option) && nzchar(as.character(renv_option)))) {
+  stop(
+    paste0(
+      "Portable package installation must run outside the MiraProt renv environment. ",
+      "Invoke Rscript with --vanilla."
+    ),
+    call. = FALSE
+  )
+}
+
 options(repos = c(CRAN = "https://cloud.r-project.org"))
 cat("Installing MiraProt packages to:", lib_path, "\n\n")
 
-get_missing_pkgs <- function(pkgs) {
-  pkgs[!vapply(pkgs, requireNamespace, quietly = TRUE, FUN.VALUE = logical(1))]
+get_missing_pkgs <- function(pkgs, lib.loc = lib_path) {
+  available <- vapply(pkgs, function(pkg) {
+    installed_here <- nzchar(system.file(package = pkg, lib.loc = lib.loc))
+    installed_here && requireNamespace(pkg, quietly = TRUE)
+  }, FUN.VALUE = logical(1))
+  pkgs[!available]
+}
+
+install_cran <- function(pkgs, dependencies = TRUE) {
+  if (!length(pkgs)) return(invisible(NULL))
+  if (.Platform$OS.type != "windows") {
+    utils::install.packages(pkgs, lib = lib_path, dependencies = dependencies)
+    return(invisible(NULL))
+  }
+
+  binary_index <- tryCatch(
+    utils::available.packages(repos = getOption("repos"), type = "binary"),
+    error = function(e) NULL
+  )
+  binary_pkgs <- if (is.null(binary_index)) character() else intersect(pkgs, rownames(binary_index))
+  if (length(binary_pkgs)) {
+    utils::install.packages(binary_pkgs, lib = lib_path, dependencies = dependencies, type = "binary")
+  }
+  source_pkgs <- setdiff(pkgs, binary_pkgs)
+  if (length(source_pkgs)) {
+    message(
+      "No compatible Windows binary is available for: ",
+      paste(source_pkgs, collapse = ", "),
+      ". Trying source installation."
+    )
+    utils::install.packages(source_pkgs, lib = lib_path, dependencies = dependencies, type = "source")
+  }
+  invisible(NULL)
+}
+
+expected_rtools <- function() {
+  version <- getRversion()
+  if (version >= "4.5.0") return("Rtools45")
+  if (version >= "4.4.0") return("Rtools44")
+  if (version >= "4.3.0") return("Rtools43")
+  if (version >= "4.2.0") return("Rtools42")
+  "the Rtools release compatible with this R version"
 }
 
 
@@ -36,25 +92,23 @@ get_missing_pkgs <- function(pkgs) {
 
 cat("--- Step 1/5: BiocManager bootstrap ---\n")
 if (!requireNamespace("BiocManager", quietly = TRUE)) {
-  install.packages("BiocManager", lib = lib_path)
+  install_cran("BiocManager", dependencies = FALSE)
 }
 if (!requireNamespace("pkgbuild", quietly = TRUE)) {
-  install.packages("pkgbuild", lib = lib_path)
+  install_cran("pkgbuild", dependencies = TRUE)
 }
 
 
 
 ensure_user_library_writable <- function() {
-  if (file.access(.Library, 2) == 0) return(invisible(.libPaths()[1]))
-  user_lib <- Sys.getenv("R_LIBS_USER")
-  if (!nzchar(user_lib)) {
-    minor_major <- sub("^([0-9]+).*$", "\\1", R.version$minor)
-    user_lib <- file.path(path.expand("~"), "R", paste0(R.version$platform, "-library"), paste0(R.version$major, ".", minor_major))
+  # Despite the historical helper name, portable installation must never add
+  # the build user's library. The caller-supplied portable library is the only
+  # writable package destination.
+  if (file.access(lib_path, 2) != 0) {
+    stop("Portable R library is not writable: ", lib_path, call. = FALSE)
   }
-  dir.create(user_lib, recursive = TRUE, showWarnings = FALSE)
-  .libPaths(unique(c(normalizePath(user_lib, mustWork = FALSE), .libPaths())))
-  message("System library is not writable; using user library: ", .libPaths()[1])
-  invisible(.libPaths()[1])
+  .libPaths(c(lib_path, r_base_lib))
+  invisible(lib_path)
 }
 
 annotationhub_binary_available <- function(repos = BiocManager::repositories()) {
@@ -109,18 +163,13 @@ install_annotationhub_reliably <- function(lib = NULL, update = TRUE) {
   }
 
   has_tools <- isTRUE(pkgbuild::has_build_tools(debug = FALSE))
-  if (!has_tools && .Platform$OS.type == "windows") {
-    message("Build tools not detected. Attempting automatic Rtools installation...")
-    try(pkgbuild::install_build_tools(quiet = TRUE), silent = TRUE)
-    has_tools <- isTRUE(pkgbuild::has_build_tools(debug = FALSE))
-  }
-
   if (!has_tools) {
+    tool_hint <- if (.Platform$OS.type == "windows") expected_rtools() else "R build tools"
     stop(
       paste0(
         "AnnotationHub could not be installed. Binary packages for one or more dependencies are unavailable ",
         "for this R/platform, and local build tools were not detected.\n",
-        "Install build tools (e.g., Rtools on Windows) and rerun this script."
+        "Install ", tool_hint, " and rerun this script."
       ),
       call. = FALSE
     )
@@ -232,8 +281,6 @@ cran_packages <- c(
   "shinybrowser",
   "ggtangle",
   "ggpubr",
-  "devtools",
-  "pak",
   "shinyBS",
   "callr",
   "processx",
@@ -256,14 +303,14 @@ cran_packages <- c(
 cran_missing <- cran_packages[!cran_packages %in% rownames(installed.packages(lib.loc = lib_path))]
 if (length(cran_missing)) {
   cat("Installing", length(cran_missing), "CRAN packages...\n")
-  install.packages(cran_missing, lib = lib_path, dependencies = TRUE)
+  install_cran(cran_missing, dependencies = TRUE)
 } else {
   cat("All CRAN runtime packages already installed.\n")
 }
 cran_missing_after <- get_missing_pkgs(cran_packages)
 if (length(cran_missing_after)) {
   cat("Retrying missing CRAN packages:", paste(cran_missing_after, collapse = ", "), "\n")
-  install.packages(cran_missing_after, lib = lib_path, dependencies = TRUE)
+  install_cran(cran_missing_after, dependencies = TRUE)
 }
 
 
@@ -294,14 +341,14 @@ optional_packages <- c(
 opt_missing <- optional_packages[!optional_packages %in% rownames(installed.packages(lib.loc = lib_path))]
 if (length(opt_missing)) {
   cat("Installing", length(opt_missing), "optional packages...\n")
-  install.packages(opt_missing, lib = lib_path, dependencies = TRUE)
+  install_cran(opt_missing, dependencies = TRUE)
 } else {
   cat("All optional packages already installed.\n")
 }
 opt_missing_after <- get_missing_pkgs(optional_packages)
 if (length(opt_missing_after)) {
   cat("Retrying missing optional packages:", paste(opt_missing_after, collapse = ", "), "\n")
-  install.packages(opt_missing_after, lib = lib_path, dependencies = TRUE)
+  install_cran(opt_missing_after, dependencies = TRUE)
 }
 
 
@@ -310,14 +357,14 @@ if (length(opt_missing_after)) {
 cat("--- Step 5/5: GitHub packages ---\n")
 if (!requireNamespace("shinyTree", quietly = TRUE)) {
   if (!requireNamespace("pak", quietly = TRUE)) {
-    install.packages("pak", lib = lib_path)
+    install_cran("pak", dependencies = TRUE)
   }
   has_build_tools <- isTRUE(pkgbuild::has_build_tools(debug = FALSE))
   if (has_build_tools) {
     pak::pak("shinyTree/shinyTree", lib = lib_path, upgrade = FALSE)
   } else {
     cat("Build tools not detected. Falling back to CRAN install for shinyTree.\n")
-    install.packages("shinyTree", lib = lib_path, dependencies = TRUE)
+    install_cran("shinyTree", dependencies = TRUE)
   }
 } else {
   cat("shinyTree already installed.\n")
@@ -326,9 +373,8 @@ if (!requireNamespace("shinyTree", quietly = TRUE)) {
 
 ## Done ---------------------------------------------------------------------
 
-cat("\n=== All packages installed successfully ===\n")
 required_all <- unique(c(bioc_packages, cran_packages, "shinyTree"))
-missing_final <- get_missing_pkgs(required_all)
+missing_final <- get_missing_pkgs(required_all, lib.loc = lib_path)
 if (length(missing_final)) {
   stop(
     paste0(
@@ -338,5 +384,6 @@ if (length(missing_final)) {
     call. = FALSE
   )
 }
+cat("\n=== All packages installed successfully ===\n")
 cat("Library path:", lib_path, "\n")
 cat("Total packages:", nrow(installed.packages(lib.loc = lib_path)), "\n")
