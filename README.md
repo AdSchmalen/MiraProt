@@ -376,7 +376,7 @@ The associated manuscript is currently in preparation:
 Machine-readable software citation metadata are provided in:
 
 ```text
-citation.cff
+CITATION.cff
 ```
 
 A version-specific archival DOI and the publication DOI can be added to the citation metadata when they become available.
