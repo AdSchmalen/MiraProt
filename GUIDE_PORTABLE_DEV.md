@@ -623,16 +623,27 @@ an authoritative release asset.
 ### Windows — Inno Setup
 
 The source installer definition is
-`portable/installers/windows/MiraProt.iss`. It expects the stage-1 Windows
-bundle in the repository-root `dist/` directory and is compiled with **Inno
-Setup 6**. Inno Setup is Windows-installer-only: it is not a prerequisite for
-the basic bundle, macOS DMG, or Linux AppImage.
+`portable/installers/windows/MiraProt.iss`. It consumes the already-built
+stage-1 Windows bundle and is compiled with **Inno Setup 6**. Pass an absolute
+`DistDir` to avoid ambiguity about relative-path resolution; when omitted,
+`DistDir` remains backward-compatible and defaults to repository-root `dist/`.
+Inno Setup is Windows-installer-only: it is not a prerequisite for the basic
+bundle, macOS DMG, or Linux AppImage.
 
 ```powershell
 & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" `
   /DAppVersion="1.0.0" `
+  /DDistDir="C:\Users\maintainer\MiraProt_Portable" `
   portable\installers\windows\MiraProt.iss
 ```
+
+`MiraProt-launcher.exe`, `shiny-app/`, `r-portable/`, and `r-library/` are
+required in `DistDir`; compilation fails with the missing path when any is
+absent. `go-cache/`, `LICENSE.md`, `README.md`, `THIRD_PARTY_NOTICES.md`, and
+`citation.cff` are optional. When present, cache contents are copied unchanged
+to installed seed resources and the available documentation files are copied
+to the installation root. The installer does not build or refresh bundle
+contents.
 
 The definition fixes its output directory to repository-root `output/`, so the
 result is `output/MiraProt-<version>-windows-setup.exe` (for the example,
@@ -869,11 +880,14 @@ Cache behavior differs by distribution layout:
   It remains the writable runtime cache, preserving the self-contained portable
   behavior. `MIRAPROT_GO_CACHE` and `ANNOTATION_HUB_CACHE` point to its
   `go_cache/` and `annotation_cache/` subdirectories.
-- **macOS app and Linux AppImage:** the packaged `go-cache/` is immutable seed
-  data (`Contents/Resources/go-cache` in the app bundle and `usr/go-cache` in
-  the AppImage). On first launch, the launcher copies each shipped cache only
-  when its destination is empty. Runtime writes and both cache environment
-  variables use `<datadir>/cache/`; existing user caches are never overwritten.
+- **Windows installer, macOS app, and Linux AppImage:** the packaged
+  `go-cache/` is immutable seed data (`resources/go-cache` in the Windows
+  installation, `Contents/Resources/go-cache` in the app bundle, and
+  `usr/go-cache` in the AppImage). The Windows installer always creates its
+  resource root, including when no seed cache ships. On first launch, the
+  launcher copies each shipped cache only when its destination is empty.
+  Runtime writes and both cache environment variables use `<datadir>/cache/`;
+  existing user caches are never overwritten.
 
 This separation is required for AppImage's read-only mount and also avoids
 modifying installed application resources on macOS.
@@ -885,8 +899,9 @@ The launcher resolves cache paths in `portable/launcher/config.go`:
 1. `CacheDir(name)` asks `goCacheRoot()` for an existing `go-cache/` beside
    the executable. A flat Windows, Linux, or macOS distribution uses that
    directory directly and creates the requested `name` subdirectory.
-2. If no adjacent cache exists but `packagedGoCacheRoot()` detects AppImage
-   `usr/go-cache` or macOS `Contents/Resources/go-cache`, `CacheDir()` chooses
+2. If no adjacent cache exists but `packagedGoCacheRoot()` detects Windows
+   `resources/go-cache`, AppImage `usr/go-cache`, or macOS
+   `Contents/Resources/go-cache`, `CacheDir()` chooses
    `<datadir>/cache/<name>` instead. Packaged resources are seed data, never a
    writable runtime target.
 3. Otherwise `createGoCacheRoot()` attempts to create `go-cache/` beside the
