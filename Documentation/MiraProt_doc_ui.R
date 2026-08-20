@@ -74,7 +74,7 @@ modMiraProtDocUI <- function(id) {
         3,
         wellPanel(
           style = "background-color: #f8f9fa; position: sticky; top: 20px;",
-          h4("Navigation", style = "margin-bottom: 16px;"),
+          h4("Navigation", style = "margin-bottom: 20px;"),
           radioButtons(
             ns("doc_type"),
             "Documentation Type:",
