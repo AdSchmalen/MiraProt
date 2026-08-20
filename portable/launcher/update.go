@@ -11,11 +11,12 @@ import (
 )
 
 const (
-	githubRepo     = "AdSchmalen/MiraProt"
-	updateCheckURL = "https://api.github.com/repos/" + githubRepo + "/releases/latest"
+	githubRepo      = "AdSchmalen/MiraProt"
+	releaseCheckURL = "https://api.github.com/repos/" + githubRepo + "/releases/latest"
 )
 
 var developmentVersion = regexp.MustCompile(`^v?[0-9]+\.[0-9]+\.[0-9]+-[0-9]+-g[0-9a-f]+(?:-dirty)?$`)
+var commitVersion = regexp.MustCompile(`^[0-9a-f]{7,40}(?:-dirty)?$`)
 
 // githubRelease is the minimal structure returned by the GitHub Releases API.
 type githubRelease struct {
@@ -124,49 +125,49 @@ func compareSemanticVersions(left, right semanticVersion) int {
 	return 0
 }
 
-// CheckForUpdate queries the latest GitHub Release tag and reports newer source.
-func CheckForUpdate(currentVersion string, logger *Logger) string {
+// CheckForNewRelease queries the latest GitHub Release tag and reports newer source.
+func CheckForNewRelease(currentVersion string, logger *Logger) string {
 	client := &http.Client{Timeout: 10 * time.Second}
-	return checkForUpdate(currentVersion, logger, client, updateCheckURL)
+	return checkForNewRelease(currentVersion, logger, client, releaseCheckURL)
 }
 
-func checkForUpdate(currentVersion string, logger *Logger, client *http.Client, url string) string {
-	if currentVersion == "dev" || developmentVersion.MatchString(currentVersion) {
+func checkForNewRelease(currentVersion string, logger *Logger, client *http.Client, url string) string {
+	if currentVersion == "dev" || developmentVersion.MatchString(currentVersion) || commitVersion.MatchString(currentVersion) {
 		return ""
 	}
 	current, ok := parseSemanticVersion(currentVersion)
 	if !ok {
-		logger.Log("UPDATE", fmt.Sprintf("Skipping update check for unrecognized version %q", currentVersion))
+		logger.Log("RELEASE", fmt.Sprintf("Release check disabled for unsupported launcher version format %q", currentVersion))
 		return ""
 	}
 
 	resp, err := client.Get(url)
 	if err != nil {
-		logger.Log("UPDATE", fmt.Sprintf("Update check failed: %v", err))
+		logger.Log("RELEASE", fmt.Sprintf("Release check failed: %v", err))
 		return ""
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		logger.Log("UPDATE", fmt.Sprintf("Update check returned HTTP %d", resp.StatusCode))
+		logger.Log("RELEASE", fmt.Sprintf("Release check returned HTTP %d", resp.StatusCode))
 		return ""
 	}
 
 	var release githubRelease
 	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
-		logger.Log("UPDATE", fmt.Sprintf("Failed to parse release info: %v", err))
+		logger.Log("RELEASE", fmt.Sprintf("Failed to parse release info: %v", err))
 		return ""
 	}
 	latest, ok := parseSemanticVersion(release.TagName)
 	if !ok {
-		logger.Log("UPDATE", fmt.Sprintf("Latest release has unrecognized tag %q", release.TagName))
+		logger.Log("RELEASE", fmt.Sprintf("Latest release has unrecognized tag %q", release.TagName))
 		return ""
 	}
 	if compareSemanticVersions(latest, current) > 0 {
-		msg := fmt.Sprintf("A new version is available: %s (you have %s). Obtain the newer source at: %s, then rebuild your portable installation.", release.TagName, currentVersion, release.HTMLURL)
-		logger.Log("UPDATE", msg)
+		msg := fmt.Sprintf("A newer MiraProt release is available: %s (current: %s). Obtain the newer source from: %s, then rebuild your portable installation.", release.TagName, currentVersion, release.HTMLURL)
+		logger.Log("RELEASE", msg)
 		return msg
 	}
 
-	logger.Log("UPDATE", fmt.Sprintf("Up to date (version %s)", currentVersion))
+	logger.Log("RELEASE", fmt.Sprintf("Up to date (version %s)", currentVersion))
 	return ""
 }

@@ -164,10 +164,10 @@ func main() {
 		fmt.Printf("\nMiraProt is running at %s\n", url)
 		fmt.Printf("Press Ctrl+C to stop.\n\n")
 
-		// Check for updates in the background (non-blocking).
+		// Check for a newer release in the background (non-blocking).
 		go func() {
-			if msg := CheckForUpdate(Version, logger); msg != "" {
-				fmt.Printf("\n  [UPDATE] %s\n\n", msg)
+			if msg := CheckForNewRelease(Version, logger); msg != "" {
+				fmt.Printf("\n  [RELEASE] %s\n\n", msg)
 			}
 		}()
 
