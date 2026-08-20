@@ -791,32 +791,6 @@ register_auto_assign_handlers <- function(ctx) {
       ignoreInit = TRUE
     )
 
-    sync_save_ui_submodule_flags <- function(master_enabled) {
-      sub_ids <- c(
-        "include_filtering_config",
-        "include_edit_operations",
-        "include_imputation_config",
-        "include_batch_effects_config",
-        "include_pivot_config",
-        "include_merge_config",
-        "include_ratio_configurations",
-        "include_basemean_ui_config"
-      )
-
-      for (id in sub_ids) {
-        tryCatch({
-          updateCheckboxInput(session, id, value = isTRUE(master_enabled))
-        }, error = function(e) {
-          NULL
-        })
-      }
-    }
-
-    observeEvent(input$save_ui_autoassign_dw, {
-      sync_save_ui_submodule_flags(input$save_ui_autoassign_dw)
-    }, ignoreNULL = FALSE)
-
-
   }, envir = ctx)
 
   # Register rule observer groups against this shared context. The helpers use

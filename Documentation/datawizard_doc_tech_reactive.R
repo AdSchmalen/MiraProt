@@ -409,21 +409,15 @@ render_tech_auto_assign_content <- function() {
 
     h3("Export pipeline (what gets written)"),
     tags$ol(
-      tags$li("User triggers ", code("output$export_rules_autoassign_dw"), " in UI."),
-      tags$li("Required frames collected from reactives: ", code("table"), ", ", code("condition"), ", ", code("ratio"), "."),
-      tags$li("Optional payloads added depending on checkboxes: ",
-              code("ui"), ", ", code("filter_template"), ", ", code("UI_config"), ", ",
-              code("ratio_configurations"), ", ", code("basemean_configurations"), ", ", code("edit_operations"), "."),
-      tags$li(code("debug_info"), " records ", code("exported_at"), ", option flags (e.g., ",
-              code("include_filtering_config"), ", ", code("include_ratios"), ", ", code("include_edit_operations"),
-              "), ", code("components_exported"), ", module versions, and processing history."),
-      tags$li("Bundle is saved via ", code("saveRDS(rules_list, file)"), ".")
+      tags$li("User triggers ", code("output$export_rules_autoassign_dw"), " in the UI."),
+      tags$li("The handler reads the canonical ", code("table"), ", ", code("condition"),
+              ", and ", code("ratio"), " frames from their rule reactives."),
+      tags$li("Only those three frames are saved via ", code("saveRDS(rules_list, file)"), ".")
     ),
-    p("Collection helpers in Auto-Assign include (not exhaustive): ",
-      code("collect_filter_ui_state"), ", ", code("collect_imputation_ui_config"), ", ",
-      code("collect_batch_effects_ui_state"), ", ", code("collect_pivot_ui_state"), ", ",
-      code("collect_merge_ui_state"), ", ", code("collect_ratio_configurations"), ", ",
-      code("collect_basemean_configurations"), ", ", code("collect_edit_operations"), "."),
+    p(
+      "Auto-Assign rule-file export does not serialize Data Wizard UI or module configuration. ",
+      "Application session save/restore remains a separate subsystem and continues to capture UI state."
+    ),
 
     h3("Import application and transactional rule loading"),
     tags$ol(
@@ -511,10 +505,9 @@ apply_filter_template        <- function(filter_template, max_retries = 2) { ...
 
     h3("Developer guidelines"),
     tags$ul(
-      tags$li("If you add a new optional module/state to export, implement a ", code("collect_*"), " helper in Auto-Assign and ensure the corresponding apply or Core setter exists on import."),
-      tags$li("Keep rule frames minimal and well-validated; avoid leaking module-specific UI state into them."),
-      tags$li("Do not perform Core UI config application here — leave UI-config trees to Assign Rules → Integration → Core setters pipeline."),
-      tags$li("When evolving regex schema, bump module version in ", code("debug_info$module_versions"), " and accept legacy fields with clear fallbacks.")
+      tags$li("Keep exported rule files limited to the three canonical rule frames; do not add module-specific UI state."),
+      tags$li("Keep legacy UI/config import support separate from the current rule-file export path."),
+      tags$li("When evolving the regex schema, preserve clear migration and validation fallbacks for existing rule files.")
     ),
 
     h3("Examples"),
@@ -526,11 +519,10 @@ apply_filter_template        <- function(filter_template, max_retries = 2) { ...
 # (inside server) output$export_rules_autoassign_dw
 
 # Apply a loaded rules bundle (called by Assign Rules after readRDS)
-rules <- readRDS("AutoAssign/my_exported_template.rds")
+rules <- readRDS("AutoAssign/my_auto_assign_rules.rds")
 ok <- load_rules_directly(rules)
 
-# After applying rule frames, Ratios/configs/edit ops are handled here if present.
-# UI_config trees (filtering, imputation, batch, pivot, merge) are handled by Assign Rules → Integration → Core setters.'
+# Extra configuration fields in older rule files remain accepted by the legacy import path.'
       )
     ),
 
@@ -538,7 +530,7 @@ ok <- load_rules_directly(rules)
     tags$ul(
       tags$li("Auto-Assign is now clearly documented as owner of rule frames and the export handler; Assign Rules owns file selection, extraction and notifications."),
       tags$li("Removed non-existent API calls (e.g., generic ", code("update_auto_assign_regex"), "); replaced with actual ", code("load_rules_directly"), " and apply helpers."),
-      tags$li("Explained that UI-config application is not done in Auto-Assign but via Assign Rules and Integration; only rule frames and module-specific payloads (ratios/edit ops/filter template) are applied here."),
+      tags$li("Current exports contain rule frames only; older files with UI/config payloads remain readable through the legacy import path."),
       tags$li("Function names reflect the codebase: ",
               code("apply_auto_assign_rules"), ", ", code("apply_rule_autoassign_dw"), ", ",
               code("apply_condition_autoassign_dw"), ", ",
@@ -693,7 +685,7 @@ render_tech_assign_rules_content <- function() {
       pre(
         style = "background-color:#f5f5f5; padding:10px; border-radius:6px; font-family:monospace;",
         '# Load a rules bundle chosen by the user
-rules <- readRDS("AutoAssign/my_exported_template.rds")
+rules <- readRDS("AutoAssign/my_auto_assign_rules.rds")
 
 # Extract with primary-then-legacy fallbacks
 cfg_filtering  <- extract_ui_filtering_config(rules, debug_log, ui_config_errors)
@@ -824,34 +816,21 @@ render_tech_import_export_content <- function() {
     ),
 
     h3("RDS bundle structure"),
-    p("The bundle is a list with required rule frames and optional per-module payloads (driven by export checkboxes in Auto-Assign)."),
+    p("New Auto-Assign exports contain only the three required rule frames."),
     tags$ul(
-      tags$li(code("table"), ": data.frame — column classification rules (Content / Include / Exclude / Transformation)."),
-      tags$li(code("condition"), ": data.frame — sample extraction rules (Method, Before/After, Separators, Pos)."),
-      tags$li(code("ratio"), ": data.frame — ratio regex rules (Z/N delimiters, invert flag, positions)."),
-      tags$li(code("ui"), ": list — small Auto-Assign UI snapshot (lookup/include/exclude/transformation)."),
-      tags$li(code("filter_template"), ": list — current filter state (e.g., confidence, valid_values, custom, settings)."),
-      tags$li(code("ratio_configurations"), ": data.frame — comparison sets (Title, Content, Numerator/Denominator lists, Statistics, Adjustment, Validity)."),
-      tags$li(code("basemean_configurations"), ": list — abundance type, selected samples, and suffix."),
-      tags$li(code("UI_config"), ": list — generic per-module UI trees (currently used for Filtering, Imputation, Batch Effects, Pivot, Merge)."),
-      tags$li(code("edit_operations"), ": data.frame — tabular edit steps (optional)."),
-      tags$li(code("debug_info"), ": list — ", code("exported_at"), ", ", code("export_options"), ", ", code("components_exported"), ", ", code("module_versions"), ", ", code("last_import_info"), ", ", code("processing_history"), ".")
+      tags$li(code("table"), ": data.frame — Content Assignment rules."),
+      tags$li(code("condition"), ": data.frame — Condition Extraction rules."),
+      tags$li(code("ratio"), ": data.frame — Ratio Analysis rules.")
     ),
+    p("The importer still recognizes historical bundles containing optional UI/configuration fields, but new exports do not write those fields."),
     div(
       class = "well",
       pre(
         style = "background-color:#f8f9fa; padding:10px; border-radius:6px; font-family:monospace;",
         'list(
-  table                   = <data.frame: Content / Include / Exclude / Transformation>,
-  condition               = <data.frame: Method / Before / After / Separators / Pos>,
-  ratio                   = <data.frame: Method / Invert / Num* / Den* / *Pos>,
-  ui                      = <Auto-Assign UI snapshot>,
-  filter_template         = <Filtering state>,
-  ratio_configurations    = <comparison sets>,
-  basemean_configurations = <abundance type / samples / suffix>,
-  UI_config               = <per-module UI states: filtering / UI_imputation / batch_effects / pivot / merge>,
-  edit_operations         = <optional edit steps>,
-  debug_info              = <export options, components_exported, module_versions, last_import_info, processing_history>
+  table     = <Content Assignment rule data frame>,
+  condition = <Condition Extraction rule data frame>,
+  ratio     = <Ratio Analysis rule data frame>
 )'
       )
     ),
@@ -860,13 +839,8 @@ render_tech_import_export_content <- function() {
     tags$ol(
       tags$li("User triggers export in Auto-Assign (", code("output$export_rules_autoassign_dw"), ")."),
       tags$li("Export collects required rule frames (", code("table"), ", ", code("condition"), ", ", code("ratio"), ")."),
-      tags$li("Optional payloads are added if enabled: ", code("ui"), ", ", code("filter_template"), ", ", code("UI_config"), ", ", code("ratio_configurations"), ", ", code("basemean_configurations"), ", ", code("edit_operations"), "."),
-      tags$li(code("debug_info"), " records ", code("exported_at"), ", a boolean map of options (e.g., ",
-              code("save_ui"), ", ", code("include_filtering"), ", ", code("include_imputation"), ", ",
-              code("include_batch_effects"), ", ", code("include_pivot"), ", ", code("include_merge"), ", ",
-              code("include_edit_ops"), ", ", code("include_ratios"),
-              "), and ", code("components_exported"), "."),
-      tags$li("The bundle is saved via ", code("saveRDS(rules_list, file)"), ".")
+      tags$li("No Data Wizard UI or module configuration is added to the rule file."),
+      tags$li("The three-frame rule list is saved via ", code("saveRDS(rules_list, file)"), ".")
     ),
 
     h3("Import flow"),

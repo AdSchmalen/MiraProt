@@ -1,7 +1,7 @@
 # ============================================================================
 # Sub-Script: Data Wizard Auto-Assign UI Composition
 # Purpose:
-#   Define declarative UI builders for auto-assign template management and rule editors.
+#   Define declarative UI builders for auto-assign rule-set management and editors.
 # Architectural Role:
 #   Pure UI composition layer consumed by the auto-assign orchestrator.
 # Responsibilities:
@@ -19,7 +19,7 @@
 
 
 ############
-# Template Management UI Section
+# Rule-set Export UI Section
 
 #' Create template management UI section
 #' @param ns namespace function
@@ -27,122 +27,27 @@
 create_template_management_ui <- function(ns) {
   wellPanel(
     h4("Auto-Assign Assistant"),
-    p("Manage assignment rules, filter settings, edit operations, and configurations as integrated templates."),
+    p(paste(
+      "Export the Auto-Assign rules defined in the tabs below as an RDS rule file.",
+      "To make the rule file available to MiraProt, place the downloaded .rds file",
+      "in the AutoAssign folder of the source version or in shiny-app/AutoAssign",
+      "of the portable version."
+    )),
 
     # Export main button
     fluidRow(
       column(4,
              div(
-               title = "Export complete template including assignment rules, filter settings, edit operations, and selected UI configurations",
+               title = "Download the Content Assignment, Condition Extraction, and Ratio Analysis rules as an RDS rule file",
                downloadButton(
                  ns("export_rules_autoassign_dw"),
-                 "Export Complete Template",
+                 "Export Rule Set",
                  style = "width:100%",
                  class = "btn-info"
                )
              ))
     ),
     br(),
-
-    # Master checkbox
-    fluidRow(
-      column(4,
-             div(
-               title = "Enable export of UI & settings for selected submodules",
-               checkboxInput(
-                 ns("save_ui_autoassign_dw"),
-                 "Save UI & Settings",
-                 value = FALSE
-               )
-             ))
-    ),
-
-    # All subordinate options wrapped in one conditionalPanel (only visible when master is TRUE)
-    conditionalPanel(
-      condition = sprintf("input['%s']", ns("save_ui_autoassign_dw")),
-
-      fluidRow(
-        column(4,
-               div(
-                 title = "Include current filtering module configuration in the exported template",
-                 checkboxInput(
-                   ns("include_filtering_config"),
-                   "Include Filtering Config",
-                   value = FALSE
-                 )
-               )),
-        column(4,
-               div(
-                 title = "Include edit operations in the exported template",
-                 checkboxInput(
-                   ns("include_edit_operations"),
-                   "Include Edit Operations",
-                   value = FALSE
-                 )
-               )),
-        column(4,
-               div(
-                 title = "Include current imputation module configuration in the exported template",
-                 checkboxInput(
-                   ns("include_imputation_config"),
-                   "Include Imputation Config",
-                   value = FALSE
-                 )
-               ))
-      ),
-
-      fluidRow(
-        column(4,
-               div(
-                 title = "Include current batch effects module configuration in the exported template",
-                 checkboxInput(
-                   ns("include_batch_effects_config"),
-                   "Include Batch Effects Config",
-                   value = FALSE
-                 )
-               )),
-        column(4,
-               div(
-                 title = "Include current pivot module configuration in the exported template",
-                 checkboxInput(
-                   ns("include_pivot_config"),
-                   "Include Pivot Config",
-                   value = FALSE
-                 )
-               )),
-        column(4,
-               div(
-                 title = "Include current merge module configuration in the exported template",
-                 checkboxInput(
-                   ns("include_merge_config"),
-                   "Include Merge Config",
-                   value = FALSE
-                 )
-               ))
-      ),
-
-      fluidRow(
-        column(4,
-               div(
-                 title = "Include current ratio configurations in the exported template",
-                 checkboxInput(
-                   ns("include_ratio_configurations"),
-                   "Include Ratio Configurations",
-                   value = FALSE
-                 )
-               )),
-        column(4,
-               div(
-                 title = "Include current basemean module configuration in the exported template",
-                 checkboxInput(
-                   ns("include_basemean_ui_config"),
-                   "Include Basemean Configurations",
-                   value = FALSE
-                 )
-               ))
-
-      )
-    ),
 
     # Template Status
     fluidRow(

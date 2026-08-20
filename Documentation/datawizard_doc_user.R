@@ -1001,12 +1001,12 @@ render_assign_rules_content <- function() {
 
     hr(),
 
-    h3("Loading Metadata Rule Sets and UI Settings"),
+    h3("Loading Metadata Rule Sets"),
     p("You can load .RDS files that contain regular expression to automatically assign conditions and define metadata:"),
     tags$ul(
-      tags$li(strong("File Location:"), " All .RDS files are located in the 'Auto Assign' folder within the MiraProt root directory"),
+      tags$li(strong("File Location:"), " Use AutoAssign/ for a source or local installation, or shiny-app/AutoAssign/ for a portable installation"),
       tags$li(strong("Create:"), " Use the Auto-Assign Assistant to create and export new regular expression rule sets"),
-      tags$li(strong("UI import:"), " The .RDS file might also contain UI settings that update the Data Wizard UI after import")
+      tags$li(strong("Older files:"), " Existing rule files with additional settings can still be loaded")
     ),
     hr(),
 
@@ -1108,8 +1108,9 @@ render_auto_assign_content <- function() {
     div(
       class = "alert alert-info",
       strong("Make rule sets available in future R sessions: "),
-      "Place the exported ", code(".rds"), " file in the ", code("AutoAssign"),
-      " folder inside the MiraProt root folder. Only rule sets stored there are available in the rule-set dropdown after MiraProt is restarted. This applies to Auto RegEx, the Auto-Assign Assistant, and Assign Rules."
+      "Place the exported ", code(".rds"), " file in ", code("AutoAssign/"),
+      " for a source or local installation, or in ", code("shiny-app/AutoAssign/"),
+      " for a portable installation. The rule set becomes available in the rule-set dropdown after MiraProt is restarted."
     ),
     p("The assistant presents its workflow in this order:"),
     tags$ol(
@@ -1360,19 +1361,17 @@ render_auto_assign_content <- function() {
       )
     ),
 
-    h3("Template Management"),
+    h3("Exporting Auto-Assign Rules"),
     div(
       class = "well",
-      tags$ul(
-        tags$li(strong("Export Complete Template:"), " Export the defined RegEx rules and/or the UI settings"),
-        tags$li(strong("Save UI & Settings:"), " Include UI settings in the .RDS file"),
-        tags$li(strong("Include X Config:"), " Include/Exclude individual UI settings")
+      p(
+        "Export Rule Set downloads an .rds rule file containing the Content Assignment, ",
+        "Condition Extraction, and Ratio Analysis rules defined in the Auto-Assign tabs."
       ),
-
-      p("Templates are .RDS files containing:"),
-      tags$ul(
-        tags$li("Regular expressions for pattern matching"),
-        tags$li("UI configurations for datawizard modules")
+      p(
+        "To reuse the downloaded rule file in MiraProt, place it in ",
+        strong("AutoAssign/"), " for a source or local installation, or in ",
+        strong("shiny-app/AutoAssign/"), " for a portable installation."
       )
     ),
 
@@ -1741,9 +1740,8 @@ render_auto_assign_content <- function() {
       tags$ol(
         tags$li("Load a template in 'Conditions & Metadata Loader' panel or define custom rules in the Auto-Assign Assistant"),
         tags$li("Review the pattern recognition rules"),
-        tags$li("Review UI settings"),
-        tags$li("Define UI settings for the export"),
-        tags$li("Export Complete Template and place the file in the 'AutoAssign' folder in the MiraProt root directory"),
+        tags$li("Use Export Rule Set to download the three Auto-Assign rule sets as an .rds file"),
+        tags$li("Place the file in AutoAssign/ for a source or local installation, or shiny-app/AutoAssign/ for a portable installation"),
         tags$li("The file will be available in the 'Conditions & Metadata Loader' panel upon restart of the app"),
         tags$li("Selecting this file will apply the pattern recognition rules on your data")
       )
@@ -1752,7 +1750,7 @@ render_auto_assign_content <- function() {
     h3("Best Practices"),
     tags$ul(
       tags$li("Start with simple patterns and refine as needed"),
-      tags$li("Save successful rule sets as templates"),
+      tags$li("Save successful rule sets as .rds rule files"),
       tags$li("Use case-sensitive matching when appropriate")
     )
   )
