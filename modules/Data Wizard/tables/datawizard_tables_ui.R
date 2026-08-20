@@ -66,33 +66,46 @@ datawizard_tables_UI <- function(ns) {
         if (window.datawizardTableStyleHandlerInstalled) return;
         window.datawizardTableStyleHandlerInstalled = true;
         window.datawizardTableStyles = window.datawizardTableStyles || {};
-        function applyTableStyle(id) {
+        function findDataTable(id, quiet) {
+          var root = document.getElementById(id);
+          if (!root) {
+            if (!quiet) console.debug('Data Wizard table style: output root not available:', id);
+            return null;
+          }
+          if (!window.jQuery || !window.jQuery.fn || !window.jQuery.fn.dataTable) return null;
+          var candidates = Array.from(root.querySelectorAll('table.dataTable'));
+          if (root.matches && root.matches('table.dataTable')) candidates.unshift(root);
+          var isDataTable = window.jQuery.fn.dataTable.isDataTable;
+          for (var i = 0; i < candidates.length; i++) {
+            if (isDataTable(candidates[i])) return candidates[i];
+          }
+          if (!quiet) console.debug('Data Wizard table style: no initialized DataTable found:', id);
+          return null;
+        }
+        function applyTableStyle(id, quiet) {
           var message = window.datawizardTableStyles[id];
           if (!message) return;
-          var table = document.querySelector('#' + CSS.escape(id) + ' table');
+          var table = findDataTable(id, quiet);
           if (!table) return;
-          var headers = Array.from(table.querySelectorAll('thead th'));
-          message.columns.forEach(function(name, i) {
-            var titledHeader = headers.find(function(header) {
-              return !header.querySelector('input, select') && header.textContent.trim() === name;
-            });
-            if (!titledHeader) return;
-            var column = Array.prototype.indexOf.call(titledHeader.parentElement.children, titledHeader);
-            if (column < 0) return;
-            table.querySelectorAll('tbody tr').forEach(function(row) {
-              if (row.children[column]) row.children[column].style.backgroundColor = message.colors[i];
+          var api = window.jQuery(table).DataTable();
+          var columnCount = api.columns().count();
+          message.columnIndexes.forEach(function(column, i) {
+            if (!Number.isInteger(column) || column < 0 || column >= columnCount) {
+              if (!quiet) console.warn('Data Wizard table style: column index out of range:', column, id);
+              return;
+            }
+            api.column(column, {page: 'current'}).nodes().each(function(cell) {
+              cell.style.backgroundColor = message.colors[i];
             });
           });
+          return table;
         }
         function attachTableStyle(id) {
-          var table = document.querySelector('#' + CSS.escape(id) + ' table');
+          var table = applyTableStyle(id, false);
           if (!table) return;
-          applyTableStyle(id);
-          if (window.jQuery) {
-            window.jQuery(table)
-              .off('draw.dt.datawizardTableStyle')
-              .on('draw.dt.datawizardTableStyle', function() { applyTableStyle(id); });
-          }
+          window.jQuery(table)
+            .off('draw.dt.datawizardTableStyle')
+            .on('draw.dt.datawizardTableStyle', function() { applyTableStyle(id, true); });
         }
         document.addEventListener('datawizard:dt-ready', function(event) {
           if (event.detail && event.detail.id) attachTableStyle(event.detail.id);
