@@ -81,6 +81,7 @@ register_annotation_observers_biomart <- function(input, output, session, ns,
 
       if (is_cross) {
         # --- Entering BioMart mode ---
+        biomart_entry_t0 <- proc.time()[["elapsed"]]
 
         # Bump both tokens: this toggle triggers source and target keytype updates
         src_token <- isolate(source_update_token()) + 1L
@@ -89,6 +90,16 @@ register_annotation_observers_biomart <- function(input, output, session, ns,
         target_update_token(tgt_token)
         debug_log(sprintf("Cross-species toggle ON [src-token=%d, tgt-token=%d]",
                           src_token, tgt_token), 1)
+
+        # Populate the session cache from the persistent cache before resolving
+        # either dropdown.  This only reads local RDS files; it never refreshes
+        # or rebuilds the disk cache.
+        kt_cache <- warm_biomart_session_cache(
+          species        = NULL,
+          existing_cache = cached_biomart_keytypes(),
+          debug_log      = debug_log
+        )
+        cached_biomart_keytypes(kt_cache)
 
         # 1. Save current species selection so we can restore on toggle-off
         pre_crossspecies_species(isolate(input$species_annotation))
@@ -103,35 +114,17 @@ register_annotation_observers_biomart <- function(input, output, session, ns,
         if (!is.null(src_species) && nzchar(src_species)) {
           debug_log(paste("Cross-species toggle ON: loading BioMart keytypes for source species:", src_species), 1)
 
-          # Cache-first: disk cache -> live fetch -> fallback
-          src_keytypes <- load_biomart_keytypes_cache(src_species,
-                                                      debug_log = debug_log)
-
-          if (!is.null(src_keytypes)) {
-            debug_log(paste("Cross-species toggle ON: source keytypes loaded from cache for", src_species), 1)
+          # Mode entry is deliberately network-free: session -> disk -> fallback.
+          src_keytypes <- cached_biomart_keytypes()[[src_species]]
+          if (!is.null(src_keytypes) && length(src_keytypes) > 0) {
+            debug_log("BioMart mode entry: source keytypes session cache HIT", 1)
           } else {
-            debug_log(paste("Cross-species toggle ON: cache miss for source species, fetching from BioMart:", src_species), 1)
-            src_keytypes <- tryCatch(
-              fetch_biomart_keytypes_for_species(src_species, debug_log = debug_log),
-              error = function(e) {
-                debug_log(sprintf("Cross-species toggle ON: live keytype fetch failed for source %s: %s",
-                                  src_species, e$message), 1)
-                NULL
-              }
-            )
+            src_keytypes <- load_biomart_keytypes_cache(src_species,
+                                                        debug_log = debug_log)
             if (!is.null(src_keytypes) && length(src_keytypes) > 0) {
-              save_biomart_keytypes_cache(src_species, src_keytypes, debug_log = debug_log)
-              debug_log(paste("Cross-species toggle ON: source keytypes saved to cache for", src_species), 2)
+              debug_log("BioMart mode entry: source keytypes disk cache HIT", 1)
             } else {
-              debug_log("Cross-species toggle ON: BioMart source keytype fetch failed - using default fallback", 1)
-            }
-
-            # -- Stale check: mode may have been changed during fetch --
-            if (!identical(input$annotation_strategy, "biomart") ||
-                !identical(isolate(source_update_token()), src_token)) {
-              debug_log(sprintf("BioMart mode [src-token=%d]: Stale after source keytype fetch, discarding",
-                                src_token), 1)
-              return()
+              debug_log("BioMart mode entry: source keytypes cache MISS, using fallback (no live fetch)", 1)
             }
           }
 
@@ -168,48 +161,34 @@ register_annotation_observers_biomart <- function(input, output, session, ns,
         updateSelectInput(session, "from_keytype_annotation",
                           choices = compatible, selected = selected_from)
 
-        # 3. Load BioMart species list (disk cache -> live fetch -> static fallback)
+        # 3. Load BioMart species list (session -> disk -> static fallback).
         #    Cache is persistent (no TTL) -- only refreshed on explicit Update Organisms.
         biomart_df <- cached_biomart_species()
 
-        if (is.null(biomart_df) || !is.data.frame(biomart_df) || nrow(biomart_df) == 0) {
+        if (!is.null(biomart_df) && is.data.frame(biomart_df) &&
+            nrow(biomart_df) > 0 &&
+            all(c("scientific_name", "dataset") %in% names(biomart_df))) {
+          debug_log("BioMart mode entry: species session cache HIT", 1)
+        } else {
           # Try disk cache first (persistent, no TTL)
           biomart_df <- load_biomart_species_cache(debug_log = debug_log)
-        }
-
-        if (is.null(biomart_df)) {
-          # Disk cache miss or expired -- fetch fresh with scientific names
-          withProgress(message = "Loading BioMart species list...", value = 0.3, {
-            biomart_df <- tryCatch(
-              fetch_biomart_species_with_scientific_names(debug_log = debug_log),
-              error = function(e) {
-                debug_log(sprintf("fetch_biomart_species_with_scientific_names failed: %s",
-                                  e$message), 1)
-                NULL
-              }
-            )
-            incProgress(0.6, detail = sprintf(
-              "%d species loaded", if (!is.null(biomart_df)) nrow(biomart_df) else 0))
-          })
-
-          if (!is.null(biomart_df) && is.data.frame(biomart_df) && nrow(biomart_df) > 0) {
-            save_biomart_species_cache(biomart_df, debug_log = debug_log)
+          if (!is.null(biomart_df) && is.data.frame(biomart_df) &&
+              nrow(biomart_df) > 0 &&
+              all(c("scientific_name", "dataset") %in% names(biomart_df))) {
+            debug_log("BioMart mode entry: species disk cache HIT", 1)
           } else {
             biomart_df <- BIOMART_SPECIES_FALLBACK
-            showNotification(
-              "Could not fetch species from BioMart. Using built-in species list.",
-              type = "warning", duration = 5
-            )
+            debug_log("BioMart mode entry: species cache MISS, using built-in fallback (no live fetch)", 1)
           }
         }
 
         # Store in session cache
         cached_biomart_species(biomart_df)
 
-        # -- Stale check: mode may have changed during species list fetch --
+        # -- Stale check before applying the locally resolved species list --
         if (!identical(input$annotation_strategy, "biomart") ||
             !identical(isolate(source_update_token()), src_token)) {
-          debug_log(sprintf("BioMart mode [src-token=%d]: Stale after species list fetch, discarding",
+          debug_log(sprintf("BioMart mode [src-token=%d]: Stale after species cache lookup, discarding",
                             src_token), 1)
           return()
         }
@@ -268,17 +247,17 @@ register_annotation_observers_biomart <- function(input, output, session, ns,
                             choices = biomart_choices, selected = src_sp_selected)
         }
 
-        # 4. Load target keytypes (disk cache -> live fetch -> static fallback)
-        target_keytypes <- load_biomart_keytypes_cache(target_sp_selected,
-                                                       debug_log = debug_log)
-        if (is.null(target_keytypes)) {
-          target_keytypes <- tryCatch(
-            fetch_biomart_keytypes_for_species(target_sp_selected, debug_log = debug_log),
-            error = function(e) get_biomart_compatible_keytypes(NULL)
-          )
+        # 4. Resolve target keytypes locally (session -> disk -> fallback).
+        target_keytypes <- cached_biomart_keytypes()[[target_sp_selected]]
+        if (!is.null(target_keytypes) && length(target_keytypes) > 0) {
+          debug_log("BioMart mode entry: target keytypes session cache HIT", 1)
+        } else {
+          target_keytypes <- load_biomart_keytypes_cache(target_sp_selected,
+                                                         debug_log = debug_log)
           if (!is.null(target_keytypes) && length(target_keytypes) > 0) {
-            save_biomart_keytypes_cache(target_sp_selected, target_keytypes,
-                                        debug_log = debug_log)
+            debug_log("BioMart mode entry: target keytypes disk cache HIT", 1)
+          } else {
+            debug_log("BioMart mode entry: target keytypes cache MISS, using fallback (no live fetch)", 1)
           }
         }
         if (is.null(target_keytypes) || length(target_keytypes) == 0) {
@@ -308,20 +287,11 @@ register_annotation_observers_biomart <- function(input, output, session, ns,
         updateSelectInput(session, "to_keytype_annotation",
                           choices = target_keytypes, selected = selected_to)
 
-        # 5. Warm up session BioMart keytype cache from disk for all cached species.
-        #    With the full persistent cache, this loads all available species keytypes
-        #    from disk into the session cache, making subsequent species switches
-        #    near-instant (session cache lookup only, no disk I/O).
-        kt_cache <- warm_biomart_session_cache(
-          species           = NULL,   # NULL = load all species from disk cache
-          existing_cache    = cached_biomart_keytypes(),
-          debug_log         = debug_log
-        )
-        cached_biomart_keytypes(kt_cache)
-
         debug_log(sprintf(
           "Cross-species enabled: %d species (scientific names), %d source keytypes, %d target keytypes",
           length(biomart_choices), length(compatible), length(target_keytypes)), 2)
+        debug_log(sprintf("BioMart mode entry completed in %.3fs (network-free)",
+                          proc.time()[["elapsed"]] - biomart_entry_t0), 1)
 
       } else {
         # --- Leaving BioMart mode ---
