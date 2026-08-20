@@ -858,7 +858,7 @@ The correct directory depends on how MiraProt is running:
 | Portable flat bundle | `<portable bundle>/shiny-app/GSEA/` (with the default build: `portable/dist/shiny-app/GSEA/`) |
 | Windows installer | `<MiraProt installation>/shiny-app/GSEA/` |
 | macOS `MiraProt.app` | `MiraProt.app/Contents/Resources/app/GSEA/` |
-| Linux AppImage | add the files to the flat bundle before AppImage creation |
+| Linux AppImage | `usr/bin/shiny-app/GSEA/` inside the packaged image |
 
 For the **non-portable/source version**, add files to the top-level `GSEA/`
 folder beside `app.R`. This is the directory used when MiraProt is started from
@@ -866,7 +866,11 @@ the repository root. Do not put source-mode GMT files in
 `portable/dist/shiny-app/GSEA/`; that is a separate copy used only by an
 already-built portable bundle.
 
-For a **portable flat bundle**, after the build completes:
+When building a **portable flat bundle**, the stage-1 builder copies immediate
+lowercase `<MiraProt source repository>/GSEA/*.gmt` files into
+`<portable bundle>/shiny-app/GSEA/`. If no such files are present, the build
+continues normally without bundled gene sets. You can also add files after the
+build completes:
 
 1. Open the exact folder `portable/dist/shiny-app/GSEA/`.
 2. Place each `.gmt` file directly in that folder. Do not put it in a
@@ -884,7 +888,7 @@ writable.
 
 Files added to the source repository's `GSEA/` folder **after** building are
 not automatically copied into an existing portable bundle. Add them to the
-portable bundle too, or rebuild the bundle.
+portable bundle too (while it is writable), or rebuild stage 1 before packaging.
 
 Use the lowercase `.gmt` extension. The current filename match is
 case-sensitive on case-sensitive filesystems, so a file ending in `.GMT` may
@@ -893,6 +897,12 @@ not be listed.
 An AppImage is read-only after it is packaged, so add the GMT files to
 `portable/dist/shiny-app/GSEA/` **before** running `create-appimage.sh`; create
 a new AppImage when its collections change.
+
+Local GMT files are deliberately ignored by Git. MiraProt does not download or
+redistribute them in its source repository. A locally built installer, DMG, or
+AppImage contains any GMT files copied into its stage-1 bundle; the person
+creating or distributing that artifact is responsible for ensuring that the
+files' source, license, and terms permit redistribution.
 
 ## 4. Rebuild or update
 

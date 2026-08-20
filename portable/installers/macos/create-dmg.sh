@@ -79,7 +79,11 @@ cp -a "$DIST_DIR/r-library" "$APP_BUNDLE/Contents/Resources/r-library"
 
 # Copy the pre-built caches as read-only application resources. The launcher
 # seeds these into the user's writable data directory on first launch.
-cp -a "$DIST_DIR/go-cache" "$APP_BUNDLE/Contents/Resources/go-cache"
+if [ -d "$DIST_DIR/go-cache" ]; then
+  cp -a "$DIST_DIR/go-cache" "$APP_BUNDLE/Contents/Resources/go-cache"
+else
+  mkdir -p "$APP_BUNDLE/Contents/Resources/go-cache"
+fi
 
 # Copy icon if available
 if [ -f "$DIST_DIR/icon.icns" ]; then

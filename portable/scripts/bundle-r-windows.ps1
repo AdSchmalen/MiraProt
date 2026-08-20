@@ -844,6 +844,19 @@ foreach ($runtimeDir in @("R", "modules", "AutoAssign", "GSEA")) {
     }
     if ($LASTEXITCODE -ge 8) { throw "Failed to copy runtime directory '$runtimeDir' (robocopy exit $LASTEXITCODE)." }
 }
+$GseaSource = Join-Path $ProjectRoot "GSEA"
+$GseaDestination = Join-Path $ShinyApp "GSEA"
+$LocalGmtFiles = @(Get-ChildItem -LiteralPath $GseaSource -File | Where-Object {
+    $_.Name.EndsWith(".gmt", [StringComparison]::Ordinal)
+})
+foreach ($gmtFile in $LocalGmtFiles) {
+    Copy-Item -LiteralPath $gmtFile.FullName -Destination $GseaDestination
+}
+if ($LocalGmtFiles.Count -gt 0) {
+    Write-Host "Included $($LocalGmtFiles.Count) local GSEA GMT file(s)."
+} else {
+    Write-Host "No local GSEA GMT files found; continuing without bundled gene sets."
+}
 $GseaReadme = Join-Path $ProjectRoot "GSEA\README.md"
 if (-not (Test-Path -LiteralPath $GseaReadme -PathType Leaf)) {
     Write-Warning "GSEA/README.md not found; portable build will continue without it."
