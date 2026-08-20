@@ -36,49 +36,50 @@ modDatawizardDocUI <- function(id) {
 
     tags$head(
       tags$style(HTML("
-/* ===== Datawizard User Guide — Spacious Step UI (MiraProt-like) ===== */
 :root{
-  --dw-bg:#f7f9fc; --dw-surface:#fff; --dw-brand:#3c7bf1; --dw-brand-10:rgba(60,123,241,.10);
-  --dw-border:#e6e8ef; --dw-text:#1f2633; --dw-text-soft:#56607a;
-  --dw-shadow:0 6px 18px rgba(31,38,51,.08);
+  --dw-bg:#f5f7fb;
+  --dw-surface:#ffffff;
+  --dw-border:#e6e8ef;
+  --dw-text:#1f2633;
+  --dw-text-soft:#56607a;
+  --dw-brand:#3c7bf1;
+  --dw-brand-10:rgba(60,123,241,.10);
+  --dw-shadow:0 8px 22px rgba(31,38,51,.10);
 }
-.dw-guide-wrap{background:var(--dw-bg);padding:24px;border-radius:16px;}
-.dw-section-title{font-size:22px;line-height:1.25;margin:8px 0 18px;color:var(--dw-text);font-weight:700;}
-.dw-steps-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;}
-@media (max-width:1200px){.dw-steps-grid{grid-template-columns:repeat(2,1fr);} }
-@media (max-width:700px){.dw-steps-grid{grid-template-columns:1fr;} }
-.dw-step{
-  background:var(--dw-surface);border:1px solid var(--dw-border);border-left:5px solid var(--dw-brand);
-  border-radius:14px;box-shadow:var(--dw-shadow);padding:22px 22px 18px;
-  transition:transform .2s ease, box-shadow .2s ease, border-color .2s ease;
+html, body { background: var(--dw-bg); }
+html { scroll-behavior: smooth; }
+.dw-guide-wrap {
+  background: var(--dw-surface);
+  border: 1px solid var(--dw-border);
+  border-radius: 14px;
+  box-shadow: var(--dw-shadow);
+  padding: 24px;
 }
-.dw-step:hover{transform:translateY(-2px);box-shadow:0 10px 26px rgba(31,38,51,.12);border-left-color:#2f66cc;}
-.dw-step-head{display:flex;align-items:center;gap:12px;margin-bottom:10px;}
-.dw-step-num{display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:10px;background:var(--dw-brand-10);color:var(--dw-brand);font-weight:800;font-size:16px;}
-.dw-step-title{font-size:18px;font-weight:700;color:var(--dw-text);margin:0;}
-.dw-step-body{color:var(--dw-text-soft);font-size:14.5px;line-height:1.55;}
-.dw-step-actions{display:flex;gap:10px;margin-top:14px;}
-.dw-btn{display:inline-block;padding:8px 12px;border-radius:10px;border:1px solid var(--dw-border);background:#fff;text-decoration:none;font-weight:600;color:var(--dw-text);}
-.dw-btn:focus,.dw-btn:hover{border-color:var(--dw-brand);outline:none;}
-.dw-side{background:#fff;border:1px solid var(--dw-border);border-radius:14px;padding:16px;box-shadow:var(--dw-shadow);}
-
-/* Data Wizard documentation uses neutral information panels.
-   Bootstrap's yellow warning style is intentionally avoided here. */
-.doc-panel .alert-warning{
-  background:#f5f7fa !important;
-  border-color:#d8dee8 !important;
-  color:var(--dw-text) !important;
+.dw-guide-wrap .alert {
+  border: 1px solid var(--dw-border);
+  border-radius: 12px;
 }
-.doc-panel .panel-warning{
-  border-color:#d8dee8 !important;
+.dw-guide-wrap .panel-info,
+.dw-guide-wrap .panel-warning,
+.dw-guide-wrap .panel-success,
+.dw-guide-wrap .panel-danger {
+  border-color: #ddd;
 }
-.doc-panel .panel-warning > .panel-heading{
-  background:#eef2f7 !important;
-  border-color:#d8dee8 !important;
-  color:var(--dw-text) !important;
+.dw-guide-wrap .panel-info > .panel-heading,
+.dw-guide-wrap .panel-warning > .panel-heading,
+.dw-guide-wrap .panel-success > .panel-heading,
+.dw-guide-wrap .panel-danger > .panel-heading {
+  background-color: #f5f5f5;
+  border-color: #ddd;
+  color: #333;
 }
-
-html{scroll-behavior:smooth;}
+.dw-guide-wrap .dw-guide-wrap {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  padding: 0;
+}
 "))
     ),
     fluidRow(
@@ -178,8 +179,8 @@ html{scroll-behavior:smooth;}
 
       # Main content area (9 columns)
       column(9,
-             wellPanel(class = "doc-panel",
-                       uiOutput(ns("doc_content"))
+             div(class = "dw-guide-wrap",
+                 uiOutput(ns("doc_content"))
              )
       )
     )
