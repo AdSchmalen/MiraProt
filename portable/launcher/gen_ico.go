@@ -3,14 +3,17 @@
 // gen_ico.go converts MiraProt_icon.png into MiraProt.ico (multi-resolution).
 // It also regenerates the platform-specific system-tray icon data from the same PNG.
 //
-// Run from portable/launcher/ with:
+// Write disposable build inputs with:
 //
-//	go run gen_ico.go
+//	go run gen_ico.go -output-dir <directory>
+//
+// Maintainers can intentionally refresh the committed copies with -write-source.
 package main
 
 import (
 	"bytes"
 	"encoding/binary"
+	"flag"
 	"fmt"
 	"image"
 	"image/draw"
@@ -35,6 +38,15 @@ var sizes = []icoSize{
 }
 
 func main() {
+	outputDir := flag.String("output-dir", "", "directory for generated launcher icon artifacts")
+	writeSource := flag.Bool("write-source", false, "overwrite the committed launcher icon artifacts")
+	flag.Parse()
+	if flag.NArg() != 0 || (*outputDir == "" && !*writeSource) || (*outputDir != "" && *writeSource) {
+		fmt.Fprintln(os.Stderr, "ERROR: specify exactly one of -output-dir <directory> or -write-source")
+		flag.Usage()
+		os.Exit(2)
+	}
+
 	// Locate the project root relative to this source file's directory.
 	// When invoked via "go run gen_ico.go" from portable/launcher/, __file__
 	// is not available, so we resolve from the working directory.
@@ -49,9 +61,28 @@ func main() {
 	}
 
 	pngPath := filepath.Join(projectRoot, "MiraProt_icon.png")
-	icoPath := filepath.Join(projectRoot, "portable", "launcher", "MiraProt.ico")
-	windowsIconDataPath := filepath.Join(projectRoot, "portable", "launcher", "icon_data_windows.go")
-	nonWindowsIconDataPath := filepath.Join(projectRoot, "portable", "launcher", "icon_data_nonwindows.go")
+	projectRoot, err := filepath.Abs(projectRoot)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ERROR: cannot resolve project root: %v\n", err)
+		os.Exit(1)
+	}
+	targetDir := *outputDir
+	if *writeSource {
+		targetDir = filepath.Join(projectRoot, "portable", "launcher")
+	} else {
+		targetDir, err = filepath.Abs(targetDir)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "ERROR: cannot resolve output directory: %v\n", err)
+			os.Exit(1)
+		}
+	}
+	if err := os.MkdirAll(targetDir, 0755); err != nil {
+		fmt.Fprintf(os.Stderr, "ERROR: cannot create output directory %s: %v\n", targetDir, err)
+		os.Exit(1)
+	}
+	icoPath := filepath.Join(targetDir, "MiraProt.ico")
+	windowsIconDataPath := filepath.Join(targetDir, "icon_data_windows.go")
+	nonWindowsIconDataPath := filepath.Join(targetDir, "icon_data_nonwindows.go")
 
 	// Open source PNG
 	f, err := os.Open(pngPath)
@@ -80,19 +111,23 @@ func main() {
 		pngBlobs = append(pngBlobs, buf.Bytes())
 	}
 
-	// Write the ICO file.
-	if err := writeICO(icoPath, sizes, pngBlobs); err != nil {
+	// Build and validate the complete ICO before writing or embedding it.
+	icoData, err := makeICO(sizes, pngBlobs)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ERROR: cannot generate ICO: %v\n", err)
+		os.Exit(1)
+	}
+	if err := validateICO(icoData, len(sizes)); err != nil {
+		fmt.Fprintf(os.Stderr, "ERROR: generated ICO is invalid: %v\n", err)
+		os.Exit(1)
+	}
+	if err := os.WriteFile(icoPath, icoData, 0644); err != nil {
 		fmt.Fprintf(os.Stderr, "ERROR: cannot write ICO: %v\n", err)
 		os.Exit(1)
 	}
 	fmt.Printf("Written: %s (%d sizes)\n", icoPath, len(sizes))
 
 	// Embed the complete ICO for Windows tray APIs.
-	icoData, err := os.ReadFile(icoPath)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "ERROR: cannot read generated ICO: %v\n", err)
-		os.Exit(1)
-	}
 	if err := writeIconData(windowsIconDataPath, "windows", "multi-resolution ICO", icoData); err != nil {
 		fmt.Fprintf(os.Stderr, "ERROR: cannot write icon_data_windows.go: %v\n", err)
 		os.Exit(1)
@@ -100,6 +135,10 @@ func main() {
 	fmt.Printf("Written: %s (Windows tray icon)\n", windowsIconDataPath)
 
 	// Embed the existing 32x32 PNG for non-Windows tray APIs.
+	if !bytes.HasPrefix(pngBlobs[1], []byte{0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0x1a, 0x0a}) {
+		fmt.Fprintln(os.Stderr, "ERROR: generated non-Windows tray data is not PNG")
+		os.Exit(1)
+	}
 	if err := writeIconData(nonWindowsIconDataPath, "!windows", "32x32 PNG", pngBlobs[1]); err != nil {
 		fmt.Fprintf(os.Stderr, "ERROR: cannot write icon_data_nonwindows.go: %v\n", err)
 		os.Exit(1)
@@ -107,21 +146,20 @@ func main() {
 	fmt.Printf("Written: %s (non-Windows tray icon)\n", nonWindowsIconDataPath)
 }
 
-// writeICO writes a multi-resolution ICO file.
+// makeICO creates a multi-resolution ICO file.
 // Each image is stored as a raw PNG blob (Vista+ ICO format).
-func writeICO(path string, szs []icoSize, blobs [][]byte) error {
-	out, err := os.Create(path)
-	if err != nil {
-		return err
+func makeICO(szs []icoSize, blobs [][]byte) ([]byte, error) {
+	if len(szs) == 0 || len(szs) != len(blobs) {
+		return nil, fmt.Errorf("image sizes and blobs do not match")
 	}
-	defer out.Close()
+	var out bytes.Buffer
 
 	n := len(szs)
 
 	// ICO header: reserved(2) + type(2) + count(2)
-	writeU16LE(out, 0) // reserved
-	writeU16LE(out, 1) // type = ICO
-	writeU16LE(out, n) // image count
+	writeU16LE(&out, 0) // reserved
+	writeU16LE(&out, 1) // type = ICO
+	writeU16LE(&out, n) // image count
 
 	// Directory entries are 16 bytes each; images follow after the directory.
 	imageOffset := 6 + n*16
@@ -138,10 +176,10 @@ func writeICO(path string, szs []icoSize, blobs [][]byte) error {
 		size := len(blobs[i])
 
 		out.Write([]byte{byte(w), byte(h), 0, 0}) // width, height, colorCount, reserved
-		writeU16LE(out, 1)                        // planes
-		writeU16LE(out, 32)                       // bit count
-		writeU32LE(out, size)
-		writeU32LE(out, imageOffset)
+		writeU16LE(&out, 1)                       // planes
+		writeU16LE(&out, 32)                      // bit count
+		writeU32LE(&out, size)
+		writeU32LE(&out, imageOffset)
 		imageOffset += size
 	}
 
@@ -150,16 +188,42 @@ func writeICO(path string, szs []icoSize, blobs [][]byte) error {
 		out.Write(blob)
 	}
 
+	return out.Bytes(), nil
+}
+
+func validateICO(data []byte, expectedEntries int) error {
+	if len(data) < 6+expectedEntries*16 || !bytes.Equal(data[:4], []byte{0, 0, 1, 0}) {
+		return fmt.Errorf("missing ICO header or directory")
+	}
+	count := int(binary.LittleEndian.Uint16(data[4:6]))
+	if count != expectedEntries || count == 0 {
+		return fmt.Errorf("got %d image entries, want %d", count, expectedEntries)
+	}
+	for i := 0; i < count; i++ {
+		entry := data[6+i*16 : 6+(i+1)*16]
+		size := int(binary.LittleEndian.Uint32(entry[8:12]))
+		offset := int(binary.LittleEndian.Uint32(entry[12:16]))
+		if size < 8 || offset < 6+count*16 || offset > len(data)-size {
+			return fmt.Errorf("image entry %d has invalid size or offset", i)
+		}
+		if !bytes.HasPrefix(data[offset:offset+size], []byte{0x89, 'P', 'N', 'G'}) {
+			return fmt.Errorf("image entry %d is not PNG data", i)
+		}
+	}
 	return nil
 }
 
-func writeU16LE(f *os.File, v int) {
+type byteWriter interface {
+	Write([]byte) (int, error)
+}
+
+func writeU16LE(f byteWriter, v int) {
 	b := make([]byte, 2)
 	binary.LittleEndian.PutUint16(b, uint16(v))
 	f.Write(b)
 }
 
-func writeU32LE(f *os.File, v int) {
+func writeU32LE(f byteWriter, v int) {
 	b := make([]byte, 4)
 	binary.LittleEndian.PutUint32(b, uint32(v))
 	f.Write(b)
@@ -196,7 +260,7 @@ func writeIconData(path, buildConstraint, description string, icon []byte) error
 	fmt.Fprintln(f, "package main")
 	fmt.Fprintln(f)
 	fmt.Fprintf(f, "// iconData is the MiraProt system-tray icon (%s).\n", description)
-	fmt.Fprintln(f, "// Regenerate from MiraProt_icon.png with: go run gen_ico.go")
+	fmt.Fprintln(f, "// Regenerate from MiraProt_icon.png with: go run gen_ico.go -write-source")
 	fmt.Fprintf(f, "var iconData = []byte{")
 	for i, b := range icon {
 		if i%16 == 0 {

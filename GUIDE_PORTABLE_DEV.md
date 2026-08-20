@@ -505,9 +505,11 @@ block prepares the icon and Windows metadata before `go build`:
 
 1. `go install github.com/tc-hib/go-winres@v0.3.3` installs the reviewed,
    pinned `go-winres` build helper.
-2. `go run gen_ico.go` creates the `.ico` input from the launcher artwork.
-3. `go-winres make` reads the resource configuration and generates
-   `portable\launcher\rsrc_windows_amd64.syso`.
+2. The launcher sources are copied to a temporary directory, and `go run
+   gen_ico.go -output-dir <temporary-launcher-directory>` freshly creates the
+   tray and executable icon inputs there from the repository artwork.
+3. `go-winres make` reads the staged resource configuration and generates the
+   staged `rsrc_windows_amd64.syso`.
 4. The subsequent `go build` automatically links that `.syso` file into the
    Windows launcher.
 
@@ -528,11 +530,9 @@ Use the following symptoms to locate failures:
   Actions, or use signed/trusted build infrastructure approved by your
   organization.
 - **Missing resource symptoms:** if `go-winres make` reports an icon,
-  configuration, or output error, or if
-  `portable\launcher\rsrc_windows_amd64.syso` is absent afterward, the resource
-  step did not complete. Run `go run gen_ico.go` and then `go-winres make` from
-  `portable\launcher`, address the first reported error, and verify the `.syso`
-  exists before rerunning the build. A launcher that fails to compile because
+  configuration, or output error, the staged resource step did not complete.
+  Rerun the bundler and inspect the first generator or `go-winres` error. A
+  launcher that fails to compile because
   resources are missing, or one built manually without the resource step that
   lacks the expected icon/version metadata, points to this stage rather than
   to the bundled R application.
@@ -726,12 +726,19 @@ approved distribution, is a separate release process.
 
 ### Generated launcher resources versus disposable build products
 
-Some generated inputs are intentionally committed because reproducible
-launcher builds consume them: `portable/launcher/MiraProt.ico` is the Windows
-icon, and `portable/launcher/icon_data.go` embeds the tray icon bytes. The
-launcher resource configuration
+Some generated inputs are intentionally committed so a direct `go build` in
+`portable/launcher` has known-good defaults: `MiraProt.ico` is the Windows
+executable icon, while `icon_data_windows.go` and `icon_data_nonwindows.go`
+embed platform-appropriate tray icon bytes. Ordinary Windows portable builds
+regenerate these inputs only in a temporary launcher staging directory and do
+not alter the committed copies. The launcher resource configuration
 `portable/launcher/winres/winres.json` is also committed source configuration,
 not disposable output. Keep these files under version control.
+
+To intentionally update the committed icons, replace the root
+`MiraProt_icon.png`, run `go run gen_ico.go -write-source` from
+`portable/launcher`, then inspect and commit `MiraProt.ico`,
+`icon_data_windows.go`, and `icon_data_nonwindows.go`.
 
 By contrast, `portable/launcher/*.syso`,
 `portable/launcher/MiraProt-launcher`, and
