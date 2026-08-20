@@ -526,6 +526,16 @@ $ShinyApp  = Join-Path $OutputDir "shiny-app"
 
 New-Item -ItemType Directory -Force -Path $RLibrary   | Out-Null
 
+foreach ($documentationFile in @("LICENSE.md", "README.md", "THIRD_PARTY_NOTICES.md", "citation.cff")) {
+    $documentationSource = Join-Path $ProjectRoot $documentationFile
+    if (Test-Path -LiteralPath $documentationSource -PathType Leaf) {
+        Write-Host "Including portable documentation: $documentationFile"
+        Copy-Item -LiteralPath $documentationSource -Destination (Join-Path $OutputDir $documentationFile) -Force
+    } else {
+        Write-Warning "Portable documentation file not found; skipping: $documentationFile"
+    }
+}
+
 # -----------------------------------------------------------------------
 # Step 1: Download and install portable R for Windows
 # -----------------------------------------------------------------------
@@ -843,8 +853,16 @@ foreach ($runtimeDir in @("R", "modules", "AutoAssign", "GSEA")) {
     $source = Join-Path $ProjectRoot $runtimeDir
     $destination = Join-Path $ShinyApp $runtimeDir
     New-Item -ItemType Directory -Force -Path $destination | Out-Null
-    & robocopy $source $destination /E /NFL /NDL /NJH /NJS /NP *> $null
+    if ($runtimeDir -eq "GSEA") {
+        & robocopy $source $destination /E /XF "*.gmt" /NFL /NDL /NJH /NJS /NP *> $null
+    } else {
+        & robocopy $source $destination /E /NFL /NDL /NJH /NJS /NP *> $null
+    }
     if ($LASTEXITCODE -ge 8) { throw "Failed to copy runtime directory '$runtimeDir' (robocopy exit $LASTEXITCODE)." }
+}
+$GseaReadme = Join-Path $ProjectRoot "GSEA\README.md"
+if (-not (Test-Path -LiteralPath $GseaReadme -PathType Leaf)) {
+    Write-Warning "GSEA/README.md not found; portable build will continue without it."
 }
 $DocumentationDestination = Join-Path $ShinyApp "Documentation"
 New-Item -ItemType Directory -Force -Path $DocumentationDestination | Out-Null
