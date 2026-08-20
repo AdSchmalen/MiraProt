@@ -33,10 +33,9 @@ RStudio is optional.
 
 Clone the repository:
 
-```
+```text
 git clone https://github.com/AdSchmalen/MiraProt.git
 cd MiraProt
-
 ```
 
 Alternatively, download a tagged MiraProt source release from GitHub and extract it to a local directory.
@@ -47,17 +46,15 @@ For published analyses, use a tagged release rather than an arbitrary developmen
 
 For reproducible use of the publication release, restore the package versions recorded in `renv.lock`:
 
-```
+```text
 install.packages("renv")
 renv::restore()
-
 ```
 
 MiraProt also provides `install.R` as a convenience installer for the required CRAN, Bioconductor, and GitHub dependencies:
 
-```
+```text
 Rscript install.R
-
 ```
 
 The `renv.lock` file should be preferred when reproducing the software environment of a specific MiraProt release.
@@ -66,16 +63,14 @@ The `renv.lock` file should be preferred when reproducing the software environme
 
 From the repository root:
 
-```
+```text
 Rscript -e "shiny::runApp('.')"
-
 ```
 
 or from an R/RStudio console:
 
-```
+```text
 shiny::runApp(".")
-
 ```
 
 ---
@@ -84,20 +79,47 @@ shiny::runApp(".")
 
 MiraProt includes tools for assembling a standalone local distribution.
 
-The portable build can combine the MiraProt source code, an R runtime, the required R packages, and a launcher into a locally generated application.
+The portable build can combine the MiraProt source code, an R runtime, the required R packages, optional prebuilt annotation caches, and a launcher into a locally generated application.
 
 Precompiled portable distributions, bundled R runtimes, bundled R package libraries, installers, DMG files, AppImages, and Windows setup executables are **not distributed as official MiraProt release assets**.
 
 Users who want a portable edition build it locally from the tagged MiraProt source release.
 
-Detailed instructions are provided in:
+Detailed instructions are provided in the source repository:
 
-- `GUIDE_PORTABLE_USER.md`
-- `GUIDE_PORTABLE_DEV.md`
+- `GUIDE_PORTABLE_USER.md` — step-by-step build instructions, including optional Windows installer creation;
+- `GUIDE_PORTABLE_DEV.md` — architecture, packaging, validation, and developer details.
+
+These guides are build documentation in the source repository and are not required at runtime.
+
+## Optional Windows installer
+
+After a Windows portable bundle has been built and tested, it can optionally be packaged into a normal Windows setup executable using **Inno Setup 6**.
+
+The installer stage consumes the already-built portable directory. It does not rebuild R, reinstall R packages, rebuild MiraProt, or refresh caches.
+
+A Windows installer build requires these stage-1 components:
+
+- `MiraProt-launcher.exe`;
+- `shiny-app/`;
+- `r-portable/`;
+- `r-library/`.
+
+The following are optional and are included when present:
+
+- `go-cache/`;
+- `LICENSE.md`;
+- `README.md`;
+- `THIRD_PARTY_NOTICES.md`;
+- `citation.cff`.
+
+When a portable cache is present, the installer preserves it as packaged seed data. The installed launcher uses a writable per-user runtime cache under `%LOCALAPPDATA%\MiraProt\cache`. Existing user cache contents are not overwritten by the shipped seed. If no cache was packaged, MiraProt remains functional and downloads required resources on demand.
+
+The exact installer procedure is documented in `GUIDE_PORTABLE_USER.md` and `GUIDE_PORTABLE_DEV.md`.
 
 Third-party components included in a locally generated portable build remain subject to their respective upstream licenses.
 
-If a locally generated bundle is redistributed, the person redistributing it is responsible for complying with the applicable licenses and redistribution requirements of R, R packages, and other bundled third-party components.
+If a locally generated bundle or installer is redistributed, the person redistributing it is responsible for complying with the applicable licenses and redistribution requirements of R, R packages, and other bundled third-party components.
 
 ---
 
@@ -145,25 +167,39 @@ This separation is intentional.
 
 To perform GSEA, you must provide one or more gene-set files in **GMT format**.
 
-MiraProt searches the following directory for these files:
+The runtime directory depends on how MiraProt is being used:
 
-```
+| MiraProt mode | GSEA directory |
+|---|---|
+| Source mode | `<MiraProt source repository>/GSEA/` |
+| Flat portable bundle | `<portable bundle>/shiny-app/GSEA/` |
+| Windows installer | `<MiraProt installation>/shiny-app/GSEA/` |
+| macOS app | `MiraProt.app/Contents/Resources/app/GSEA/` |
+| Linux AppImage | `usr/bin/shiny-app/GSEA/` inside the packaged image |
+
+For source mode, MiraProt searches:
+
+```text
 GSEA/
+```
 
+For a Windows flat portable build or installed Windows version, the corresponding runtime directory is:
+
+```text
+shiny-app/GSEA/
 ```
 
 Any compatible file ending in:
 
-```
+```text
 .gmt
-
 ```
 
-that is placed directly in this directory can be detected by the GSEA module.
+that is placed directly in the appropriate runtime `GSEA/` directory can be detected by the GSEA module.
 
-For example, after adding your own gene-set files, your local directory may look like:
+For example, a source checkout may look like:
 
-```
+```text
 MiraProt/
 ├── GSEA/
 │   ├── h.all.v2026.1.Hs.symbols.gmt
@@ -173,10 +209,11 @@ MiraProt/
 ├── R/
 ├── app.R
 └── ...
-
 ```
 
 The exact filenames depend on the database release and collections you choose.
+
+If a packaged installation directory is not writable, add the required GMT files to the portable bundle before packaging, or build/install MiraProt to a user-writable location.
 
 ## Using MSigDB
 
@@ -190,7 +227,7 @@ To use MSigDB gene sets:
    [https://www.gsea-msigdb.org/gsea/msigdb/](https://www.gsea-msigdb.org/gsea/msigdb/)
 2. Register or sign in if required by MSigDB.
 3. Download the desired **human gene-symbol GMT collection**.
-4. Copy the downloaded `.gmt` file into the `GSEA/` directory of your MiraProt installation.
+4. Copy the downloaded `.gmt` file into the appropriate MiraProt runtime `GSEA/` directory shown above.
 5. Start MiraProt and open the GSEA module. The available GMT files can then be selected as gene-set resources for the analysis.
 
 You do **not** need to download every MSigDB collection. Download only the collections required for your analysis.
@@ -220,11 +257,10 @@ For reproducible research, record the exact MSigDB release and collection used i
 
 For example:
 
-```
+```text
 MSigDB release: 2026.1.Hs
 Collection: Hallmark gene sets
 Identifier type: Gene Symbol
-
 ```
 
 When publishing GSEA results, cite MSigDB and any underlying resources as required by the corresponding database documentation.
@@ -275,6 +311,8 @@ These caches can include resources obtained from services such as:
 
 Cache files are generated locally and are not part of the official MiraProt source distribution.
 
+A self-built portable bundle may include locally available GO, AnnotationHub, and BioMart caches as seed data. A flat portable bundle uses its adjacent `go-cache/` directly. Packaged formats such as the Windows installer use the shipped cache only as seed data and maintain writable runtime cache files in the user's application-data directory.
+
 Removing a cache does not remove MiraProt itself. Required information will be downloaded again when the corresponding feature needs it.
 
 ---
@@ -283,14 +321,14 @@ Removing a cache does not remove MiraProt itself. Required information will be d
 
 The main repository structure is:
 
-```
+```text
 MiraProt/
 ├── app.R
 ├── install.R
 ├── renv.lock
-├── LICENSE
+├── LICENSE.md
 ├── THIRD_PARTY_NOTICES.md
-├── CITATION.cff
+├── citation.cff
 │
 ├── R/
 │   └── application-wide infrastructure
@@ -309,11 +347,10 @@ MiraProt/
 │   └── Data Wizard assignment presets
 │
 ├── portable/
-│   └── portable-build and launcher source
+│   └── portable-build, launcher, and optional packaging source
 │
 ├── GUIDE_PORTABLE_USER.md
 └── GUIDE_PORTABLE_DEV.md
-
 ```
 
 The root `modules/` directory contains the main module entry files. Detailed implementation code is organized in the corresponding module subdirectories.
@@ -337,10 +374,9 @@ For a reproducible analysis, record at least:
 
 The package environment of the reference release can be restored with:
 
-```
+```text
 install.packages("renv")
 renv::restore()
-
 ```
 
 A tagged MiraProt software release should be used when reproducing analyses associated with a publication.
@@ -374,7 +410,7 @@ The user documentation explains:
 
 Technical documentation describes the internal architecture and is intended primarily for development and maintenance.
 
-Additional information on building a portable local distribution is available in:
+Additional information on building a portable local distribution and optional platform packages is available in the source repository:
 
 - `GUIDE_PORTABLE_USER.md`
 - `GUIDE_PORTABLE_DEV.md`
@@ -401,9 +437,8 @@ The official MiraProt source release does not relicense:
 
 Additional information is provided in:
 
-```
+```text
 THIRD_PARTY_NOTICES.md
-
 ```
 
 ---
@@ -416,9 +451,8 @@ Copyright (c) 2026 Adrian Schmalen
 
 See:
 
-```
-LICENSE
-
+```text
+LICENSE.md
 ```
 
 for the full license terms.
@@ -435,9 +469,8 @@ If you use MiraProt in published research, please cite the associated MiraProt p
 
 Machine-readable citation information is provided in:
 
-```
-CITATION.cff
-
+```text
+citation.cff
 ```
 
 The publication release of MiraProt is archived separately to provide a persistent, version-specific software record.
