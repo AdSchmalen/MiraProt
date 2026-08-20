@@ -854,11 +854,9 @@ modDataWizardServer <- function(id, rv, debug_level = 0) {
       set_metadata_assignment_state(TRUE, "metadata_assigning")
       on.exit({
         ready <- isTRUE(metadata_content_ready())
-        # Auto-assign and assign-rules updates write directly to handson_metadata().
-        # Do not require rv$data_def to match here: the Tables module's
-        # pause_metadata_sync checkbox only defers manual metadata_table
-        # write-back, and must not keep rule-applied metadata in an assigning
-        # state.
+        # Rule application commits through the Tables transaction (or its
+        # canonical compatibility fallback), so readiness reflects the
+        # published metadata rather than a private editor mirror.
         if (is.function(core_values$metadata_meaningful_ready)) core_values$metadata_meaningful_ready(ready)
         set_metadata_assignment_state(FALSE, if (ready) "metadata_ready" else "metadata_failed_or_manual")
         rv$datawizard_metadata_meaningful_ready <- ready
@@ -907,7 +905,10 @@ modDataWizardServer <- function(id, rv, debug_level = 0) {
           if (!isTRUE(apply_to_metadata)) {
             debug_log("Skipping metadata apply (session restore path)", level = 2)
           } else if (!is.null(modules_list$auto_assign_out$apply_rules)) {
-            current_metadata <- core_values$handson_metadata()
+            current_metadata <- isolate(core_values$handson_metadata())
+            if (!is.null(current_metadata)) {
+              current_metadata <- unserialize(serialize(current_metadata, NULL))
+            }
             if (!is.null(current_metadata)) {
               apply_res <- tryCatch(
                 {
@@ -925,16 +926,42 @@ modDataWizardServer <- function(id, rv, debug_level = 0) {
               } else {
                 applied_metadata <- apply_res$new_meta
 
-                if (!identical(apply_res$new_meta, current_metadata)) {
-                  core_values$handson_metadata(apply_res$new_meta)
-                  debug_log("Metadata updated by auto-assign rules", level = 1)
+                metadata_valid <- is.data.frame(applied_metadata) &&
+                  nrow(applied_metadata) == nrow(current_metadata) &&
+                  "Column" %in% names(applied_metadata) &&
+                  identical(applied_metadata$Column, current_metadata$Column) &&
+                  length(setdiff(names(current_metadata), names(applied_metadata))) == 0L
+                if (!metadata_valid) {
+                  add_agg_event("failed", "Auto Assign Rules", list(error = "Rule engine returned invalid metadata"))
+                  debug_log("Rule engine returned invalid or misaligned metadata", level = 1)
+                  applied_metadata <- NULL
+                } else {
+                  setter <- modules_list$tables_out$set_current_metadata
+                  if (is.function(setter)) {
+                    commit <- setter(applied_metadata, source = "rule-set application")
+                  } else {
+                    warning("Tables metadata setter unavailable during rule-set application; using canonical compatibility fallback")
+                    debug_log("Rule-set application using canonical metadata setter fallback", level = 1)
+                    commit <- tryCatch({
+                      primary_data_state$set_metadata_for_current_data(applied_metadata)
+                      list(success = TRUE, table_committed = FALSE, canonical_committed = TRUE)
+                    }, error = function(e) list(success = FALSE, reason = e$message))
+                  }
+                  live_table <- tryCatch(isolate(modules_list$tables_out$current_metadata()), error = function(e) NULL)
+                  live_canonical <- tryCatch(isolate(resolve_current_metadata("primary_working")), error = function(e) NULL)
+                  table_ok <- !is.function(setter) || isTRUE(all.equal(live_table, applied_metadata, check.attributes = FALSE))
+                  canonical_ok <- isTRUE(all.equal(live_canonical, applied_metadata, check.attributes = FALSE))
+                  metadata_commit_succeeded <- isTRUE(commit$success) && table_ok && canonical_ok
+                  if (!metadata_commit_succeeded) {
+                    reason <- commit$reason %||% "committed metadata mirrors did not agree"
+                    add_agg_event("failed", "Auto Assign Rules", list(error = reason))
+                    debug_log(paste("Rule-set metadata commit failed:", reason), level = 1)
+                  } else {
+                    debug_log("Metadata committed from rule-set application", level = 1)
+                  }
                 }
-                metadata_commit_succeeded <- isTRUE(all.equal(
-                  isolate(core_values$handson_metadata()), applied_metadata,
-                  check.attributes = FALSE
-                ))
 
-                applied_condition_values <- unique(c(
+                if (isTRUE(metadata_commit_succeeded)) applied_condition_values <- unique(c(
                   extract_auto_assign_condition_values_from_metadata(
                     applied_metadata,
                     modules_list,
@@ -946,7 +973,7 @@ modDataWizardServer <- function(id, rv, debug_level = 0) {
                     debug_log
                   )
                 ))
-                if (length(applied_condition_values) > 0) {
+                if (isTRUE(metadata_commit_succeeded) && length(applied_condition_values) > 0) {
                   update_stage("Updating condition groups")
                   condition_list <- setNames(as.list(applied_condition_values),
                                              paste0("Condition_", seq_along(applied_condition_values)))

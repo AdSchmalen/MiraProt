@@ -80,10 +80,13 @@ register_tables_rendering <- function(context) {
     primary_columns <- tryCatch(names(isolate(primary_data())), error = function(e) NULL)
     if (is.null(primary_columns)) return(invisible(FALSE))
 
-    colors <- create_content_color_mapping(unique(metadata$Content), metadata)
-    colors <- colors[intersect(primary_columns, names(colors))]
+    metadata_colors <- create_content_color_mapping(unique(metadata$Content), metadata)
+    colors <- setNames(rep("#ffffff", length(primary_columns)), primary_columns)
+    matched_columns <- intersect(primary_columns, names(metadata_colors))
+    colors[matched_columns] <- metadata_colors[matched_columns]
     session$sendCustomMessage("datawizard-table-style", list(
       id = ns(isolate(primary_table_output_id())),
+      columnIndexes = unname(seq_along(primary_columns) - 1L),
       columns = unname(names(colors)),
       colors = unname(colors)
     ))
