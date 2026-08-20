@@ -86,7 +86,8 @@ func goCacheRoot() string {
 	return ""
 }
 
-// packagedGoCacheRoot locates a cache embedded in an AppImage or macOS app.
+// packagedGoCacheRoot locates a cache embedded in an installer, AppImage, or
+// macOS app.
 // These locations may be mounted read-only and are used only as seed data.
 func packagedGoCacheRoot() string {
 	exe, err := os.Executable()
@@ -95,6 +96,7 @@ func packagedGoCacheRoot() string {
 	}
 	exeDir := filepath.Dir(exe)
 	candidates := []string{
+		filepath.Join(exeDir, "resources", "go-cache"),        // Windows installer
 		filepath.Join(exeDir, "..", "go-cache"),              // AppImage usr/go-cache
 		filepath.Join(exeDir, "..", "Resources", "go-cache"), // macOS .app bundle
 	}
