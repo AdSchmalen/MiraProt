@@ -904,18 +904,22 @@ user's existing cache. Logs (`<datadir>/logs`) and the single-instance lock
 (`<datadir>/launcher.lock`) always remain in application data and are not part
 of `go-cache/`.
 
-During assembly, `prebuild-cache.R` attempts to download the AnnotationHub
-index, the default `org.Hs.eg.db` resource, and derived organism metadata into
-`go-cache/annotation_cache` and `go-cache/go_cache`. This prebuild is an
-optimization, **not a required build step**: the Unix bundler, Windows bundler,
-and CI all warn and continue on failure because runtime download is supported.
-Afterward the bundlers/CI merge source `cache/GO_Cache/` into
-`go-cache/go_cache/`; source files win over same-named prebuilt files. They do
-not combine nested organism `ah_cache` databases with the top-level
-`annotation_cache`, because independent BiocFileCache indexes cannot safely be
-merged. Source `cache/BioMart_Cache/` is placed at
-`go-cache/go_cache/BioMart_Cache/`, matching BioMart's portable-mode path under
-`MIRAPROT_GO_CACHE`.
+During assembly, cache priority is: an existing portable output cache, the
+non-portable project cache, local reconstruction from those copied files, and
+only then a network fallback for missing AnnotationHub/GO pieces. The builders
+merge source `cache/GO_Cache/` into `go-cache/go_cache/` and source
+`cache/BioMart_Cache/` into `go-cache/go_cache/BioMart_Cache/` before running
+`prebuild-cache.R`.
+
+When the destination AnnotationHub cache is empty, the complete default-human
+`cache/GO_Cache/org.Hs.eg.db/ah_cache/` may seed
+`go-cache/annotation_cache/`. Other per-organism AnnotationHub/BiocFileCache
+directories are never combined because their independent indexes cannot be
+safely merged. `prebuild-cache.R` validates the local hub and human SQLite
+before using its network fallback. This remains an optional optimization: the
+bundlers warn and continue on failure because runtime download is supported. A
+missing BioMart cache is left absent for normal on-demand population; portable
+assembly does not trigger a full BioMart build.
 
 Consequently a flat archive and the Windows installed/flat layout read and
 write the adjacent cache. A DMG-created macOS app and an AppImage ship the same
