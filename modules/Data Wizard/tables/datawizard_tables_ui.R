@@ -84,16 +84,22 @@ datawizard_tables_UI <- function(ns) {
             });
           });
         }
-        Shiny.addCustomMessageHandler('datawizard-table-style', function(message) {
-          var table = document.querySelector('#' + CSS.escape(message.id) + ' table');
+        function attachTableStyle(id) {
+          var table = document.querySelector('#' + CSS.escape(id) + ' table');
           if (!table) return;
-          window.datawizardTableStyles[message.id] = message;
-          applyTableStyle(message.id);
+          applyTableStyle(id);
           if (window.jQuery) {
             window.jQuery(table)
               .off('draw.dt.datawizardTableStyle')
-              .on('draw.dt.datawizardTableStyle', function() { applyTableStyle(message.id); });
+              .on('draw.dt.datawizardTableStyle', function() { applyTableStyle(id); });
           }
+        }
+        document.addEventListener('datawizard:dt-ready', function(event) {
+          if (event.detail && event.detail.id) attachTableStyle(event.detail.id);
+        });
+        Shiny.addCustomMessageHandler('datawizard-table-style', function(message) {
+          window.datawizardTableStyles[message.id] = message;
+          attachTableStyle(message.id);
         });
       })();"
     )),
