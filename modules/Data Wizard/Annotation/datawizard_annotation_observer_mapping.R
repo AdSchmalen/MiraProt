@@ -39,11 +39,10 @@
 #   - If new mapping strategies are added, extend observer d here.
 #   - Target: stay below 1000 lines.
 #
-# withProgress Scoping Constraint:
-#   All variable assignments inside withProgress() MUST use <- (plain
-#   assignment), NOT <<-.  See the inline SCOPING NOTE in observer d for
-#   the full explanation.  This was the root cause of the cross-species
-#   mapping regression in PR 312.
+# Progress Lifecycle:
+#   The observer owns one explicit Progress object so that mapping, data
+#   publication, bookkeeping, and the following reactive flush are represented
+#   by the same progress indicator.
 # ==============================================================================
 
 
@@ -77,6 +76,26 @@ register_annotation_observers_mapping <- function(input, output, session, ns,
 
   observeEvent(input$run_annotation, {
     debug_log("Map IDs button clicked", 1)
+
+    progress <- shiny::Progress$new(session, min = 0, max = 1)
+    progress_closed <- FALSE
+    progress_close_deferred <- FALSE
+    close_progress <- function() {
+      if (!isTRUE(progress_closed)) {
+        progress$close()
+        progress_closed <<- TRUE
+      }
+    }
+    on.exit({
+      if (!isTRUE(progress_close_deferred)) {
+        close_progress()
+      }
+    }, add = TRUE)
+    progress$set(
+      value = 0,
+      message = sprintf("Mapping identifiers..."),
+      detail = "Validating inputs..."
+    )
 
     tryCatch({
       data <- tryCatch(get_data(), error = function(e) NULL)
@@ -124,38 +143,25 @@ register_annotation_observers_mapping <- function(input, output, session, ns,
       debug_log(sprintf("Starting mapping: %d unique IDs from '%s'",
                         length(source_ids), source_col), 1)
 
-      # Perform mapping inside withProgress for real-time progress bars.
-      #
-      # SCOPING NOTE: all assignments inside the withProgress expression MUST
-      # use <- (plain assignment), NOT <<-.  Shiny evaluates withProgress via
-      # eval(substitute(expr), envir = parent.frame()), which makes the calling
-      # frame the current environment.  <- therefore writes directly to this
-      # observer's local frame.  <<- would search the *parent* of that frame,
-      # skipping the local declarations here, leaving mapped_values and
-      # target_col_name NULL after withProgress returns (regression from PR 312).
-      #
-      # EARLY-EXIT NOTE: return() inside withProgress only exits the withProgress
-      # eval context, not this observer.  Pre-mapping validation failures are
-      # therefore signalled via mapping_cancelled <- TRUE instead of return(),
-      # and checked explicitly after withProgress.
+      progress$set(value = 0.05, detail = "Preparing identifier mapping...")
+
       mapped_values     <- NULL
       target_col_name   <- NULL
       mapping_cancelled <- FALSE
 
-      withProgress(
-        message = sprintf("Mapping %d identifiers...", length(source_ids)),
-        value = 0, {
-
-        # Progress callback for BioMart strategies
-        progress_cb <- function(msg, value) {
-          if (!is.null(value)) {
-            setProgress(value = value, detail = msg)
-          } else {
-            incProgress(0, detail = msg)
-          }
+      # BioMart's 0--1 callback covers only the mapping portion of the overall
+      # operation.  A helper-reported 1 therefore represents 70%, leaving the
+      # data publication and reactive refresh stages visible.
+      progress_cb <- function(msg, value) {
+        if (!is.null(value)) {
+          mapping_value <- max(0, min(1, as.numeric(value)))
+          progress$set(value = 0.05 + 0.65 * mapping_value, detail = msg)
+        } else {
+          progress$set(detail = msg)
         }
+      }
 
-        if (cross_species) {
+      if (cross_species) {
           # Cross-species via biomaRt
           target_species <- input$target_species_annotation
 
@@ -168,7 +174,7 @@ register_annotation_observers_mapping <- function(input, output, session, ns,
             validation_target_attr <- if (!is.null(target_biomart_attr)) target_biomart_attr
                                       else "ensembl_gene_id"
 
-            incProgress(0.02, detail = "Validating BioMart compatibility...")
+            progress$set(value = 0.07, detail = "Validating BioMart compatibility...")
 
             validation <- validate_biomart_compatibility(
               source_species = species,
@@ -218,11 +224,11 @@ register_annotation_observers_mapping <- function(input, output, session, ns,
             }
           }
 
-        } else {
+      } else {
           # Intra-species via OrgDb
           orgdb_name <- organism_to_orgdb(species)
 
-          incProgress(0.05, detail = "Loading organism database...")
+          progress$set(value = 0.10, detail = "Loading organism database...")
 
           # Cache decision summary: log the state of every cache layer before
           # the load sequence starts so that the chosen action is traceable.
@@ -312,7 +318,7 @@ register_annotation_observers_mapping <- function(input, output, session, ns,
             )
             mapping_cancelled <- TRUE
           } else {
-            incProgress(0.1, detail = "Performing intra-species mapping...")
+            progress$set(value = 0.25, detail = "Performing intra-species mapping...")
 
             mapped_values <- map_ids_intraspecies(
               ids               = source_ids,
@@ -329,13 +335,9 @@ register_annotation_observers_mapping <- function(input, output, session, ns,
               from_keytype   = from_keytype,
               to_keytype     = to_keytype
             )
+            progress$set(value = 0.70, detail = "Intra-species mapping complete")
           }
-        }
-
-        if (!isTRUE(mapping_cancelled)) {
-          setProgress(1, detail = "Mapping complete")
-        }
-      })
+      }
 
       # Exit cleanly when a pre-mapping check cancelled the operation.
       if (isTRUE(mapping_cancelled)) {
@@ -363,6 +365,7 @@ register_annotation_observers_mapping <- function(input, output, session, ns,
       # If no identifier was matched at all, update the result reactive but
       # skip adding a column (adding an all-NA column would not be useful).
       if (all(is.na(mapped_values))) {
+        progress$set(value = 0.93, detail = "Finalizing mapping...")
         debug_log("Mapping complete: 0 identifiers matched - no column added", 1)
 
         n_total    <- length(mapped_values)
@@ -405,10 +408,20 @@ register_annotation_observers_mapping <- function(input, output, session, ns,
           sprintf("No identifiers could be mapped (0/%d matched). No column was added.", n_total),
           type = "warning", duration = 7
         )
+        progress$set(value = 0.97, detail = "Refreshing data and metadata...")
+        session$onFlushed(function() {
+          tryCatch(
+            progress$set(value = 1, detail = "Mapping complete"),
+            error = function(e) NULL,
+            finally = close_progress()
+          )
+        }, once = TRUE)
+        progress_close_deferred <- TRUE
         return(NULL)
       }
 
       # Add column to data
+      progress$set(value = 0.75, detail = "Applying mapped IDs...")
       debug_log(sprintf(
         "Pre-add: mapped_values length %d (%d non-NA), target_col_name: '%s'",
         length(mapped_values), sum(!is.na(mapped_values)), target_col_name), 1)
@@ -433,6 +446,7 @@ register_annotation_observers_mapping <- function(input, output, session, ns,
       }
 
       # Write back via set_data
+      progress$set(value = 0.82, detail = "Updating data and metadata...")
       debug_log(sprintf("Calling set_data() with updated data (%d cols, new col: '%s')",
                         ncol(result$data), result$new_col_name), 1)
 
@@ -448,6 +462,7 @@ register_annotation_observers_mapping <- function(input, output, session, ns,
                         if (isTRUE(success)) "TRUE (success)" else "FALSE or NULL (failed)"), 1)
 
       if (isTRUE(success)) {
+        progress$set(value = 0.93, detail = "Finalizing mapping...")
         n_mapped   <- sum(!is.na(result$data[[result$new_col_name]]))
         n_total    <- nrow(result$data)
         n_unmapped <- n_total - n_mapped
@@ -573,6 +588,16 @@ register_annotation_observers_mapping <- function(input, output, session, ns,
                   result$new_col_name, n_mapped, n_total),
           type = "message", duration = 5
         )
+
+        progress$set(value = 0.97, detail = "Refreshing data and metadata...")
+        session$onFlushed(function() {
+          tryCatch(
+            progress$set(value = 1, detail = "Mapping complete"),
+            error = function(e) NULL,
+            finally = close_progress()
+          )
+        }, once = TRUE)
+        progress_close_deferred <- TRUE
       } else {
         debug_log("set_data() returned FALSE after annotation mapping", 1)
         showNotification("Failed to apply annotation update.", type = "error")
