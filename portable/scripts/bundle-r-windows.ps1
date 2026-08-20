@@ -907,9 +907,21 @@ Write-Host ""
 Write-Host "--- Building Go launcher ---"
 
 $LauncherDir = Join-Path $ScriptDir "..\launcher"
+$LauncherStage = Join-Path ([IO.Path]::GetTempPath()) ("miraprot-launcher-" + [guid]::NewGuid().ToString("N"))
+$LauncherLocationPushed = $false
 
-Push-Location $LauncherDir
 try {
+    New-Item -ItemType Directory -Path $LauncherStage -Force | Out-Null
+    Copy-Item -Path (Join-Path $LauncherDir "*") -Destination $LauncherStage -Recurse -Force
+    Remove-Item -Force -ErrorAction SilentlyContinue `
+        (Join-Path $LauncherStage "MiraProt.ico"), `
+        (Join-Path $LauncherStage "icon_data_windows.go"), `
+        (Join-Path $LauncherStage "icon_data_nonwindows.go"), `
+        (Join-Path $LauncherStage "*.syso"), `
+        (Join-Path $LauncherStage "MiraProt-launcher*")
+
+    Push-Location $LauncherStage
+    $LauncherLocationPushed = $true
     $version = if ($HasGitMetadata) { git -C $ProjectRoot describe --tags --always 2>$null } else { "dev" }
     if (-not $version) { $version = "dev" }
 
@@ -934,8 +946,10 @@ try {
     if ($LASTEXITCODE -ne 0 -or -not (Test-Path $GoWinres)) {
         throw "go-winres $GoWinresVersion installation failed or did not create '$GoWinres'."
     }
-    go run gen_ico.go
+    go run (Join-Path $LauncherDir "gen_ico.go") -output-dir $LauncherStage
+    if ($LASTEXITCODE -ne 0) { throw "Launcher icon generation failed with exit code $LASTEXITCODE." }
     & $GoWinres make
+    if ($LASTEXITCODE -ne 0) { throw "go-winres failed with exit code $LASTEXITCODE." }
 
     Write-Host "Compiling launcher (version: $version)..."
     go build `
@@ -947,7 +961,8 @@ try {
         exit 1
     }
 } finally {
-    Pop-Location
+    if ($LauncherLocationPushed) { Pop-Location }
+    Remove-Item -Path $LauncherStage -Recurse -Force -ErrorAction SilentlyContinue
 }
 
 $launcherFile = Join-Path $OutputDir "MiraProt-launcher.exe"

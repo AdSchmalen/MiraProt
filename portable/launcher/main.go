@@ -2,10 +2,10 @@ package main
 
 // To regenerate the Windows exe icon and tray icon from MiraProt_icon.png:
 //
-//	go run gen_ico.go
+//	go run gen_ico.go -write-source
 //	goversioninfo -o resource.syso versioninfo.json
 //
-//go:generate go run gen_ico.go
+//go:generate go run gen_ico.go -write-source
 //go:generate goversioninfo -o resource.syso versioninfo.json
 
 import (
