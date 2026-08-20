@@ -1291,14 +1291,18 @@ exists.
 
 Stale locks from crashed processes are cleaned up.
 
-### Update checking
+### New release checking
 
-On startup, the launcher queries the GitHub Releases API for the latest tag.
+On startup, a tagged semantic release build queries the GitHub Releases API in
+the background for the latest tag. Development builds identified by `dev`, a
+plain Git commit SHA, or a Git-describe development version skip the request.
 
-If a newer tag is available, it can notify the user.
+If a newer tag is available, the launcher can notify the user where to obtain
+newer source.
 
-The authoritative distribution remains source-only: the launcher does not
-perform an automatic in-place software update.
+This request is informational only. The authoritative distribution remains
+source-only: the launcher does not automatically download or install updates
+and does not perform an in-place software update.
 
 ---
 
