@@ -1,286 +1,261 @@
 # Build and Run MiraProt on Your Computer
 
-This guide creates a local MiraProt bundle from the source code. You do not
-need to be a developer, but the first build downloads R and R packages and can
-take 30–60 minutes. Allow several gigabytes of free disk space.
+This guide creates a local portable MiraProt bundle from the source code.
+
+You do not need to be a developer, but the first build downloads or installs a substantial software environment and can take considerable time. Allow several gigabytes of free disk space and use a reliable internet connection.
+
+## Platform validation status
+
+Portable-build support is not currently validated equally on all operating systems.
+
+| Platform | Status |
+|---|---|
+| **Windows x86-64** | Manually built and tested. This is the currently validated portable desktop workflow. |
+| **Linux, Ubuntu/Debian family** | Build and AppImage tooling is implemented but has not yet been manually validated end-to-end on a native Linux installation. Treat this path as experimental. |
+| **macOS, Intel / Apple Silicon** | Build and DMG tooling is implemented but has not yet been manually validated end-to-end on native macOS systems. Treat this path as experimental. |
+
+The Linux/macOS qualification concerns the portable desktop packaging. It does not mean that the R/Shiny source application itself is inherently Windows-only.
 
 ### How to use this guide
 
-The instructions are organized as a beginner workflow rather than a list of
-developer internals:
+The workflow is:
 
-1. install the few tools needed to build on your operating system;
-2. run a check after each installation and compare the expected result;
-3. obtain the MiraProt source and verify that the terminal is in the right
-   folder;
-4. run one platform-specific build command;
-5. verify the generated launcher and start MiraProt;
-6. optionally package the finished Windows bundle as a normal setup executable;
-   and
-7. optionally add GSEA gene-set files.
+1. install the build tools required for your operating system;
+2. obtain the MiraProt source;
+3. verify that the terminal is in the repository root;
+4. build the stage-1 portable bundle;
+5. verify and launch it;
+6. optionally create a platform-specific package such as the Windows installer;
+7. optionally supply GSEA GMT files.
 
-Commands are shown on one line whenever practical so they can be copied and
-pasted. Text marked **Expected** describes a successful checkpoint; versions
-and local paths can differ slightly.
+**Windows is the recommended portable-build path at present.**
 
-**First-time Windows user:** go directly to the complete
-[Windows walkthrough](#windows). It includes installing the tools and cloning
-the repository, so do not clone it separately in section 1 first. Linux and
-macOS users should obtain the source in section 1 before following their
-platform section.
+---
 
-## 1. Get the MiraProt source
+# 1. Get the MiraProt source
 
-Choose **one** of these methods:
+For Windows, either a Git checkout or extracted source archive can be used.
 
-### Option A: clone with Git
+For the current Linux/macOS portable builder, use a **Git checkout**. The current Unix build path uses Git metadata while generating `BUILD_INFO` and the launcher version, so an extracted source archive without `.git` metadata is not currently a supported Linux/macOS portable-build input.
 
-Open PowerShell (Windows) or Terminal (Linux/macOS), then run:
+## Clone with Git
 
-```bash
-git clone https://github.com/AdSchmalen/MiraProt.git
-cd MiraProt
+Open PowerShell on Windows or Terminal on Linux/macOS:
+
+```text
+git clone https://github.com/AdSchmalen/MiraProt.git; cd MiraProt
 ```
 
-### Option B: use a source archive
+Run all build commands from the repository root.
 
-Download a source-code ZIP or tar archive from the MiraProt repository, extract
-it, and open PowerShell or Terminal in the extracted folder. The correct folder
-contains `portable`, `app.R`, and this guide.
+The correct directory contains at least:
 
-> **Run every build command below from this repository root.** Do not run it
-> from inside `portable` or `portable/scripts`.
+```text
+app.R
+portable/
+R/
+modules/
+```
 
-An archive is fine for a one-time build. A Git clone is easier to update later.
+---
 
-## 2. Build on your operating system
-
-Build tools are used to assemble the bundle; that does not mean they are all
-needed to run it. In particular, **R, Go, Git, compilers, and package installers
-used during assembly are not automatically runtime prerequisites of the
-finished bundle**. MiraProt includes its own copy of R and its R packages.
-Linux and macOS bundles can still depend on operating-system shared libraries,
-as described below.
-
-### Windows
+# 2. Windows
 
 The Windows portable build currently targets **64-bit x86 Windows (`amd64`)**.
-It does not build a Windows ARM64 launcher. Start with a reliable internet
-connection, several gigabytes of free disk space, and enough time for the first
-package installation.
 
-#### Step 1 — Open Windows PowerShell
+Windows ARM64 is not currently a native portable-build target.
 
-Open the **Start** menu, type `PowerShell`, and open **Windows PowerShell**.
-Do not choose **Run as administrator**; a normal user window is preferred.
+## Step 1 — Open PowerShell
 
-Check that the built-in PowerShell and Windows package manager are available:
+Open Windows PowerShell from the Start menu.
+
+Check PowerShell and `winget`:
 
 ```powershell
 $PSVersionTable.PSVersion; winget --version
 ```
 
-**Expected:** a PowerShell version of at least `5.1` and a `winget` version
-such as `v1.x`. If `winget` is not found, install or update **App Installer**
-from Microsoft Store, then reopen PowerShell. Microsoft's alternative
-PowerShell installation methods are documented at
-<https://learn.microsoft.com/powershell/scripting/install/installing-powershell-on-windows>.
+PowerShell 5.1 can run the builder, but PowerShell 7 is recommended.
 
-#### Step 2 — Install the current PowerShell 7 release
-
-PowerShell 5.1 can run the bundler, but PowerShell 7 provides the clearest
-current command-line experience. Install the latest stable PowerShell 7
-published through Microsoft's `winget` package:
+## Step 2 — Install PowerShell 7
 
 ```powershell
 winget install --id Microsoft.PowerShell --exact --source winget --accept-package-agreements --accept-source-agreements
 ```
 
-Close Windows PowerShell. Open the Start menu again and choose
-**PowerShell 7**, then check it:
+Close the old PowerShell window and open **PowerShell 7**.
+
+Verify:
 
 ```powershell
 $PSVersionTable.PSVersion
 ```
 
-**Expected:** the first number under `Major` is `7`. Future `7.x` releases are
-fine; the guide does not require one particular patch number.
+The major version should be `7`.
 
-#### Step 3 — Confirm the supported processor architecture
+## Step 3 — Check the processor architecture
 
 ```powershell
 [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture
 ```
 
-**Expected:** `X64`. If it reports `Arm64`, stop: the Windows bundler currently
-forces an amd64 launcher and this guide does not claim native Windows ARM64
-support.
+Expected:
 
-#### Step 4 — Install Git
+```text
+X64
+```
 
-Git downloads the MiraProt source and makes later updates simple:
+If the result is `Arm64`, the current Windows portable builder is not a native ARM64 build path.
+
+## Step 4 — Install Git
 
 ```powershell
 winget install --id Git.Git --exact --source winget --accept-package-agreements --accept-source-agreements
 ```
 
-Close and reopen PowerShell 7 so it receives the updated `PATH`, then check:
+Reopen PowerShell 7 and verify:
 
 ```powershell
 git --version
 ```
 
-**Expected:** output beginning with `git version`, for example
-`git version 2.x.x.windows.x`.
+## Step 5 — Install Go
 
-#### Step 5 — Install Go
-
-Go is needed only to compile `MiraProt-launcher.exe`. It is not included in the
-finished bundle and is not needed each time MiraProt runs.
+Go is used to compile the native MiraProt launcher.
 
 ```powershell
 winget install --id GoLang.Go --exact --source winget --accept-package-agreements --accept-source-agreements
 ```
 
-Close and reopen PowerShell 7 again, then check:
+Reopen PowerShell 7 and verify:
 
 ```powershell
 go version
 ```
 
-**Expected:** output similar to `go version go1.22.x windows/amd64` or a newer
-Go release ending in `windows/amd64`. If `winget` cannot install Go, use the
-official Windows installer at <https://go.dev/dl/>, reopen PowerShell 7, and
-repeat `go version`.
+The output should indicate a Windows amd64 Go installation.
 
-#### Step 6 — Download MiraProt with Git
+Go is a build dependency. It is not required to run the finished portable bundle.
 
-The following command switches to your user folder, downloads MiraProt into a
-new `MiraProt` folder, and enters it:
+## Step 6 — Enter the MiraProt source directory
+
+If you cloned the repository into your home directory:
 
 ```powershell
-Set-Location $HOME; git clone https://github.com/AdSchmalen/MiraProt.git; Set-Location "$HOME\MiraProt"
+Set-Location "$HOME\MiraProt"
 ```
 
-**Expected:** Git ends with `done.`, and the prompt's current path ends in
-`MiraProt`. If Git says the destination already exists, do not clone over it;
-enter the existing checkout with `Set-Location "$HOME\MiraProt"` and use the
-update instructions in section 4.
-
-Confirm that this is the repository root:
+Verify:
 
 ```powershell
 Get-Location; Test-Path .\app.R; Test-Path .\portable\scripts\bundle-r-windows.ps1
 ```
 
-**Expected:** the path ends in `MiraProt`, followed by `True` and `True`. Do not
-continue until both checks are `True`.
+The two `Test-Path` results should both be:
 
-If Git cannot be used, download the repository's **Source code (zip)** in a web
-browser, extract the complete archive, open PowerShell 7, and enter that folder
-with `Set-Location "C:\path\to\the\extracted\MiraProt-folder"`. Run the same
-two `Test-Path` checks before continuing.
+```text
+True
+```
 
-#### Step 7 — Check internet access and the selected R version
+## Step 7 — Check the portable R version and internet access
 
-Windows users do **not** install normal system R for this build. The bundler
-reads the required version from `portable\R_VERSION`, downloads that Windows R
-installer from CRAN, and installs it inside the portable output.
+The Windows builder downloads its own R runtime.
+
+You do **not** need a normal system R installation for the standard Windows portable build.
+
+Check the configured R version and CRAN connectivity:
 
 ```powershell
 Get-Content .\portable\R_VERSION; Test-NetConnection cloud.r-project.org -Port 443 | Select-Object ComputerName,TcpTestSucceeded
 ```
 
-**Expected:** one R version such as `4.5.2`, and
-`TcpTestSucceeded : True`. A false connection result usually means that a
-proxy, firewall, DNS setting, or internet connection must be fixed first.
-
-Check free space on the drive containing your user folder:
+Check available disk space:
 
 ```powershell
 $drive=(Split-Path $HOME -Qualifier).TrimEnd(':'); [math]::Round((Get-PSDrive -Name $drive).Free / 1GB,1)
 ```
 
-**Expected:** a number representing free gigabytes. At least 10 GB free is a
-practical starting point for downloads, temporary files, R, and its package
-library; actual use varies by package versions and caches.
+Several gigabytes are required. At least approximately 10 GB of free working space is a practical starting point.
 
-#### Step 8 — Build the portable bundle
+## Step 8 — Build the portable bundle
 
-Stay in the repository root and run this one command:
+For the default output directory:
 
 ```powershell
 .\portable\scripts\bundle-r-windows.ps1
 ```
 
-The first build downloads portable R, installs many R packages, optionally
-prebuilds and reuses caches, copies the MiraProt application, generates Windows
-resources, and compiles the launcher. Package installation is normally the
-longest step.
+For a separate output directory:
 
-The CRAN/Bioconductor output can be long, can appear quiet while a package is
-compiling, and will differ as package versions change. Do not interrupt it
-while it is still producing output. A `Cache pre-build failed` warning is
-recoverable because MiraProt can download that cache at runtime. `R package
-installation failed`, `Go build failed`, another terminating red error, or a
-return to the prompt without `=== Bundle complete ===` means the build did not
-finish.
+```powershell
+.\portable\scripts\bundle-r-windows.ps1 -RVersion "4.6.1" -OutputDir "..\MiraProt_Portable"
+```
 
-Near the end, **Expected** output includes:
+`-RVersion` selects the **R runtime version**, not the MiraProt application version.
+
+Ordinary users should normally omit `-RVersion` and use the maintained value in:
+
+```text
+portable\R_VERSION
+```
+
+The first build performs several operations:
+
+- downloads and validates portable R;
+- installs the required R packages;
+- reuses compatible local GO, AnnotationHub, and BioMart cache data when available;
+- fills required missing bootstrap cache data where possible;
+- copies the runtime application;
+- includes locally present immediate `GSEA/*.gmt` files when available;
+- builds the Go launcher.
+
+A cache-prebuild warning is recoverable because missing cache data can be obtained at runtime.
+
+A package installation failure or Go build failure is not recoverable within that build and should be resolved before retrying.
+
+Successful output ends with:
 
 ```text
 === Bundle complete ===
-To run: ...\portable\dist\MiraProt-launcher.exe
 ```
 
-The basic bundle does not require Inno Setup. Inno Setup is needed only if you
-choose the optional Windows installer steps below.
+and prints the launcher path.
 
-`-RVersion` is an advanced override for the **R runtime**, not a MiraProt
-application-version selector. Ordinary users should omit it so the maintained
-value in `portable\R_VERSION` is used. MiraProt's own version comes from
-Git/build metadata and `R/version_info.R`, independently of R, the launcher, a
-platform installer, and the saved-session schema.
+## Step 9 — Verify the Windows bundle
 
-R is installed first into a unique stage under `%TEMP%`, not directly into
-`r-portable`. Only a stage with `R.exe`, `Rscript.exe`, and `bin\x64\R.dll`
-that passes probes is promoted. An existing runtime remains recoverable until
-final-path validation, enabling safe rollback. `r-library` is the separate
-package library populated afterward.
-
-Windows R does not provide or require a top-level `VERSION` file. The absolute
-staged `R.exe --version` and `Rscript.exe --version` commands are startup
-probes; PowerShell invokes those executables natively, and the absolute staged
-`Rscript.exe --vanilla <version-probe.R>` runs a temporary UTF-8 script that
-calls `getRversion()` for the authoritative exact-version check. The same query
-runs again after promotion with inherited R configuration removed, so an R
-found elsewhere on `PATH` cannot validate the portable runtime.
-
-#### Step 9 — Verify the result
+For the default output:
 
 ```powershell
 Test-Path .\portable\dist\MiraProt-launcher.exe; Test-Path .\portable\dist\r-portable\bin\Rscript.exe; Test-Path .\portable\dist\shiny-app\app.R
 ```
 
-**Expected:** `True`, `True`, and `True`.
+Expected:
 
-Check the launcher without starting the application:
+```text
+True
+True
+True
+```
+
+For a custom output directory:
+
+```powershell
+$dist=(Resolve-Path "..\MiraProt_Portable").Path; @("MiraProt-launcher.exe","shiny-app","r-portable","r-library") | ForEach-Object { [pscustomobject]@{Component=$_;Present=Test-Path (Join-Path $dist $_)} } | Format-Table -AutoSize
+```
+
+All four required components should be present.
+
+Check the launcher version if desired:
 
 ```powershell
 .\portable\dist\MiraProt-launcher.exe --version
 ```
 
-**Expected:** a line beginning with `MiraProt Launcher` and ending with
-`(windows/amd64)`.
-
-Check the bundled R runtime:
+Check bundled R:
 
 ```powershell
 & .\portable\dist\r-portable\bin\Rscript.exe --version
 ```
-
-**Expected:** `Rscript (R) version` followed by the version printed earlier
-from `portable\R_VERSION`.
 
 Check that the bundled library can load Shiny:
 
@@ -288,176 +263,185 @@ Check that the bundled library can load Shiny:
 & .\portable\dist\r-portable\bin\Rscript.exe --vanilla -e ".libPaths(c(normalizePath('portable/dist/r-library'),.libPaths())); stopifnot(requireNamespace('shiny',quietly=TRUE)); cat('OK\n')"
 ```
 
-**Expected:** `OK`. If this check stops with an error, package installation was
-incomplete; use the package troubleshooting below before launching MiraProt.
+Expected:
 
-If runtime installation fails, the bundler retains the failed stage and a
-separate installer/probe log directory by default and prints both paths. Put
-the printed stage path in `$stage` to inspect the evidence:
-
-```powershell
-$stage='C:\path\printed\by\the\bundler'; $logs="$stage-logs"; Get-Item "$stage\bin\R.exe","$stage\bin\Rscript.exe","$stage\bin\x64\R.dll" | Select FullName,Length,LastWriteTime,@{n='FileVersion';e={$_.VersionInfo.FileVersion}},@{n='ProductVersion';e={$_.VersionInfo.ProductVersion}}
+```text
+OK
 ```
 
-```powershell
-Get-ChildItem Env: | Where-Object Name -in 'R_HOME','R_ARCH','R_LIBS','R_LIBS_USER','R_LIBS_SITE','R_ENVIRON','R_ENVIRON_USER','R_PROFILE','R_PROFILE_USER'
-```
-
-```powershell
-& "$stage\bin\R.exe" --version; $code=$LASTEXITCODE; '{0} (0x{1:X8})' -f $code,[uint32]$code
-```
-
-```powershell
-& "$stage\bin\Rscript.exe" --version; $code=$LASTEXITCODE; '{0} (0x{1:X8})' -f $code,[uint32]$code
-```
-
-```powershell
-$probe=Join-Path ([IO.Path]::GetTempPath()) ("miraprot-r-version-"+[guid]::NewGuid().ToString("N")+".R"); [IO.File]::WriteAllText($probe,"cat(as.character(getRversion()))`n",(New-Object Text.UTF8Encoding($false))); try { & "$stage\bin\Rscript.exe" --vanilla $probe; $code=$LASTEXITCODE; "`n$code (0x$('{0:X8}' -f [uint32]$code))" } finally { Remove-Item $probe -Force -ErrorAction SilentlyContinue }
-```
-
-```powershell
-Get-ChildItem $logs; Get-Content "$logs\installer.log"; Get-Content "$logs\*probe*.log"
-```
-
-These show file metadata, inherited R variables (ignored for bundler probes),
-signed/hex exit statuses, and runtime-version output. Probe logs retain the
-native command, stdout, and stderr. Do not manually promote a failed stage;
-retain it when asking for help.
-
-#### Step 10 — Start and stop MiraProt
+## Step 10 — Launch MiraProt
 
 ```powershell
 .\portable\dist\MiraProt-launcher.exe
 ```
 
-**Expected:** the launcher reports a local address, normally
-`http://127.0.0.1:3838`, and MiraProt opens in the default web browser. Keep the
-PowerShell window open while using MiraProt.
+For a custom output:
 
-Use the MiraProt tray icon to quit. If there is no usable tray icon, return to
-PowerShell and press **Ctrl+C**. Closing only the browser tab may leave MiraProt
-running.
+```powershell
+& "$dist\MiraProt-launcher.exe"
+```
 
-You can launch the completed bundle again without rebuilding it. Keep the
-entire `portable\dist` directory together. Normal launches use the R runtime
-and packages inside that directory; PowerShell 7, Git, Go, Rtools, Inno Setup,
-and system R are not required merely to start the finished Windows bundle.
+The launcher normally starts MiraProt at:
 
-#### Step 11 — Optional: install Inno Setup 6
+```text
+http://127.0.0.1:3838
+```
 
-This step is required only if you want to turn the already-working portable
-directory into a normal Windows setup executable.
+and opens the default browser.
 
-Install Inno Setup 6:
+Use the MiraProt tray icon to quit.
+
+When launched from PowerShell, **Ctrl+C** can also stop the process.
+
+Keep the entire portable directory together.
+
+The following build tools are not required merely to launch a finished Windows portable bundle:
+
+- PowerShell 7;
+- Git;
+- Go;
+- Rtools;
+- Inno Setup;
+- system R.
+
+---
+
+# 3. Optional Windows installer
+
+Once the stage-1 Windows portable bundle has been built and tested, it can optionally be packaged into a conventional Windows setup executable using **Inno Setup 6**.
+
+The installer consumes the existing portable directory.
+
+It does not:
+
+- rebuild MiraProt;
+- reinstall R;
+- reinstall R packages;
+- regenerate GO caches;
+- refresh BioMart;
+- refresh AnnotationHub.
+
+## Step 1 — Install Inno Setup 6
 
 ```powershell
 winget install --id JRSoftware.InnoSetup -e -s winget -i
 ```
 
-Complete the graphical installation if `winget` opens it, then reopen
-PowerShell 7.
+Inno Setup may be installed per-user or machine-wide.
 
-Inno Setup can be installed per-user or machine-wide, so `ISCC.exe` does not
-always appear under `C:\Program Files (x86)`.
-
-Find it automatically:
-
-```powershell
-$iscc=@("$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe","C:\Program Files (x86)\Inno Setup 6\ISCC.exe","C:\Program Files\Inno Setup 6\ISCC.exe") | Where-Object { Test-Path $_ } | Select-Object -First 1; $iscc; Test-Path $iscc
-```
-
-**Expected:** a full path followed by `True`.
-
-A common per-user installation is:
+A common per-user location is:
 
 ```text
 C:\Users\<user>\AppData\Local\Programs\Inno Setup 6\ISCC.exe
 ```
 
-If the command returns no path, locate the compiler with:
+A common machine-wide location is:
+
+```text
+C:\Program Files (x86)\Inno Setup 6\ISCC.exe
+```
+
+Discover the compiler automatically:
+
+```powershell
+$iscc=@("$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe","C:\Program Files (x86)\Inno Setup 6\ISCC.exe","C:\Program Files\Inno Setup 6\ISCC.exe") | Where-Object { Test-Path $_ } | Select-Object -First 1; $iscc; Test-Path $iscc
+```
+
+Expected:
+
+```text
+True
+```
+
+If no path is found:
 
 ```powershell
 Get-ChildItem "C:\Program Files*","$env:LOCALAPPDATA\Programs" -Filter ISCC.exe -Recurse -ErrorAction SilentlyContinue | Select-Object FullName
 ```
 
-Then assign the returned path manually, for example:
+Then set the discovered path manually, for example:
 
 ```powershell
 $iscc="C:\Users\<user>\AppData\Local\Programs\Inno Setup 6\ISCC.exe"; Test-Path $iscc
 ```
 
-#### Step 12 — Optional: create the Windows installer
+## Step 2 — Select the existing portable bundle
 
-First point `$dist` at the **already-built portable directory**.
-
-For the default build from this guide:
+For the default stage-1 output:
 
 ```powershell
 $dist=(Resolve-Path ".\portable\dist").Path; $dist
 ```
 
-If you deliberately built somewhere else, resolve that directory instead. For
-example, if you used:
+For a custom build such as:
 
 ```text
--OutputDir "..\MiraProt_Portable"
+..\MiraProt_Portable
 ```
 
-then use:
+use:
 
 ```powershell
 $dist=(Resolve-Path "..\MiraProt_Portable").Path; $dist
 ```
 
-The `DistDir` supplied to Inno Setup should be an absolute path. `Resolve-Path`
-provides that absolute path automatically.
+Use an absolute path.
 
-Verify the four required components:
+`Resolve-Path` provides the appropriate absolute filesystem path for Inno Setup.
+
+## Step 3 — Verify required components
 
 ```powershell
 @("MiraProt-launcher.exe","shiny-app","r-portable","r-library") | ForEach-Object { [pscustomobject]@{Component=$_;Present=Test-Path (Join-Path $dist $_);Path=Join-Path $dist $_} } | Format-Table -AutoSize
 ```
 
-**Expected:** all four show `Present = True`.
+All required components should show:
 
-Check the optional cache and root documentation:
+```text
+True
+```
+
+## Step 4 — Check optional resources
 
 ```powershell
 @("go-cache","LICENSE.md","README.md","THIRD_PARTY_NOTICES.md","citation.cff") | ForEach-Object { [pscustomobject]@{Component=$_;Present=Test-Path (Join-Path $dist $_)} } | Format-Table -AutoSize
 ```
 
-The installer remains valid if `go-cache` or one of the optional documentation
-files is missing. If `go-cache` is present, its GO, AnnotationHub, and BioMart
-contents are preserved unchanged.
+These are optional.
 
-Determine the MiraProt application version represented by the portable bundle:
+If `go-cache` exists, its contents are included as packaged seed data.
+
+GMT files do not require a separate installer rule. Files already present in:
+
+```text
+shiny-app\GSEA\
+```
+
+are automatically included because the installer recursively packages the complete stage-1 `shiny-app` directory.
+
+## Step 5 — Determine the application version
 
 ```powershell
 $versionFile=Join-Path $dist "shiny-app\R\version_info.R"; $buildInfoFile=Join-Path $dist "shiny-app\BUILD_INFO"; $baseMatch=Select-String -Path $versionFile -Pattern 'MIRAPROT_VERSION_BASE\s*<-\s*"([^"]+)"'; $versionBase=$baseMatch.Matches[0].Groups[1].Value; $buildInfo=Get-Content $buildInfoFile -Raw | ConvertFrom-StringData; $appVersion=if($buildInfo.COMMIT_COUNT -match '^\d+$'){"$versionBase.$($buildInfo.COMMIT_COUNT)"}else{$versionBase}; $appVersion
 ```
 
-**Important PowerShell/Inno Setup syntax:** pass the `/D` values like this:
+## Step 6 — Compile the installer
+
+Use this exact argument format:
+
+```powershell
+& $iscc "/DAppVersion=$appVersion" "/DDistDir=$dist" ".\portable\installers\windows\MiraProt.iss"
+```
+
+Do **not** embed additional single or double quote characters around the path after `=`.
+
+Correct:
 
 ```text
-"/DAppVersion=$appVersion"
 "/DDistDir=$dist"
 ```
 
-The double quotes shown above belong to PowerShell and keep each complete
-argument together. Do **not** put another pair of quotes or single quotes after
-the `=` sign.
-
-Do not use forms such as:
-
-```text
-/ DDistDir="'C:\path...'"
-/DDistDir='C:\path...'
-/DDistDir="C:\path..."
-```
-
-when those quote characters are being passed as part of the preprocessor value.
-Literal quote characters can make Inno interpret the drive prefix incorrectly
-and produce an error such as:
+Incorrect values that literally contain quotes can result in errors such as:
 
 ```text
 Unknown filename prefix "'C:"
@@ -469,511 +453,527 @@ or:
 Unknown filename prefix "\C:"
 ```
 
-Compile the installer with this exact one-line PowerShell command:
-
-```powershell
-& $iscc "/DAppVersion=$appVersion" "/DDistDir=$dist" ".\portable\installers\windows\MiraProt.iss"
-```
-
-The installer stage only packages the existing bundle. It does not reinstall
-R, reinstall packages, rerun the portable builder, refresh BioMart, refresh
-AnnotationHub, or rebuild the GO cache.
-
-The output is written to the repository-root `output` directory.
-
-Verify it:
+## Step 7 — Verify the installer
 
 ```powershell
 $installer=(Resolve-Path ".\output\MiraProt-$appVersion-windows-setup.exe").Path; $installer; Get-Item $installer | Select-Object FullName,Length,LastWriteTime
 ```
 
-#### Step 13 — Optional: install and test the setup executable
+The generated setup executable is unsigned unless a separate signing process is performed.
 
-Start the generated installer:
+## Step 8 — Install and test
 
 ```powershell
 & $installer
 ```
 
-For the first test, you may choose a user-writable test installation directory
-so that its contents are easy to inspect.
+For an initial test, a user-writable test directory can be selected during installation.
 
-After installation, the application contains the normal runtime directories
-plus:
+The installed application contains the stage-1 application payload and, when available, packaged cache seed data under:
 
 ```text
-resources\go-cache\
+<installation>\resources\go-cache\
 ```
 
-The installer always creates this directory, even when the stage-1 portable
-bundle did not contain a cache.
-
-When a cache was packaged, its contents are stored as read-only-style seed
-resources under:
-
-```text
-<installation>\resources\go-cache\annotation_cache\
-<installation>\resources\go-cache\go_cache\
-```
-
-BioMart cache data remains inside:
-
-```text
-<installation>\resources\go-cache\go_cache\BioMart_Cache\
-```
-
-The installed version does **not** use those resource files as its writable
-cache. On first launch, shipped cache contents are copied only when the
-corresponding destination is empty into:
-
-```text
-%LOCALAPPDATA%\MiraProt\cache\annotation_cache
-%LOCALAPPDATA%\MiraProt\cache\go_cache
-```
-
-Existing user cache contents are not overwritten.
-
-If the installer contains no prebuilt cache, MiraProt still starts normally and
-downloads required GO/AnnotationHub/BioMart resources when those features first
-need them.
-
-After launching the installed application, inspect the writable cache with:
-
-```powershell
-Get-ChildItem "$env:LOCALAPPDATA\MiraProt\cache" -Force -ErrorAction SilentlyContinue
-```
-
-If you already used an installed MiraProt version previously, that directory
-may already contain data. This is intentional: an install, reinstall, or newer
-seed cache must not overwrite a populated user cache.
-
-#### Windows security and build tools
-
-During the portable build, the script installs the pinned `go-winres` helper
-through Go and uses it to add the icon and version information to the launcher.
-Windows Smart App Control or an organization's application-control policy can
-block that helper. Typical symptoms are a security notification, `go-winres`
-being blocked, or failure during `Generating Windows resources`.
-
-**Do not disable Smart App Control or organizational security controls as the
-standard workaround.** Smart App Control may not be designed to be switched
-back on without resetting Windows. Prefer a trusted build workstation, a
-controlled virtual machine, GitHub Actions, or signed/trusted build
-infrastructure. This is a build-time helper issue; it does not automatically
-mean that the finished MiraProt launcher is incompatible.
-
-If PowerShell blocks only `bundle-r-windows.ps1` after you downloaded a source
-ZIP, first verify that the archive came from the official MiraProt repository.
-Then remove the download marker from that one script and rerun it:
-
-```powershell
-Unblock-File .\portable\scripts\bundle-r-windows.ps1
-```
-
-Do not use `Set-ExecutionPolicy Unrestricted` or weaken the machine-wide
-execution policy for this build. PowerShell script blocking and Smart App
-Control blocking `go-winres.exe` are different problems; `Unblock-File` does
-not bypass application control.
-
-The package installer prefers Windows binary R packages. If it explicitly says
-that a dependency must compile from source and no build tools are available,
-install the Rtools release matching the version shown by
-`Get-Content .\portable\R_VERSION`, reopen PowerShell, remove the incomplete
-`portable\dist` folder, and retry. Rtools is not a normal runtime dependency.
-
-The Windows setup executable produced by Inno Setup is unsigned unless you
-perform a separate code-signing step. Windows may therefore show reputation or
-publisher warnings when an unsigned locally built installer is opened.
-
-### Linux (Ubuntu/Debian-family local-build path only)
-
-Ubuntu/Debian-family Linux is the currently implemented local-build path. The
-script expects tools such as `apt-get` and `dpkg`, and Ubuntu amd64 is the
-CI-tested Linux target. Fedora/RHEL-family, Arch-family, and openSUSE are **not
-supported by the current dependency-installation block**. Do not use or
-publish guessed `dnf`, `pacman`, or `zypper` translations until package
-mappings and complete builds for those families have been implemented and
-verified.
-
-#### Before building
-
-Install R matching the exact version in `portable/R_VERSION`, Git, Go, `rsync`,
-and `gcc`. The following development libraries are used by the bundler or when
-R packages and the tray-enabled launcher are compiled:
-
-```bash
-sudo apt-get update
-sudo apt-get install -y \
-  r-base golang-go git rsync gcc \
-  libfreetype6-dev libfontconfig1-dev libharfbuzz-dev libfribidi-dev \
-  libtiff5-dev libjpeg-dev libpng-dev librsvg2-dev \
-  libcurl4-openssl-dev libssl-dev libxml2-dev \
-  libgtk-3-dev libayatana-appindicator3-dev
-```
-
-The bundling script itself checks for and, when absent, installs these eight
-packages: `libfreetype6-dev`, `libfontconfig1-dev`, `libharfbuzz-dev`,
-`libfribidi-dev`, `libtiff5-dev`, `libjpeg-dev`, `libpng-dev`, and
-`librsvg2-dev`. Installing the full list above first also covers compilation of
-the R packages and Go launcher.
-
-**Build libraries versus runtime libraries:** the `-dev` packages, `gcc`, Go,
-Git, and the package installer are assembly tools. The completed bundle still
-uses Linux shared libraries supplied by the operating system. Keep the runtime
-counterparts of the graphics/network libraries above installed (FreeType,
-Fontconfig, HarfBuzz, FriBidi, TIFF, JPEG, PNG, librsvg, libcurl, OpenSSL, and
-libxml2). The tray launcher additionally needs `libgtk-3-0` and
-`libayatana-appindicator3-1`:
-
-```bash
-sudo apt-get install -y libgtk-3-0 libayatana-appindicator3-1
-```
-
-Runtime package names for libraries such as OpenSSL can differ between
-Ubuntu/Debian releases; installing the development packages above normally
-pulls in the matching runtime packages. R itself is copied into the bundle and
-the system R is not automatically required afterward.
-
-The Linux result is relocatable within compatible systems rather than
-completely self-contained. Copied R and native R packages can retain
-dependencies on glibc, libstdc++, OpenSSL, libcurl, libxml2, font and graphics
-libraries, and desktop-integration libraries such as GTK and AppIndicator.
-For an artifact intended for other machines, build on the oldest compatible
-target distribution you plan to support. Before release, inspect native
-dependencies with platform tools such as `ldd` and `readelf`, use the target
-package manager's query tools to identify providers, and run the bundle on
-every claimed target system and architecture.
-
-#### Build
-
-Confirm that `Rscript --version` reports the version in `portable/R_VERSION`,
-then run this exact command from the repository root:
-
-```bash
-bash portable/scripts/bundle-r.sh --output-dir portable/dist
-```
-
-Using `bash` is intentional until executable-bit behavior is verified. The
-script also accepts `--r-version VERSION`, which selects only the R runtime,
-not the MiraProt application version. Ordinary users should omit it so
-`portable/R_VERSION` supplies the maintained default. Command-line options take
-precedence over the `R_VERSION` and `OUTPUT_DIR` environment-variable
-fallbacks. With no output option or environment override, the output is always
-`portable/dist`, resolved from the script's location rather than the current
-working directory.
-
-The finished launcher is:
-
-```text
-portable/dist/MiraProt-launcher
-```
-
-#### Launch and stop
-
-```bash
-./portable/dist/MiraProt-launcher
-```
-
-Quit from the tray icon. When running from a terminal, **Ctrl+C** also stops it.
-Closing only the browser tab may not stop the background process.
-
-### macOS
-
-#### Before building
-
-You need Git, Go 1.22 or newer, `rsync` (included with macOS), internet access,
-and a native installation of the exact R version in `portable/R_VERSION`.
-Install the Xcode Command Line Tools when an R package or the launcher must be
-compiled from source:
-
-```bash
-xcode-select --install
-```
-
-The architecture must match throughout the build. The copied R runtime,
-compiled R packages, Go launcher, and (when used) DMG packaging host must all
-have compatible native architectures. On an Intel Mac, use Intel (`x86_64`)
-R and Go and package on Intel. On an Apple Silicon Mac, use native Apple
-Silicon (`arm64`) R and Go and package on Apple Silicon. The CI evidence covers
-Intel builds on `macos-13` and Apple Silicon builds on `macos-14`. MiraProt does
-not assemble a universal binary, and Rosetta operation has not been tested or
-claimed; do not mix architectures merely because Rosetta may make one build
-tool executable.
-
-R, Go, Git, Xcode's compiler, and package installers used to assemble the
-bundle are not automatically required to run the result. The copied R runtime
-and compiled packages may, however, continue to use compatible macOS system
-libraries. Moving a bundle to a different Mac therefore requires the same CPU
-architecture and a compatible macOS version.
-
-#### Build
-
-Confirm that `Rscript --version` reports the version in `portable/R_VERSION`,
-then run from the repository root:
-
-```bash
-bash portable/scripts/bundle-r.sh --output-dir portable/dist
-```
-
-This is the complete **basic bundling** workflow.
-`portable/scripts/bundle-r.sh` also accepts `--r-version VERSION`, which
-selects only R, not the MiraProt application version. Ordinary users should
-omit it and use the maintained `portable/R_VERSION` default. Its command-line
-options override the `R_VERSION` and `OUTPUT_DIR` environment-variable
-fallbacks. When neither an output option nor `OUTPUT_DIR` is supplied, the
-default remains `portable/dist` from any working directory because it is
-resolved relative to the script.
-
-The script produces a flat distribution directory containing the copied R
-runtime, R packages, Shiny application, and native launcher; it does not create
-an application bundle or disk image:
-
-```text
-portable/dist/MiraProt-launcher
-```
-
-#### Optional app and DMG packaging
-
-Packaging is a separate, optional step after the flat directory has been
-built. On the same compatible native architecture, run:
-
-```bash
-bash portable/installers/macos/create-dmg.sh --dist-dir portable/dist --version 1.0.0 --output-dir output
-```
-
-This produces `output/MiraProt-1.0.0-macos-<uname-m>.dmg` (in general,
-`MiraProt-<version>-macos-<uname-m>.dmg`) containing `MiraProt.app`. Packaging
-only rearranges the already-built flat distribution; it does not make mixed
-architectures compatible.
-
-#### macOS security for local builds
-
-Locally created `MiraProt.app` bundles are unsigned and unnotarized. Gatekeeper
-or quarantine may therefore warn, block, or require an explicit confirmation
-when the app or flat launcher is opened. Those prompts are macOS runtime
-security behavior, not evidence that R packages or the Go launcher failed to
-compile.
-
-For builds intended for distribution, use an appropriate Developer ID to sign
-the nested code and app, then notarize and staple the distributed package.
-
-For a trusted local build, inspect only the item you intend to run, for example
-with `codesign --verify --deep --strict /path/to/MiraProt.app`,
-`spctl --assess --type execute --verbose=4 /path/to/MiraProt.app`, and
-`xattr -p com.apple.quarantine /path/to/MiraProt.app`. An unsigned local app is
-expected to fail the signature or policy assessment.
-
-After independently verifying its source and contents, use Finder's
-Control-click **Open** flow; if necessary, remove quarantine only from that
-trusted app with `xattr -dr com.apple.quarantine /path/to/MiraProt.app` and
-open it again. Apply the analogous targeted check to
-`portable/dist/MiraProt-launcher` when using the flat bundle. Never disable
-Gatekeeper globally.
-
-#### Launch and stop
-
-```bash
-./portable/dist/MiraProt-launcher
-```
-
-Quit from the tray icon, or press **Ctrl+C** in the Terminal window that
-started it. Closing only the browser tab may leave MiraProt running.
-
-## 3. What to expect when launching
-
-The launcher starts the bundled R/Shiny application and normally opens the
-default browser. If no page opens, try `http://127.0.0.1:3838`. MiraProt selects
-another available port when 3838 is already occupied.
-
-Keep the **entire** `portable/dist` folder together: the launcher needs the
-neighboring `r-portable`, `r-library`, and `shiny-app` folders.
-
-In a **flat Windows, Linux, or macOS bundle**, the adjacent `go-cache/` is
-application data, not a log directory: it holds the writable AnnotationHub,
-organism, and BioMart caches. If it is absent, the flat launcher creates it
-beside itself. Therefore the flat portable directory **must be writable by the
-user running MiraProt**. Put the repository and finished bundle in a location
-such as your Documents folder; do not run the flat bundle from read-only media,
-a protected system folder, or a location with restrictive corporate
-permissions.
-
-Logs and the single-instance `launcher.lock` are separate from that adjacent
-cache. They live in the per-user application-data directory below (`logs/` and
-`launcher.lock`, respectively):
-
-| System | Application-data location |
-|---|---|
-| Windows | `%LOCALAPPDATA%\MiraProt` |
-| macOS | `~/Library/Application Support/MiraProt` |
-| Linux | `~/.local/share/MiraProt` |
-
-**Packaged formats behave differently.** A Windows installer, macOS `.app`/DMG,
-or Linux AppImage treats its packaged `go-cache/` as seed data rather than the
-writable runtime cache.
-
-The packaged seed locations are:
-
-| Package | Seed location |
-|---|---|
-| Windows installer | `<installation>\resources\go-cache\` |
-| macOS app | `MiraProt.app/Contents/Resources/go-cache/` |
-| Linux AppImage | `usr/go-cache/` |
-
-On first launch, and only when the corresponding destination is empty, the
-launcher copies shipped cache data into:
-
-```text
-<application-data>/cache/
-```
-
-On Windows this means:
+The installed launcher uses writable runtime caches under:
 
 ```text
 %LOCALAPPDATA%\MiraProt\cache\
 ```
 
-Existing user cache contents are not overwritten.
+Typical paths are:
 
-Cache prebuild is optional on every platform. When a build contains no usable
-prebuilt cache—or the cache is absent on first use—MiraProt creates the
-writable cache location and AnnotationHub/organism features download the data
-they need at runtime. The first affected operation can consequently be slower
-and needs internet access; later uses reuse the downloaded files. BioMart and
-STRING are online services as well. These runtime requirements are separate
-from the build tools.
+```text
+%LOCALAPPDATA%\MiraProt\cache\annotation_cache
+%LOCALAPPDATA%\MiraProt\cache\go_cache
+%LOCALAPPDATA%\MiraProt\cache\go_cache\BioMart_Cache
+```
 
-### Add gene sets for GSEA
+Existing populated user caches are not overwritten by a newly installed packaged seed.
 
-MiraProt discovers GSEA collections from `.gmt` files that you provide. Obtain
-the desired collections from
-[MSigDB](https://www.gsea-msigdb.org/gsea/msigdb/) or another source whose
-terms permit your use. MSigDB may require registration, authentication, and
-acceptance of its current terms.
+---
 
-The correct directory depends on how MiraProt is running:
+# 4. Linux — experimental portable path
 
-| MiraProt version | Where to place `.gmt` files |
-|---|---|
-| Non-portable/source version | `<MiraProt source repository>/GSEA/` |
-| Portable flat bundle | `<portable bundle>/shiny-app/GSEA/` (with the default build: `portable/dist/shiny-app/GSEA/`) |
-| Windows installer | `<MiraProt installation>/shiny-app/GSEA/` |
-| macOS `MiraProt.app` | `MiraProt.app/Contents/Resources/app/GSEA/` |
-| Linux AppImage | `usr/bin/shiny-app/GSEA/` inside the packaged image |
+> **Validation status:** the Linux portable-build path is implemented for Ubuntu/Debian-family systems but has not yet been manually validated end-to-end on a native Linux installation. Treat this packaging path as experimental.
 
-For the **non-portable/source version**, add files to the top-level `GSEA/`
-folder beside `app.R`. This is the directory used when MiraProt is started from
-the repository root. Do not put source-mode GMT files in
-`portable/dist/shiny-app/GSEA/`; that is a separate copy used only by an
-already-built portable bundle.
+The current build script uses `apt-get` and `dpkg`.
 
-When building a **portable flat bundle**, the stage-1 builder copies immediate
-lowercase `<MiraProt source repository>/GSEA/*.gmt` files into
-`<portable bundle>/shiny-app/GSEA/`. If no such files are present, the build
-continues normally without bundled gene sets. You can also add files after the
-build completes:
+Therefore the documented local-build path is specifically aimed at Ubuntu/Debian-family systems.
 
-1. Open the exact folder `portable/dist/shiny-app/GSEA/`.
-2. Place each `.gmt` file directly in that folder. Do not put it in a
-   subdirectory: MiraProt scans only the immediate contents of `GSEA/`.
-3. If MiraProt is already running, open its GSEA module and click **Refresh
-   Gene Sets**. Restarting MiraProt also causes a fresh initial scan.
-4. Confirm that the file name appears in **Select Gene Set File** before
-   starting the analysis.
+Fedora/RHEL-family, Arch-family, openSUSE, and other distributions are not currently supported by verified package mappings.
 
-For a **Windows installer**, add the GMT files to the stage-1 portable
-`shiny-app/GSEA/` directory before creating the setup executable if you want
-them included in the installed application. Alternatively, add them afterward
-to `<MiraProt installation>/shiny-app/GSEA/` when the installation directory is
-writable.
+## Requirements
 
-Files added to the source repository's `GSEA/` folder **after** building are
-not automatically copied into an existing portable bundle. Add them to the
-portable bundle too (while it is writable), or rebuild stage 1 before packaging.
+Use a **Git checkout**, not a source archive, for the current Linux portable build.
 
-Use the lowercase `.gmt` extension. The current filename match is
-case-sensitive on case-sensitive filesystems, so a file ending in `.GMT` may
-not be listed.
+Install:
 
-An AppImage is read-only after it is packaged, so add the GMT files to
-`portable/dist/shiny-app/GSEA/` **before** running `create-appimage.sh`; create
-a new AppImage when its collections change.
+- the exact R version configured in `portable/R_VERSION`;
+- Git;
+- Go;
+- `rsync`;
+- `gcc`;
+- required development libraries.
 
-Local GMT files are deliberately ignored by Git. MiraProt does not download or
-redistribute them in its source repository. A locally built installer, DMG, or
-AppImage contains any GMT files copied into its stage-1 bundle; the person
-creating or distributing that artifact is responsible for ensuring that the
-files' source, license, and terms permit redistribution.
-
-## 4. Rebuild or update
-
-You do not need to rebuild for each launch. Rebuild after updating MiraProt, or
-when you intentionally want newer bundled packages or a clean portable output.
-
-For tagged semantic release builds, the launcher may check the latest GitHub
-Release tag in the background and notify you when that tag is newer than the
-version you are running. Local development and commit builds do not make this
-release request. MiraProt's authoritative distribution is source-only: the
-informational check performs no in-place update and does not download or
-install any software automatically. Obtain the newer source using one of the
-methods below, then rebuild the portable installation yourself.
-
-With a Git clone, update from the repository root:
+For Ubuntu/Debian-family systems:
 
 ```bash
+sudo apt-get update && sudo apt-get install -y r-base golang-go git rsync gcc libfreetype6-dev libfontconfig1-dev libharfbuzz-dev libfribidi-dev libtiff5-dev libjpeg-dev libpng-dev librsvg2-dev libcurl4-openssl-dev libssl-dev libxml2-dev libgtk-3-dev libayatana-appindicator3-dev
+```
+
+The tray-enabled runtime also relies on compatible GTK/AppIndicator libraries.
+
+Install the runtime counterparts where necessary:
+
+```bash
+sudo apt-get install -y libgtk-3-0 libayatana-appindicator3-1
+```
+
+Exact package names can differ between Ubuntu/Debian releases.
+
+## Verify R
+
+```bash
+cat portable/R_VERSION; Rscript --version
+```
+
+The versions must match.
+
+## Build
+
+From the repository root:
+
+```bash
+bash portable/scripts/bundle-r.sh --output-dir portable/dist
+```
+
+The stage-1 output contains:
+
+```text
+portable/dist/
+├── MiraProt-launcher
+├── shiny-app/
+├── r-portable/
+├── r-library/
+└── go-cache/
+```
+
+The cache and some documentation resources are optional.
+
+## Launch
+
+```bash
+./portable/dist/MiraProt-launcher
+```
+
+The launcher should start the local Shiny server and open the browser through the system's `xdg-open` mechanism.
+
+Because this path has not yet been manually validated end-to-end, verify at minimum:
+
+- launcher startup;
+- browser opening;
+- tray behavior;
+- Data Wizard import;
+- a representative downstream analysis;
+- GO/AnnotationHub cache use;
+- BioMart behavior;
+- GSEA file discovery when GMT files are supplied;
+- shutdown;
+- relaunch.
+
+## Optional AppImage
+
+After testing the stage-1 flat bundle:
+
+```bash
+bash portable/installers/linux/create-appimage.sh --dist-dir portable/dist --version 1.0.0 --output-dir output
+```
+
+The script creates:
+
+```text
+output/MiraProt-1.0.0-linux-<arch>.AppImage
+```
+
+The stage-1 `shiny-app` is copied into the AppImage, so bundled GMT files under:
+
+```text
+shiny-app/GSEA/
+```
+
+are preserved automatically.
+
+Optional `go-cache` data are copied as packaged seed resources.
+
+If no cache exists, the package still creates the expected packaged cache root so runtime cache population can occur later.
+
+The generated AppImage is currently considered experimental until it has been built and exercised on a native target system.
+
+---
+
+# 5. macOS — experimental portable path
+
+> **Validation status:** the macOS portable-build and DMG packaging paths are implemented for Intel (`x86_64`) and Apple Silicon (`arm64`), but have not yet been manually validated end-to-end on native Macs. Treat these packaging paths as experimental.
+
+Use a **Git checkout**, not a source archive, for the current macOS portable build.
+
+## Requirements
+
+Install:
+
+- the exact R version configured in `portable/R_VERSION`;
+- Git;
+- Go 1.22 or later;
+- Xcode Command Line Tools when native compilation is required.
+
+Install Xcode Command Line Tools:
+
+```bash
+xcode-select --install
+```
+
+Check architecture:
+
+```bash
+uname -m
+```
+
+Expected values are:
+
+```text
+x86_64
+```
+
+or:
+
+```text
+arm64
+```
+
+Use a native R and Go toolchain matching that architecture.
+
+Do not assume Rosetta makes a mixed-architecture bundle valid.
+
+## Verify R
+
+```bash
+cat portable/R_VERSION; Rscript --version
+```
+
+The versions must match.
+
+## Build
+
+```bash
+bash portable/scripts/bundle-r.sh --output-dir portable/dist
+```
+
+The script creates a flat portable directory containing the copied R runtime, package library, Shiny application, cache resources, and native launcher.
+
+## Launch the flat bundle
+
+```bash
+./portable/dist/MiraProt-launcher
+```
+
+Because macOS has not yet been manually validated end-to-end, verify at minimum:
+
+- launcher execution;
+- system tray behavior;
+- browser opening;
+- Data Wizard import;
+- representative downstream analyses;
+- cache access;
+- GSEA resource discovery;
+- shutdown;
+- relaunch.
+
+## Optional DMG
+
+After the flat bundle has been tested:
+
+```bash
+bash portable/installers/macos/create-dmg.sh --dist-dir portable/dist --version 1.0.0 --output-dir output
+```
+
+The script produces:
+
+```text
+output/MiraProt-1.0.0-macos-<architecture>.dmg
+```
+
+The app layout places:
+
+```text
+shiny-app
+```
+
+under:
+
+```text
+MiraProt.app/Contents/Resources/app/
+```
+
+and bundled GMT files therefore appear under:
+
+```text
+MiraProt.app/Contents/Resources/app/GSEA/
+```
+
+Optional cache data are packaged under:
+
+```text
+MiraProt.app/Contents/Resources/go-cache/
+```
+
+and are used as seed data for the writable per-user cache.
+
+### Current macOS packaging caveat
+
+The DMG/application packaging implementation exists, but the application-icon path has not yet been verified on a native packaged build.
+
+Before calling the macOS package release-ready, verify that:
+
+- `MiraProt.app` displays the intended icon;
+- the executable passes expected macOS runtime checks;
+- the tray icon appears correctly;
+- Gatekeeper behavior is understood;
+- the complete application launches after being copied from the DMG.
+
+### Signing and Gatekeeper
+
+Locally created MiraProt applications are unsigned and unnotarized unless a separate signing process is performed.
+
+macOS may therefore warn about or block execution of a locally generated app.
+
+Do not disable Gatekeeper globally.
+
+For a trusted local build, use the standard Finder Control-click **Open** workflow or inspect the exact app with macOS security tools.
+
+For distributed builds, an appropriate Developer ID signing and notarization workflow should be used.
+
+---
+
+# 6. GSEA resources
+
+MiraProt does not distribute GMT gene-set files.
+
+Source-mode files are placed directly under:
+
+```text
+GSEA/
+```
+
+The stage-1 portable builders copy immediate lowercase files matching:
+
+```text
+GSEA/*.gmt
+```
+
+into:
+
+```text
+shiny-app/GSEA/
+```
+
+If no GMT files exist, the portable build continues normally.
+
+The correct runtime locations are:
+
+| Mode | Location |
+|---|---|
+| Source | `<source>/GSEA/` |
+| Flat portable | `<bundle>/shiny-app/GSEA/` |
+| Windows installer | `<installation>/shiny-app/GSEA/` |
+| macOS app | `MiraProt.app/Contents/Resources/app/GSEA/` |
+| Linux AppImage | packaged `usr/bin/shiny-app/GSEA/` |
+
+GMT files are intentionally ignored by Git.
+
+If you create a bundle containing third-party GMT files, verify that the applicable terms permit redistribution before sharing that artifact.
+
+Adding a GMT file to the source directory after stage 1 has already been built does not mutate the existing portable bundle.
+
+Either rebuild stage 1 or add the file to the bundle before stage-2 packaging.
+
+---
+
+# 7. Cache behavior
+
+Flat bundles use a writable adjacent:
+
+```text
+go-cache/
+```
+
+directory.
+
+The cache can contain:
+
+```text
+go-cache/
+├── annotation_cache/
+└── go_cache/
+    ├── BioMart_Cache/
+    └── organism-specific cache data
+```
+
+Windows installed packages, macOS apps, and Linux AppImages use packaged cache data only as **seed resources**.
+
+Writable cache data are stored in per-user application-data locations.
+
+Typical application-data directories are:
+
+| Platform | Directory |
+|---|---|
+| Windows | `%LOCALAPPDATA%\MiraProt` |
+| macOS | `~/Library/Application Support/MiraProt` |
+| Linux | `${XDG_DATA_HOME:-~/.local/share}/MiraProt` |
+
+Existing populated user cache destinations are not overwritten by a packaged seed.
+
+If no prebuilt cache is available, MiraProt can populate required cache data at runtime.
+
+The first affected operation may therefore require internet access and take longer.
+
+---
+
+# 8. Updating or rebuilding
+
+A completed portable bundle can be launched repeatedly.
+
+You do not need to rebuild it for every use.
+
+With a Git checkout, update source with:
+
+```text
 git pull --ff-only
 ```
 
-For a source archive, download and extract the newer archive instead. Then
-delete the old generated `portable/dist` folder and run the platform's build
-command again.
+Then perform a clean rebuild if you want the portable artifact to reflect the updated source.
 
-On Windows PowerShell:
+Windows:
 
 ```powershell
-Remove-Item -Recurse -Force .\portable\dist; .\portable\scripts\bundle-r-windows.ps1
+Remove-Item -Recurse -Force .\portable\dist -ErrorAction SilentlyContinue; .\portable\scripts\bundle-r-windows.ps1
 ```
 
-On verified Ubuntu/Debian or macOS:
+Linux/macOS:
 
 ```bash
-rm -rf portable/dist && bash portable/scripts/bundle-r.sh
+rm -rf portable/dist && bash portable/scripts/bundle-r.sh --output-dir portable/dist
 ```
 
-Deleting `portable/dist` is important for a completely clean rebuild. Updating
-the source alone does not change a bundle that was already generated.
+For Windows installer users, rebuild the installer after rebuilding and testing the new stage-1 bundle.
 
-If you use the optional Windows installer, recreate the setup executable after
-the new stage-1 portable bundle has been built and tested. The existing setup
-file does not update itself when `portable/dist` changes.
+Stage-2 packages do not automatically change when stage 1 changes.
 
-## 5. Quick failure recovery
+---
 
-1. **Build stops immediately:** verify that the terminal is at the repository
-   root and that Git and Go are found (`git --version`, `go version`). On
-   Linux/macOS also check `Rscript --version` and `rsync --version`.
-2. **The requested R version does not match (Linux/macOS):** install/select the
-   exact version shown in `portable/R_VERSION`, remove `portable/dist`, and
-   rebuild. Windows downloads that version automatically.
-3. **An R package will not install:** check internet access and read the first
-   missing-library message. Reinstall the Linux build-library list above; on
-   macOS install Xcode Command Line Tools; on Windows use Rtools only when the
-   error says source compilation is required.
-4. **A partial build behaves strangely:** delete `portable/dist` and rebuild.
-5. **The launcher says another instance is running:** stop the existing
-   instance. If it has crashed, remove `launcher.lock` from the
-   application-data location in the table above, then retry.
-6. **The browser does not open:** visit `http://127.0.0.1:3838`, or start the
-   launcher with `--port 5000` and visit that port.
-7. **Inno Setup cannot be found:** rerun the Step 11 `$iscc` discovery command.
-   Per-user Inno Setup installations commonly live under
-   `%LOCALAPPDATA%\Programs\Inno Setup 6\`.
-8. **Installer compilation reports `Unknown filename prefix`:** verify that
-   `$dist` contains a normal absolute path and use exactly
-   `"/DDistDir=$dist"`. Do not embed additional quote characters around the
-   path after `=`.
-9. **Installer compilation reports a missing stage-1 component:** check that
-   `$dist` points to the directory containing `MiraProt-launcher.exe`,
-   `shiny-app`, `r-portable`, and `r-library`.
-10. **More detail is needed:** start the launcher from a terminal with
-    `--debug` and inspect the newest file in the application-data `logs` folder.
-    See `GUIDE_PORTABLE_DEV.md` for advanced build and packaging diagnostics.
+# 9. Quick troubleshooting
+
+## Windows builder cannot find Go
+
+```powershell
+go version
+```
+
+Reopen PowerShell after installing Go.
+
+## Wrong working directory
+
+Windows:
+
+```powershell
+Get-Location; Test-Path .\app.R; Test-Path .\portable
+```
+
+Linux/macOS:
+
+```bash
+pwd; test -f app.R && echo app.R_OK; test -d portable && echo portable_OK
+```
+
+## R package installation fails
+
+Read the first package/build error rather than only the final summary.
+
+On Windows, Rtools is required only when a required package genuinely must compile from source.
+
+On Linux/macOS, native R packages may require system development libraries or Xcode Command Line Tools.
+
+## Inno Setup reports `Unknown filename prefix`
+
+Use:
+
+```powershell
+& $iscc "/DAppVersion=$appVersion" "/DDistDir=$dist" ".\portable\installers\windows\MiraProt.iss"
+```
+
+Do not add quote characters around the actual path value after `=`.
+
+## Installer reports a missing stage-1 component
+
+```powershell
+@("MiraProt-launcher.exe","shiny-app","r-portable","r-library") | ForEach-Object { [pscustomobject]@{Component=$_;Present=Test-Path (Join-Path $dist $_)} } | Format-Table -AutoSize
+```
+
+## Launcher does not open the browser
+
+The default address is normally:
+
+```text
+http://127.0.0.1:3838
+```
+
+The launcher may select another available port if 3838 is occupied.
+
+## More diagnostic output
+
+Use the launcher's debug mode:
+
+```text
+MiraProt-launcher --debug
+```
+
+On Windows:
+
+```powershell
+.\MiraProt-launcher.exe --debug
+```
+
+Logs are stored under the platform-specific MiraProt application-data directory.
+
+---
+
+# 10. Before claiming Linux/macOS portable support as validated
+
+A successful script run alone is not sufficient.
+
+For Linux, manually test a complete native build and at least:
+
+- launcher startup;
+- tray integration;
+- browser opening;
+- Data Wizard import;
+- downstream analysis;
+- GO/AnnotationHub cache access;
+- BioMart access;
+- GMT/GSEA resource use;
+- export;
+- session save/restore;
+- shutdown and relaunch;
+- AppImage packaging and launch.
+
+For macOS, test the same workflow plus:
+
+- Intel and/or Apple Silicon architecture as claimed;
+- application icon;
+- `.app` launch;
+- DMG installation;
+- Gatekeeper behavior;
+- tray integration;
+- packaged-cache seeding.
+
+Until those checks have been performed successfully, Linux and macOS portable packaging should remain documented as experimental.
