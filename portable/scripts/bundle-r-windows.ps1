@@ -737,11 +737,11 @@ if ($BundlerTestMode) {
 # -----------------------------------------------------------------------
 Write-Host "--- Installing R packages into $RLibrary ---"
 Write-Host "The installer prefers compatible Windows binary packages when repositories provide them."
-Write-Host "Rtools is needed only for dependencies that must compile from source; install-packages.R may attempt to install Rtools automatically if build tools are required and missing."
+Write-Host "Rtools is needed only for dependencies that genuinely must compile from source; the installer will identify the compatible generation if it is missing."
 
 $InstallScript = Join-Path $ScriptDir "install-packages.R"
 Invoke-WithCleanREnvironment -Environment @{ R_LIBS_USER = $RLibrary } -Action {
-    & $RscriptPath $InstallScript $RLibrary
+    & $RscriptPath --vanilla $InstallScript $RLibrary
 }
 
 if ($LASTEXITCODE -ne 0) {
@@ -761,7 +761,7 @@ if ((Test-Path (Join-Path $GoCache "annotation_cache")) -and (Test-Path (Join-Pa
     Write-Host "--- Pre-building AnnotationHub cache into $GoCache ---"
     New-Item -ItemType Directory -Force -Path $GoCache | Out-Null
     Invoke-WithCleanREnvironment -Environment @{ R_LIBS_USER = $RLibrary } -Action {
-        & $RscriptPath (Join-Path $ScriptDir "prebuild-cache.R") $GoCache $RLibrary
+        & $RscriptPath --vanilla (Join-Path $ScriptDir "prebuild-cache.R") $GoCache $RLibrary
     }
 
     if ($LASTEXITCODE -ne 0) {
@@ -852,6 +852,12 @@ New-Item -ItemType Directory -Force -Path $DocumentationDestination | Out-Null
 if ($LASTEXITCODE -ge 8) { throw "Failed to copy runtime Documentation sources (robocopy exit $LASTEXITCODE)." }
 foreach ($runtimeFile in @("app.R", "MiraProt_icon.png")) {
     Copy-Item (Join-Path $ProjectRoot $runtimeFile) (Join-Path $ShinyApp $runtimeFile) -Force
+}
+
+# Source-development renv state is outside the runtime allowlist. Remove it
+# defensively if that manifest is expanded in the future.
+foreach ($renvPath in @("renv", ".Rprofile", "renv.lock")) {
+    Remove-Item -LiteralPath (Join-Path $ShinyApp $renvPath) -Recurse -Force -ErrorAction SilentlyContinue
 }
 $global:LASTEXITCODE = 0
 

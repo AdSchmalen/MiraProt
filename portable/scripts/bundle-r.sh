@@ -339,7 +339,7 @@ fi
 # -----------------------------------------------------------------------
 echo "--- Installing R packages into $R_LIBRARY ---"
 run_with_clean_r_environment R_LIBS_USER="$R_LIBRARY" \
-  "$R_PORTABLE/bin/Rscript" "$SCRIPT_DIR/install-packages.R" "$R_LIBRARY"
+  "$R_PORTABLE/bin/Rscript" --vanilla "$SCRIPT_DIR/install-packages.R" "$R_LIBRARY"
 echo ""
 
 # -----------------------------------------------------------------------
@@ -352,7 +352,7 @@ else
   echo "--- Pre-building AnnotationHub cache into $GO_CACHE ---"
   mkdir -p "$GO_CACHE"
   if ! run_with_clean_r_environment R_LIBS_USER="$R_LIBRARY" \
-    "$R_PORTABLE/bin/Rscript" "$SCRIPT_DIR/prebuild-cache.R" "$GO_CACHE" "$R_LIBRARY"; then
+    "$R_PORTABLE/bin/Rscript" --vanilla "$SCRIPT_DIR/prebuild-cache.R" "$GO_CACHE" "$R_LIBRARY"; then
     echo "WARNING: Cache pre-build failed - portable app will download on first use" >&2
   fi
 fi
@@ -428,6 +428,11 @@ rsync -a --include='*.R' --exclude='*' \
 for runtime_file in app.R MiraProt_icon.png; do
   cp "$PROJECT_ROOT/$runtime_file" "$SHINY_APP/$runtime_file"
 done
+
+# Source-development renv state must never enter the standalone application.
+# The allowlist above already omits these paths; remove them defensively if the
+# runtime payload manifest is expanded in the future.
+rm -rf "$SHINY_APP/renv" "$SHINY_APP/.Rprofile" "$SHINY_APP/renv.lock"
 
 echo "App copied to: $SHINY_APP"
 {

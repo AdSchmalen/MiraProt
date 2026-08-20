@@ -230,8 +230,6 @@ cran_packages <- c(
   "shinybrowser",   # detect browser size in Shiny
   "ggtangle",       # modify cnet (cluster network) plots
   "ggpubr",         # publication-ready ggplot2 helpers
-  "devtools",       # development tools
-  "pak",            # install packages from GitHub (used by this script)
   "shinyBS",        # Bootstrap components (e.g. collapsible panels)
   "callr",          # run R processes in the background
   "processx",       # manage system processes (used by callr)
@@ -277,6 +275,7 @@ if (length(cran_missing_after)) {
 # development, diagnostics, and documentation workflows.
 
 optional_cran_packages <- c(
+  "devtools",  # source-development tooling; not required by the application
   "tidyr",     # data tidying (already covered by tidyverse, but listed explicitly in docs)
   "tibble",    # modern data frames (also pulled in by tidyverse)
   "jsonlite",  # JSON handling (e.g. metadata export)
