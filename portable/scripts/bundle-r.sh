@@ -352,70 +352,52 @@ run_with_clean_r_environment R_LIBS_USER="$R_LIBRARY" \
 echo ""
 
 # -----------------------------------------------------------------------
-# Step 4: Pre-build AnnotationHub cache
+# Step 4: Seed portable caches, then fill missing AnnotationHub/GO pieces
 # -----------------------------------------------------------------------
 GO_CACHE="$OUTPUT_DIR/go-cache"
-if [ -d "$GO_CACHE/annotation_cache" ] && [ -d "$GO_CACHE/go_cache" ]; then
-  echo "--- go-cache already present at $GO_CACHE ---"
+PROJECT_CACHE="$PROJECT_ROOT/cache"
+mkdir -p "$GO_CACHE"
+
+echo "--- Seeding portable caches from existing MiraProt cache ---"
+if [ -d "$PROJECT_CACHE/GO_Cache" ]; then
+  echo "Reusing source GO cache: cache/GO_Cache"
+  mkdir -p "$GO_CACHE/go_cache"
+  if ! rsync -a "$PROJECT_CACHE/GO_Cache/" "$GO_CACHE/go_cache/"; then
+    echo "WARNING: Could not copy source GO cache; portable prebuild will fill required cache if possible." >&2
+  fi
 else
-  echo "--- Pre-building AnnotationHub cache into $GO_CACHE ---"
-  mkdir -p "$GO_CACHE"
-  if ! run_with_clean_r_environment R_LIBS_USER="$R_LIBRARY" \
-    "$R_PORTABLE/bin/Rscript" --vanilla "$SCRIPT_DIR/prebuild-cache.R" "$GO_CACHE" "$R_LIBRARY"; then
-    echo "WARNING: Cache pre-build failed - portable app will download on first use" >&2
+  echo "No source GO cache found - portable prebuild will fill required cache if possible."
+fi
+
+if [ -d "$PROJECT_CACHE/BioMart_Cache" ]; then
+  echo "Reusing source BioMart cache: cache/BioMart_Cache"
+  mkdir -p "$GO_CACHE/go_cache/BioMart_Cache"
+  if ! rsync -a "$PROJECT_CACHE/BioMart_Cache/" "$GO_CACHE/go_cache/BioMart_Cache/"; then
+    echo "WARNING: Could not copy source BioMart cache; BioMart will remain available on demand." >&2
+  fi
+else
+  echo "No source BioMart cache found - BioMart will populate its cache on demand."
+fi
+
+# A per-organism ah_cache is an independent BiocFileCache. Seed only the
+# canonical human cache, as a complete unit, and never merge organism caches.
+SOURCE_AH="$PROJECT_CACHE/GO_Cache/org.Hs.eg.db/ah_cache"
+TARGET_AH="$GO_CACHE/annotation_cache"
+if [ -d "$SOURCE_AH" ] && { [ -f "$SOURCE_AH/annotationhub.sqlite3" ] || [ -f "$SOURCE_AH/annotationhub.index.rds" ]; }; then
+  if [ ! -d "$TARGET_AH" ] || [ -z "$(find "$TARGET_AH" -mindepth 1 -print -quit 2>/dev/null)" ]; then
+    echo "Reusing complete source AnnotationHub cache: cache/GO_Cache/org.Hs.eg.db/ah_cache"
+    rm -rf "$TARGET_AH"
+    if ! rsync -a "$SOURCE_AH/" "$TARGET_AH/"; then
+      echo "WARNING: Could not copy source AnnotationHub cache; portable prebuild will use its fallback." >&2
+      rm -rf "$TARGET_AH"
+    fi
   fi
 fi
-echo ""
 
-# -----------------------------------------------------------------------
-# Step 4b: Seed go-cache from the project's non-portable ./cache/ folder
-# -----------------------------------------------------------------------
-# The non-portable app persists its annotation caches in:
-#   ./cache/GO_Cache/       — GO / AnnotationHub organism caches
-#   ./cache/BioMart_Cache/  — BioMart species + mapping caches
-#
-# The portable launcher exposes these at runtime via:
-#   MIRAPROT_GO_CACHE   -> go-cache/go_cache/
-#   ANNOTATION_HUB_CACHE -> go-cache/annotation_cache/
-#
-# BioMart in portable mode stores its cache in $MIRAPROT_GO_CACHE/BioMart_Cache
-# (see modules/Data Wizard/Annotation/datawizard_annotation_utils_biomart_cache.R).
-#
-# Merge the developer's cache into the portable distribution so every cached
-# database file is shipped — not just the single organism downloaded by
-# prebuild-cache.R. Existing files are overwritten with the project copy so the
-# developer's (typically richer) cache wins over the stub from prebuild.
-PROJECT_CACHE="$PROJECT_ROOT/cache"
-if [ -d "$PROJECT_CACHE" ]; then
-  echo "--- Seeding go-cache from $PROJECT_CACHE ---"
-
-  if [ -d "$PROJECT_CACHE/GO_Cache" ]; then
-    echo "Copying cache/GO_Cache -> $GO_CACHE/go_cache"
-    mkdir -p "$GO_CACHE/go_cache"
-    # Trailing slash on source copies contents, preserving organism subdirs.
-    # The per-organism <orgdb>.sqlite files land at
-    # go-cache/go_cache/<orgdb>/<orgdb>.sqlite, which load_organism_cache()
-    # finds via its canonical-path fallback (GO_module_hub.R:1372-1382) even
-    # though the sqlite_path stored in cache_metadata.rds was absolute on the
-    # developer's machine. Nested ah_cache/ subdirs are preserved but unused
-    # at runtime in portable mode (ANNOTATION_HUB_CACHE takes precedence) —
-    # we intentionally do NOT merge them into the top-level annotation_cache/
-    # because each is its own BiocFileCache with a SQLite index, and merging
-    # would clobber the index and leave orphaned blobs.
-    rsync -a "$PROJECT_CACHE/GO_Cache/" "$GO_CACHE/go_cache/"
-  else
-    echo "No cache/GO_Cache/ directory found — skipping GO cache seed."
-  fi
-
-  if [ -d "$PROJECT_CACHE/BioMart_Cache" ]; then
-    echo "Copying cache/BioMart_Cache -> $GO_CACHE/go_cache/BioMart_Cache"
-    mkdir -p "$GO_CACHE/go_cache/BioMart_Cache"
-    rsync -a "$PROJECT_CACHE/BioMart_Cache/" "$GO_CACHE/go_cache/BioMart_Cache/"
-  else
-    echo "No cache/BioMart_Cache/ directory found — skipping BioMart cache seed."
-  fi
-else
-  echo "--- No ./cache/ folder at $PROJECT_CACHE — nothing to seed ---"
+echo "--- Validating and filling portable AnnotationHub/GO caches ---"
+if ! run_with_clean_r_environment R_LIBS_USER="$R_LIBRARY" \
+  "$R_PORTABLE/bin/Rscript" --vanilla "$SCRIPT_DIR/prebuild-cache.R" "$GO_CACHE" "$R_LIBRARY"; then
+  echo "WARNING: Cache pre-build failed - portable app will download on first use" >&2
 fi
 echo ""
 

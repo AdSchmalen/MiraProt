@@ -86,120 +86,133 @@ ensure_bioc_pkg <- function(pkg, lib = NULL) {
   stop(paste0("Failed to install required Bioconductor package: ", pkg), call. = FALSE)
 }
 
-cat("=== Pre-building AnnotationHub cache ===\n")
+cat("=== Validating portable AnnotationHub + organism cache ===\n")
 cat("AH cache dir: ", ah_cache, "\n")
 cat("GO cache dir: ", go_cache, "\n\n")
 
-# Ensure required packages are available
 ensure_bioc_pkg("AnnotationHub")
 ensure_bioc_pkg("AnnotationDbi")
-
-# Load required packages
 suppressPackageStartupMessages({
   library(AnnotationHub)
   library(AnnotationDbi)
 })
-
-# --- Step 1: Download AnnotationHub index and org.Hs.eg.db resource ---
-cat("--- Downloading AnnotationHub index + org.Hs.eg.db ---\n")
-
 Sys.setenv(ANNOTATION_HUB_CACHE = ah_cache)
 
-ah <- suppressMessages(suppressWarnings(
-  AnnotationHub(localHub = FALSE, ask = FALSE, cache = ah_cache)
-))
-
-if (is.null(ah) || !methods::is(ah, "AnnotationHub")) {
-  stop("Failed to connect to AnnotationHub")
-}
-
-cat("Connected to AnnotationHub, querying org.Hs.eg.db...\n")
-
-q <- query(ah, c("org.Hs.eg.db", "OrgDb"))
-if (is.null(q) || length(q) < 1) {
-  stop("No database found for org.Hs.eg.db")
-}
-
-cat("Downloading org.Hs.eg.db...\n")
-org_db <- q[[1]]
-
-if (is.null(org_db)) {
-  stop("Failed to download org.Hs.eg.db")
-}
-cat("org.Hs.eg.db downloaded successfully\n\n")
-
-# --- Step 2: Save organism-specific SQLite-backed cache ---
-cat("--- Saving organism cache (SQLite-backed) ---\n")
-
-org_cache_dir <- file.path(go_cache, make.names("org.Hs.eg.db"))
+orgdb_name <- "org.Hs.eg.db"
+org_cache_dir <- file.path(go_cache, make.names(orgdb_name))
 dir.create(org_cache_dir, recursive = TRUE, showWarnings = FALSE)
+cached_sqlite <- file.path(org_cache_dir, paste0(make.names(orgdb_name), ".sqlite"))
+keytypes_file <- file.path(org_cache_dir, "keytypes.rds")
 
-# Resolve the underlying SQLite file from the live OrgDb object and copy it
-# into the organism cache directory. This is the same approach used at runtime
-# by save_organism_cache() in GO_module_hub.R.
-source_sqlite <- tryCatch(AnnotationDbi::dbfile(org_db), error = function(e) NULL)
-cached_sqlite <- NULL
+load_cached_orgdb <- function(path) {
+  if (!file.exists(path) || is.na(file.info(path)$size) || file.info(path)$size <= 0) return(NULL)
+  tryCatch(AnnotationDbi::loadDb(path), error = function(e) NULL)
+}
 
-if (!is.null(source_sqlite) && file.exists(source_sqlite)) {
-  dest_sqlite <- file.path(org_cache_dir, paste0(make.names("org.Hs.eg.db"), ".sqlite"))
-  if (file.copy(source_sqlite, dest_sqlite, overwrite = TRUE)) {
-    cached_sqlite <- dest_sqlite
-    cat("Copied SQLite file:", source_sqlite, "->", dest_sqlite, "\n")
-  } else {
-    cat("Warning: could not copy SQLite file\n")
-  }
+org_db <- load_cached_orgdb(cached_sqlite)
+go_valid <- !is.null(org_db)
+if (go_valid) {
+  cat("Existing org.Hs.eg.db GO cache validated - download skipped.\n")
 } else {
-  cat("Warning: could not resolve SQLite path from OrgDb\n")
+  cat("org.Hs.eg.db GO cache missing or invalid.\n")
 }
 
-# Write structured cache metadata (new format).
-# Use the basename only for sqlite_path so the metadata is portable.
-# load_organism_cache() resolves missing absolute paths via the canonical
-# fallback (cache_dir + orgdb_name + ".sqlite") and updates the metadata
-# on first load.
-now_str <- as.character(Sys.time())
-cache_meta <- list(
-  cache_status = if (!is.null(cached_sqlite)) "valid" else "marker_only",
-  source       = "annotationhub",
-  sqlite_path  = if (!is.null(cached_sqlite)) basename(cached_sqlite) else "",
-  created      = now_str,
-  updated      = now_str,
-  ttl_days     = 30,
-  orgdb_name   = "org.Hs.eg.db"
-)
-saveRDS(cache_meta, file.path(org_cache_dir, "cache_metadata.rds"))
-writeLines(now_str, file.path(org_cache_dir, "cache_timestamp.txt"))
-
-# Also write legacy marker for backward compatibility
-saveRDS(list(available = TRUE), file.path(org_cache_dir, "organism_db.rds"))
-
-cat("Saved organism cache to:", org_cache_dir, "\n")
-
-# --- Step 3: Extract and cache key types ---
-cat("--- Caching key types ---\n")
-
-key_types <- tryCatch(
-  AnnotationDbi::keytypes(org_db),
-  error = function(e) {
-    cat("Warning: could not extract key types:", e$message, "\n")
-    NULL
+# localHub=TRUE is deliberately the first AnnotationHub operation: it cannot
+# update the hub over the network. Resolving q[[1]] also verifies that the
+# expected resource blob, not merely an index file, is locally usable.
+local_ah <- NULL
+local_org_db <- NULL
+ah_valid <- FALSE
+if (dir.exists(ah_cache) && length(list.files(ah_cache, all.files = TRUE, no.. = TRUE)) > 0) {
+  local_ah <- tryCatch(
+    suppressMessages(suppressWarnings(
+      AnnotationHub(localHub = TRUE, ask = FALSE, cache = ah_cache)
+    )),
+    error = function(e) NULL
+  )
+  if (!is.null(local_ah) && methods::is(local_ah, "AnnotationHub")) {
+    local_query <- tryCatch(query(local_ah, c(orgdb_name, "OrgDb")), error = function(e) NULL)
+    if (!is.null(local_query) && length(local_query) > 0) {
+      local_org_db <- tryCatch(local_query[[1]], error = function(e) NULL)
+      ah_valid <- !is.null(local_org_db)
+    }
   }
-)
-
-if (!is.null(key_types) && length(key_types) > 0) {
-  keytypes_file <- file.path(org_cache_dir, "keytypes.rds")
-  saveRDS(key_types, keytypes_file)
-  cat("Cached", length(key_types), "key types\n")
 }
 
-# --- Done ---
+if (ah_valid) {
+  cat("Existing AnnotationHub cache validated - remote initialization skipped.\n")
+} else {
+  cat("AnnotationHub cache missing or invalid - building required portable cache.\n")
+}
+
+# A valid local hub can reconstruct a missing GO SQLite cache without network.
+if (!go_valid && ah_valid) {
+  source_sqlite <- tryCatch(AnnotationDbi::dbfile(local_org_db), error = function(e) NULL)
+  if (!is.null(source_sqlite) && file.exists(source_sqlite) &&
+      file.copy(source_sqlite, cached_sqlite, overwrite = TRUE)) {
+    org_db <- load_cached_orgdb(cached_sqlite)
+    go_valid <- !is.null(org_db)
+    if (go_valid) cat("Reconstructed org.Hs.eg.db GO cache from local AnnotationHub.\n")
+  }
+}
+
+# Remote access is the final fallback. A missing/invalid hub is rebuilt as one
+# coherent cache; the GO SQLite is only copied when it was genuinely missing.
+if (!ah_valid || !go_valid) {
+  if (!ah_valid && dir.exists(ah_cache)) {
+    unlink(list.files(ah_cache, full.names = TRUE, all.files = TRUE, no.. = TRUE),
+           recursive = TRUE, force = TRUE)
+  }
+  remote_ah <- suppressMessages(suppressWarnings(
+    AnnotationHub(localHub = FALSE, ask = FALSE, cache = ah_cache)
+  ))
+  if (is.null(remote_ah) || !methods::is(remote_ah, "AnnotationHub")) {
+    stop("Failed to connect to AnnotationHub")
+  }
+  remote_query <- query(remote_ah, c(orgdb_name, "OrgDb"))
+  if (is.null(remote_query) || length(remote_query) < 1) {
+    stop("No database found for org.Hs.eg.db")
+  }
+  cat("Downloading org.Hs.eg.db to complete the AnnotationHub cache...\n")
+  remote_org_db <- remote_query[[1]]
+  if (is.null(remote_org_db)) stop("Failed to download org.Hs.eg.db")
+
+  if (!go_valid) {
+    source_sqlite <- tryCatch(AnnotationDbi::dbfile(remote_org_db), error = function(e) NULL)
+    if (!is.null(source_sqlite) && file.exists(source_sqlite) &&
+        file.copy(source_sqlite, cached_sqlite, overwrite = TRUE)) {
+      org_db <- load_cached_orgdb(cached_sqlite)
+      go_valid <- !is.null(org_db)
+    }
+    if (!go_valid) stop("Could not create the org.Hs.eg.db SQLite cache")
+  }
+}
+
+# Missing keytypes are derived from the local SQLite and never cause a download.
+keytypes_valid <- FALSE
+if (file.exists(keytypes_file) && file.info(keytypes_file)$size > 0) {
+  keytypes_valid <- !is.null(tryCatch(readRDS(keytypes_file), error = function(e) NULL))
+}
+if (!keytypes_valid && go_valid) {
+  key_types <- tryCatch(AnnotationDbi::keytypes(org_db), error = function(e) NULL)
+  if (!is.null(key_types) && length(key_types) > 0) {
+    saveRDS(key_types, keytypes_file)
+    cat("Derived and cached ", length(key_types), " key types from local SQLite.\n", sep = "")
+  }
+}
+
+# Only newly reconstructed caches need portable metadata. Existing copied
+# metadata is intentionally left untouched, including developer-machine paths.
+metadata_file <- file.path(org_cache_dir, "cache_metadata.rds")
+if (!file.exists(metadata_file) && go_valid) {
+  now_str <- as.character(Sys.time())
+  saveRDS(list(cache_status = "valid", source = "annotationhub",
+               sqlite_path = basename(cached_sqlite), created = now_str,
+               updated = now_str, ttl_days = 30, orgdb_name = orgdb_name),
+          metadata_file)
+  writeLines(now_str, file.path(org_cache_dir, "cache_timestamp.txt"))
+  saveRDS(list(available = TRUE), file.path(org_cache_dir, "organism_db.rds"))
+}
+
 cat("\n=== Cache pre-build complete ===\n")
-cat("Contents:\n")
-for (f in list.files(cache_root, recursive = TRUE)) {
-  full <- file.path(cache_root, f)
-  size_kb <- round(file.info(full)$size / 1024, 1)
-  cat(sprintf("  %s (%s KB)\n", f, size_kb))
-}
-
 Sys.unsetenv("ANNOTATION_HUB_CACHE")
-cat("\nDone.\n")
