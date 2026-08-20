@@ -68,6 +68,29 @@ register_tables_rendering <- function(context) {
     debug_log(sprintf("DW DUPLICATE WORK | module=tables | operation=%s | count=%d", operation, count), 2)
   }
 
+  refresh_primary_table_style <- function(metadata = NULL, source = "metadata update") {
+    if (!isTRUE(isolate(primary_table_rendered()))) return(invisible(FALSE))
+
+    if (is.null(metadata)) metadata <- isolate(current_handson_metadata())
+    if (!is.data.frame(metadata) || nrow(metadata) < 1L ||
+        !all(c("Column", "Content", "Options") %in% names(metadata))) {
+      return(invisible(FALSE))
+    }
+
+    primary_columns <- tryCatch(names(isolate(primary_data())), error = function(e) NULL)
+    if (is.null(primary_columns)) return(invisible(FALSE))
+
+    colors <- create_content_color_mapping(unique(metadata$Content), metadata)
+    colors <- colors[intersect(primary_columns, names(colors))]
+    session$sendCustomMessage("datawizard-table-style", list(
+      id = ns(isolate(primary_table_output_id())),
+      columns = unname(names(colors)),
+      colors = unname(colors)
+    ))
+    debug_log(paste("Primary table style refreshed after", source), 2)
+    invisible(TRUE)
+  }
+
 
   record_primary_table_modification <- function(operation, details = "") {
     if (!is.function(record_modification)) return(invisible(FALSE))
@@ -760,18 +783,7 @@ register_tables_rendering <- function(context) {
     upload_started <- tryCatch(isolate(rv$datawizard_upload_monotonic_started), error = function(e) refresh_started)
     debug_log(sprintf("DW LIFECYCLE | correlation_id=%s | elapsed_ms=%.3f | marker=start | phase=downstream_choice_refresh",
                       correlation_id %||% "no-upload", 1000 * (refresh_started - upload_started)), 1)
-    metadata <- isolate(current_handson_metadata())
-    visible_names <- names(isolate(primary_table_snapshot()$complete_frame))
-    if (is.data.frame(metadata) && nrow(metadata) > 0L &&
-        all(c("Column", "Content", "Options") %in% names(metadata))) {
-      colors <- create_content_color_mapping(unique(metadata$Content), metadata)
-      colors <- colors[intersect(visible_names, names(colors))]
-      session$sendCustomMessage("datawizard-table-style", list(
-        id = ns(primary_table_output_id()),
-        columns = unname(names(colors)),
-        colors = unname(colors)
-      ))
-    }
+    refresh_primary_table_style(source = "metadata content update")
     debug_log("Primary table metadata/style status updated without DT remount", 2)
     debug_log(sprintf(paste0("DW LIFECYCLE | correlation_id=%s | elapsed_ms=%.3f | marker=end | ",
                             "phase=downstream_choice_refresh"), correlation_id %||% "no-upload",
@@ -963,7 +975,12 @@ register_tables_rendering <- function(context) {
     additional_table_output_id = additional_table_output_id
   )
 
-  register_tables_metadata_editing(context)
+  tables_api <- register_tables_metadata_editing(
+    context,
+    refresh_primary_table_style = refresh_primary_table_style
+  )
+  tables_api$refresh_primary_table_style <- refresh_primary_table_style
+  tables_api
 
   })
 }
