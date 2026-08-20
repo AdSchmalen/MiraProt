@@ -3,7 +3,7 @@
 MiraProt is open-source research software developed by Adrian Schmalen.
 
 Original MiraProt source code, documentation, configuration files, and other
-original material are distributed under the MIT License. See `LICENSE` for
+original material are distributed under the MIT License. See `LICENSE.md` for
 the applicable license terms.
 
 MiraProt depends on and interoperates with third-party software, databases,
