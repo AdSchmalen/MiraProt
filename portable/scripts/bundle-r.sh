@@ -417,6 +417,19 @@ for runtime_dir in R modules AutoAssign GSEA; do
     rsync -a "$PROJECT_ROOT/$runtime_dir/" "$SHINY_APP/$runtime_dir/"
   fi
 done
+had_nullglob=false
+shopt -q nullglob && had_nullglob=true
+shopt -s nullglob
+local_gmt_files=("$PROJECT_ROOT"/GSEA/*.gmt)
+if [ "$had_nullglob" = false ]; then
+  shopt -u nullglob
+fi
+if [ "${#local_gmt_files[@]}" -gt 0 ]; then
+  cp -- "${local_gmt_files[@]}" "$SHINY_APP/GSEA/"
+  echo "Included ${#local_gmt_files[@]} local GSEA GMT file(s)."
+else
+  echo "No local GSEA GMT files found; continuing without bundled gene sets."
+fi
 if [ ! -f "$PROJECT_ROOT/GSEA/README.md" ]; then
   echo "WARNING: GSEA/README.md not found; portable build will continue without it." >&2
 fi

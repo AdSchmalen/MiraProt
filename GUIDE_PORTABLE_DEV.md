@@ -436,9 +436,10 @@ Source mode and portable mode therefore do not share a live GMT directory.
 When the application runs from the repository root, `./GSEA` is the source
 tree's top-level `GSEA/`.
 
-During a portable build, that directory is copied to `shiny-app/GSEA/`; the
-portable launcher then sets `shiny-app/` or the packaged equivalent as R's
-working directory.
+During a portable build, immediate lowercase `<repository>/GSEA/*.gmt` files
+are copied byte-for-byte to `<dist>/shiny-app/GSEA/`; zero matching files is
+supported. The portable launcher then sets `shiny-app/` or the packaged
+equivalent as R's working directory.
 
 Adding a GMT file to the source tree after assembly does not update an existing
 portable artifact. Copy it to the artifact's applicable directory or rebuild
@@ -462,8 +463,13 @@ The **Refresh Gene Sets** control calls it with `force_refresh = TRUE`, rescans
 immediately, updates the selector, and reports the number of files found. A
 restart also creates a fresh process cache.
 
-The repository ignores `GSEA/*.gmt`. The build does not download collections
-from MSigDB.
+The repository ignores `GSEA/*.gmt`, and the build does not download or add
+collections to the source repository. Stage-2 packagers consume only the
+stage-1 tree, so its GMT files flow into Windows `shiny-app/GSEA/`, macOS
+`Contents/Resources/app/GSEA/`, and AppImage `usr/bin/shiny-app/GSEA/`.
+Including a local third-party GMT file in a generated artifact does not grant
+redistribution permission; its distributor must ensure the source, license,
+and terms permit redistribution.
 
 ---
 

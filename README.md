@@ -177,6 +177,18 @@ The runtime directory depends on how MiraProt is being used:
 | macOS app | `MiraProt.app/Contents/Resources/app/GSEA/` |
 | Linux AppImage | `usr/bin/shiny-app/GSEA/` inside the packaged image |
 
+The portable stage-1 builders copy locally present, immediate lowercase
+`<MiraProt source repository>/GSEA/*.gmt` files to
+`<portable bundle>/shiny-app/GSEA/`. With no matching files, assembly continues
+normally. Installers, DMGs, and AppImages made from that stage-1 bundle preserve
+those files; adding a source GMT afterward requires rebuilding stage 1 or
+copying the file into a writable flat bundle before packaging.
+
+Local GMT files are deliberately ignored by Git, and MiraProt neither downloads
+nor redistributes them in the source repository. Anyone distributing a locally
+built artifact containing third-party GMT files is responsible for ensuring
+that the source, license, and terms permit redistribution.
+
 For source mode, MiraProt searches:
 
 ```text

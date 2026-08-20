@@ -94,7 +94,11 @@ cp -a "$DIST_DIR/r-library" "$APPDIR/usr/bin/r-library"
 
 # Keep pre-built caches outside usr/bin so the launcher recognizes them as a
 # read-only packaged seed rather than the flat bundle's writable adjacent cache.
-cp -a "$DIST_DIR/go-cache" "$APPDIR/usr/go-cache"
+if [ -d "$DIST_DIR/go-cache" ]; then
+  cp -a "$DIST_DIR/go-cache" "$APPDIR/usr/go-cache"
+else
+  mkdir -p "$APPDIR/usr/go-cache"
+fi
 
 # -----------------------------------------------------------------------
 # Step 3: Create AppRun entry point
