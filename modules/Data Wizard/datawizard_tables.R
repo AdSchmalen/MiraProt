@@ -241,6 +241,7 @@ modDataTablesServer <- function(id, primary_data, additional_data,
       current_metadata         = current_handson_metadata,
       current_handson_metadata = current_handson_metadata,
       set_current_metadata     = tables_api$set_current_metadata,
+      refresh_primary_table_style = tables_api$refresh_primary_table_style,
 
       has_metadata = reactive({
         !is.null(current_handson_metadata()) &&

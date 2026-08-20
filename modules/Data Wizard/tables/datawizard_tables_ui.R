@@ -65,8 +65,11 @@ datawizard_tables_UI <- function(ns) {
       "(function(){
         if (window.datawizardTableStyleHandlerInstalled) return;
         window.datawizardTableStyleHandlerInstalled = true;
-        Shiny.addCustomMessageHandler('datawizard-table-style', function(message) {
-          var table = document.querySelector('#' + CSS.escape(message.id) + ' table');
+        window.datawizardTableStyles = window.datawizardTableStyles || {};
+        function applyTableStyle(id) {
+          var message = window.datawizardTableStyles[id];
+          if (!message) return;
+          var table = document.querySelector('#' + CSS.escape(id) + ' table');
           if (!table) return;
           var headers = Array.from(table.querySelectorAll('thead th'));
           message.columns.forEach(function(name, i) {
@@ -80,6 +83,23 @@ datawizard_tables_UI <- function(ns) {
               if (row.children[column]) row.children[column].style.backgroundColor = message.colors[i];
             });
           });
+        }
+        function attachTableStyle(id) {
+          var table = document.querySelector('#' + CSS.escape(id) + ' table');
+          if (!table) return;
+          applyTableStyle(id);
+          if (window.jQuery) {
+            window.jQuery(table)
+              .off('draw.dt.datawizardTableStyle')
+              .on('draw.dt.datawizardTableStyle', function() { applyTableStyle(id); });
+          }
+        }
+        document.addEventListener('datawizard:dt-ready', function(event) {
+          if (event.detail && event.detail.id) attachTableStyle(event.detail.id);
+        });
+        Shiny.addCustomMessageHandler('datawizard-table-style', function(message) {
+          window.datawizardTableStyles[message.id] = message;
+          attachTableStyle(message.id);
         });
       })();"
     )),
