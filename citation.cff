@@ -1,12 +1,12 @@
 cff-version: 1.2.0
 
 message: >-
-  If you use MiraProt in your research, please cite the archived MiraProt
-  software version and the associated publication when available.
+  If you use MiraProt in your research, please cite the MiraProt software
+  release used for your analysis and the associated publication when available.
 
 title: "MiraProt"
+
 type: software
-version: "1.0.0"
 
 authors:
   - family-names: "Schmalen"
@@ -24,17 +24,6 @@ repository-code: "https://github.com/AdSchmalen/MiraProt"
 
 license: MIT
 
-# Zenodo software archive
-#
-# After archiving MiraProt on Zenodo, uncomment the identifiers block below
-# and replace the placeholder with the DOI assigned to the archived software
-# version.
-#
-# identifiers:
-#   - type: doi
-#     value: "10.5281/zenodo.XXXXXXXX"
-#     description: "Archived MiraProt version 1.0.0 on Zenodo."
-
 keywords:
   - proteomics
   - bioinformatics
@@ -50,32 +39,26 @@ keywords:
   - data visualization
   - research software
 
-# Associated MiraProt manuscript
+# Zenodo software archive
 #
-# The manuscript is currently in preparation. Once it has been published:
+# doi: "XX.XXXX/zenodo.XXXXXXXX"
 #
-# 1. change `type: unpublished` to `type: article`;
-# 2. uncomment and replace the DOI placeholder;
-# 3. add `journal`, `date-published`, `volume`, `issue`, and page/article
-#    information when available.
-preferred-citation:
-  type: unpublished
-  title: >-
-    Interactive downstream proteomics analysis with MiraProt using Müller cell
-    proteomes from equine recurrent uveitis
-
-  authors:
-    - family-names: "Schmalen"
-      given-names: "Adrian"
-
-    - family-names: "Fleischer"
-      given-names: "Amelie B."
-
-    - family-names: "Riedel"
-      given-names: "Barbara M."
-
-    - family-names: "Deeg"
-      given-names: "Cornelia A."
-
-  # Publication DOI placeholder:
-  # doi: "10.XXXX/XXXXXXXX"
+# Associated MiraProt publication
+#
+# preferred-citation:
+#   type: article
+#   title: >-
+#     Interactive downstream proteomics analysis with MiraProt using Müller cell
+#     proteomes from equine recurrent uveitis
+#   authors:
+#     - family-names: "Schmalen"
+#       given-names: "Adrian"
+#     - family-names: "Fleischer"
+#       given-names: "Amelie B."
+#     - family-names: "Riedel"
+#       given-names: "Barbara M."
+#     - family-names: "Deeg"
+#       given-names: "Cornelia A."
+#   doi: "10.XXXX/XXXXXXXX"
+#   journal: "JOURNAL"
+#   date-published: "YYYY-MM-DD"
