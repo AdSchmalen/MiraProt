@@ -300,17 +300,7 @@ modAutoAssignServer <- function(id, metadata_skeleton, rule_files = NULL,
         new_num_after_autoassign_dw    = "textInput",
         new_den_before_autoassign_dw   = "textInput",
         new_den_after_autoassign_dw    = "textInput",
-        auto_convert_regex_dw          = "checkboxInput",
-        # Export/template inclusion toggles
-        save_ui_autoassign_dw          = "checkboxInput",
-        include_filtering_config       = "checkboxInput",
-        include_edit_operations        = "checkboxInput",
-        include_imputation_config      = "checkboxInput",
-        include_batch_effects_config   = "checkboxInput",
-        include_pivot_config           = "checkboxInput",
-        include_merge_config           = "checkboxInput",
-        include_ratio_configurations   = "checkboxInput",
-        include_basemean_ui_config     = "checkboxInput"
+        auto_convert_regex_dw          = "checkboxInput"
       ),
       module_label = "AutoAssign",
       # Persist the three rule-set queue tables and related book-keeping

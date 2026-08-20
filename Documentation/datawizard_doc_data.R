@@ -53,7 +53,7 @@ render_tech_filtering_content <- function() {
       tags$li(tags$code("apply_filter_state(new_state)"), " — programmatically applies a state bundle (used after RDS import)."),
       tags$li(tags$code("force_ui_update(ui_config)"), " — force-synchronizes UI to a config payload (guarded safe updates)."),
       tags$li(tags$code("get_current_ui_values()"), " — snapshot of actual UI inputs (preferred export for RDS)."),
-      tags$li(tags$code("get_current_filter_state_for_export()"), " — consolidated export bundle for Auto-Assign/RDS pipelines.")
+      tags$li(tags$code("get_current_filter_state_for_export()"), " — consolidated filtering state for filtering-specific integrations.")
     ),
 
     tags$h3("Data & Metadata Contracts"),
@@ -159,8 +159,8 @@ render_tech_filtering_content <- function() {
       "  )\n",
       ")\n\n",
       "# Preferred export/import helpers\n",
-      "filt$get_current_ui_values()                # exact UI snapshot for RDS export\n",
-      "filt$get_current_filter_state_for_export()  # consolidated bundle for Auto-Assign\n",
+      "filt$get_current_ui_values()                # exact filtering UI snapshot\n",
+      "filt$get_current_filter_state_for_export()  # consolidated filtering bundle\n",
       "filt$apply_filter_state(bundle)             # apply on import\n"
     )),
 
