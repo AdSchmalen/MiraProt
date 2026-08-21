@@ -82,7 +82,7 @@ Source: "{#DistDir}\go-cache\*"; DestDir: "{app}\resources\go-cache"; Flags: ign
 Source: "{#DistDir}\LICENSE.md"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 Source: "{#DistDir}\README.md"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 Source: "{#DistDir}\THIRD_PARTY_NOTICES.md"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
-Source: "{#DistDir}\citation.cff"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
+Source: "{#DistDir}\CITATION.cff"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 
 [Dirs]
 ; This directory is also the installed-layout signal when no seed cache ships.

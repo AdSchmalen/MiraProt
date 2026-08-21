@@ -526,7 +526,7 @@ $ShinyApp  = Join-Path $OutputDir "shiny-app"
 
 New-Item -ItemType Directory -Force -Path $RLibrary   | Out-Null
 
-foreach ($documentationFile in @("LICENSE.md", "README.md", "THIRD_PARTY_NOTICES.md", "citation.cff")) {
+foreach ($documentationFile in @("LICENSE.md", "README.md", "THIRD_PARTY_NOTICES.md", "CITATION.cff")) {
     $documentationSource = Join-Path $ProjectRoot $documentationFile
     if (Test-Path -LiteralPath $documentationSource -PathType Leaf) {
         Write-Host "Including portable documentation: $documentationFile"

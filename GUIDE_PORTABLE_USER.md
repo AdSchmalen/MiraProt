@@ -404,7 +404,7 @@ True
 ## Step 4 — Check optional resources
 
 ```powershell
-@("go-cache","LICENSE.md","README.md","THIRD_PARTY_NOTICES.md","citation.cff") | ForEach-Object { [pscustomobject]@{Component=$_;Present=Test-Path (Join-Path $dist $_)} } | Format-Table -AutoSize
+@("go-cache","LICENSE.md","README.md","THIRD_PARTY_NOTICES.md","CITATION.cff") | ForEach-Object { [pscustomobject]@{Component=$_;Present=Test-Path (Join-Path $dist $_)} } | Format-Table -AutoSize
 ```
 
 These are optional.
