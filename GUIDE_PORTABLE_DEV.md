@@ -711,7 +711,7 @@ go-cache\
 LICENSE.md
 README.md
 THIRD_PARTY_NOTICES.md
-citation.cff
+CITATION.cff
 ```
 
 GMT files inside:

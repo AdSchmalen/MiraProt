@@ -92,7 +92,7 @@ echo ""
 
 mkdir -p "$OUTPUT_DIR" "$R_LIBRARY"
 
-for documentation_file in LICENSE.md README.md THIRD_PARTY_NOTICES.md citation.cff; do
+for documentation_file in LICENSE.md README.md THIRD_PARTY_NOTICES.md CITATION.cff; do
   if [ -f "$PROJECT_ROOT/$documentation_file" ]; then
     echo "Including portable documentation: $documentation_file"
     cp "$PROJECT_ROOT/$documentation_file" "$OUTPUT_DIR/$documentation_file"
