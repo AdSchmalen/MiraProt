@@ -6,11 +6,11 @@
 
 **Interactive downstream proteomics analysis in R Shiny**
 
-MiraProt is a modular R Shiny application for the interactive downstream analysis of **processed protein-level proteomics data**.
+MiraProt is a modular R Shiny application for the interactive downstream analysis of processed protein-level proteomics data.
 
 It connects data preparation, metadata handling, statistical analysis, dimensionality reduction, functional enrichment, gene-set enrichment, protein-interaction analysis, visualization, export, and session management in one application.
 
-The central idea is to reduce repeated manual transfer of intermediate results between separate tools. Data prepared in the **Data Wizard** are made available to the downstream MiraProt modules, and analysis results and selections can be used across the connected workflow.
+The central idea is to reduce repeated manual transfer of intermediate results between separate tools. Data prepared in the Data Wizard are made available to the downstream MiraProt modules, and analysis results and selections can be used across the connected workflow.
 
 MiraProt is intended for downstream analysis of processed proteomics tables. It does **not** perform raw mass-spectrometry data processing, peptide-spectrum matching, protein identification, or primary quantitative processing of raw MS files.
 
@@ -50,7 +50,7 @@ MiraProt is organized as a connected workflow rather than a collection of indepe
 
 A typical workflow is:
 
-1. load a processed protein-level dataset in the **Data Wizard**;
+1. load a processed protein-level dataset in the Data Wizard;
 2. define identifiers, sample metadata, conditions, and other relevant annotations;
 3. clean, transform, filter, impute, merge, or otherwise prepare the data;
 4. inspect the prepared dataset using abundance, sample, PCA/UMAP, and table views;
