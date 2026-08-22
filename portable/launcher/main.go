@@ -75,12 +75,10 @@ func main() {
 	logger.Log("LAUNCHER", fmt.Sprintf("Log file: %s", logger.GetLogPath()))
 
 	// --- Single instance lock ---
-	lock := NewLockFile()
+	lock := NewInstanceLock()
 	if err := lock.Acquire(); err != nil {
 		logger.Log("LAUNCHER", fmt.Sprintf("Lock error: %v", err))
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		fmt.Fprintf(os.Stderr, "If no other instance is running, delete: %s\n",
-			filepath.Join(AppDataDir(), "launcher.lock"))
 		os.Exit(1)
 	}
 	defer lock.Release()
