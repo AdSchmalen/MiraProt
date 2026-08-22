@@ -5,7 +5,7 @@
 #       [-KeepFailedStaging <bool>] [-AllowUnverifiedRInstaller]
 # Ordinary users should omit -RVersion: portable\R_VERSION supplies the
 # maintained R runtime default. -RVersion does not select the MiraProt
-# application version, which comes from Git/build metadata and R/version_info.R.
+# application version, which comes from the repository VERSION file.
 #
 # KeepFailedStaging defaults to $true so a failed R installation and its logs
 # remain available for diagnosis. Pass -KeepFailedStaging:$false to remove a
@@ -87,6 +87,13 @@ function Invoke-WithCleanREnvironment {
 
 $ScriptDir  = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ProjectRoot = (Resolve-Path (Join-Path $ScriptDir "..\..")).Path
+$VersionPath = Join-Path $ProjectRoot "VERSION"
+if (-not (Test-Path -LiteralPath $VersionPath -PathType Leaf)) { throw "Missing canonical MiraProt VERSION file: $VersionPath" }
+$versionLines = @(Get-Content -LiteralPath $VersionPath)
+if ($versionLines.Count -ne 1 -or $versionLines[0] -notmatch '^\d+\.\d+\.\d+$') { throw "VERSION must contain exactly one MAJOR.MINOR.PATCH value." }
+$version = $versionLines[0]
+$cffMatches = @(Select-String -LiteralPath (Join-Path $ProjectRoot "CITATION.cff") -Pattern '^version: "([^"]*)"$')
+if ($cffMatches.Count -ne 1 -or $cffMatches[0].Matches[0].Groups[1].Value -ne $version) { throw "CITATION.cff top-level version must occur once and match VERSION '$version'." }
 
 # Fail early, before downloading or modifying a partial bundle. The isolated
 # process tests opt out of host/network preflights, but still exercise the real
@@ -526,7 +533,7 @@ $ShinyApp  = Join-Path $OutputDir "shiny-app"
 
 New-Item -ItemType Directory -Force -Path $RLibrary   | Out-Null
 
-foreach ($documentationFile in @("LICENSE.md", "README.md", "THIRD_PARTY_NOTICES.md", "CITATION.cff")) {
+foreach ($documentationFile in @("LICENSE.md", "README.md", "THIRD_PARTY_NOTICES.md", "CITATION.cff", "VERSION")) {
     $documentationSource = Join-Path $ProjectRoot $documentationFile
     if (Test-Path -LiteralPath $documentationSource -PathType Leaf) {
         Write-Host "Including portable documentation: $documentationFile"
@@ -868,6 +875,7 @@ if ($LASTEXITCODE -ge 8) { throw "Failed to copy runtime Documentation sources (
 foreach ($runtimeFile in @("app.R", "MiraProt_icon.png")) {
     Copy-Item (Join-Path $ProjectRoot $runtimeFile) (Join-Path $ShinyApp $runtimeFile) -Force
 }
+Copy-Item -LiteralPath $VersionPath -Destination (Join-Path $ShinyApp "VERSION") -Force
 
 # Source-development renv state is outside the runtime allowlist. Remove it
 # defensively if that manifest is expanded in the future.
