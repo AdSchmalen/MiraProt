@@ -11,7 +11,7 @@ import (
 const (
 	DefaultPort       = 3838
 	MaxPort           = 4838
-	StartupTimeoutMs  = 120000
+	StartupTimeoutMs  = 300000
 	PollIntervalMs    = 500
 	ShutdownTimeoutMs = 5000
 	LogMaxAgeDays     = 7
