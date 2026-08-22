@@ -3,7 +3,7 @@
 # create-dmg.sh — Build a macOS .app bundle and package it as a .dmg
 # =============================================================================
 # Usage:
-#   ./create-dmg.sh --dist-dir ./dist --version 1.0.0 [--output-dir ./output]
+#   ./create-dmg.sh --dist-dir ./dist [--output-dir ./output]
 #
 # Expects dist-dir to contain:
 #   MiraProt-launcher   (Go binary)
@@ -16,7 +16,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 DIST_DIR=""
-VERSION="dev"
+REQUESTED_VERSION=""
 OUTPUT_DIR=""
 APP_NAME="MiraProt"
 ARCH="$(uname -m)"
@@ -25,7 +25,7 @@ ARCH="$(uname -m)"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --dist-dir)  DIST_DIR="$2"; shift 2 ;;
-    --version)   VERSION="$2"; shift 2 ;;
+    --version)   REQUESTED_VERSION="$2"; shift 2 ;;
     --output-dir) OUTPUT_DIR="$2"; shift 2 ;;
     *) echo "Unknown argument: $1"; exit 1 ;;
   esac
@@ -33,11 +33,15 @@ done
 
 if [ -z "$DIST_DIR" ]; then
   echo "ERROR: --dist-dir is required"
-  echo "Usage: $0 --dist-dir ./dist --version 1.0.0"
+  echo "Usage: $0 --dist-dir ./dist [--output-dir ./output]"
   exit 1
 fi
 
 DIST_DIR="$(cd "$DIST_DIR" && pwd)"
+if [ ! -f "$DIST_DIR/VERSION" ]; then echo "ERROR: $DIST_DIR/VERSION is missing" >&2; exit 1; fi
+VERSION="$(cat "$DIST_DIR/VERSION")"
+if [ "$(wc -l < "$DIST_DIR/VERSION")" -ne 1 ] || [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then echo "ERROR: invalid staged VERSION" >&2; exit 1; fi
+if [ -n "$REQUESTED_VERSION" ] && [ "$REQUESTED_VERSION" != "$VERSION" ]; then echo "ERROR: --version does not match staged VERSION ($VERSION)" >&2; exit 1; fi
 OUTPUT_DIR="${OUTPUT_DIR:-$(pwd)}"
 mkdir -p "$OUTPUT_DIR"
 

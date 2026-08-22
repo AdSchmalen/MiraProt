@@ -422,7 +422,7 @@ are automatically included because the installer recursively packages the comple
 ## Step 5 — Determine the application version
 
 ```powershell
-$versionFile=Join-Path $dist "shiny-app\R\version_info.R"; $buildInfoFile=Join-Path $dist "shiny-app\BUILD_INFO"; $baseMatch=Select-String -Path $versionFile -Pattern 'MIRAPROT_VERSION_BASE\s*<-\s*"([^"]+)"'; $versionBase=$baseMatch.Matches[0].Groups[1].Value; $buildInfo=Get-Content $buildInfoFile -Raw | ConvertFrom-StringData; $appVersion=if($buildInfo.COMMIT_COUNT -match '^\d+$'){"$versionBase.$($buildInfo.COMMIT_COUNT)"}else{$versionBase}; $appVersion
+$appVersion=(Get-Content (Join-Path $dist "VERSION") -Raw).Trim(); $appVersion
 ```
 
 ## Step 6 — Compile the installer
@@ -430,7 +430,7 @@ $versionFile=Join-Path $dist "shiny-app\R\version_info.R"; $buildInfoFile=Join-P
 Use this exact argument format:
 
 ```powershell
-& $iscc "/DAppVersion=$appVersion" "/DDistDir=$dist" ".\portable\installers\windows\MiraProt.iss"
+& $iscc "/DDistDir=$dist" ".\portable\installers\windows\MiraProt.iss"
 ```
 
 Do **not** embed additional single or double quote characters around the path after `=`.
@@ -587,7 +587,7 @@ Because this path has not yet been manually validated end-to-end, verify at mini
 After testing the stage-1 flat bundle:
 
 ```bash
-bash portable/installers/linux/create-appimage.sh --dist-dir portable/dist --version 1.0.0 --output-dir output
+bash portable/installers/linux/create-appimage.sh --dist-dir portable/dist --output-dir output
 ```
 
 The script creates:
@@ -694,7 +694,7 @@ Because macOS has not yet been manually validated end-to-end, verify at minimum:
 After the flat bundle has been tested:
 
 ```bash
-bash portable/installers/macos/create-dmg.sh --dist-dir portable/dist --version 1.0.0 --output-dir output
+bash portable/installers/macos/create-dmg.sh --dist-dir portable/dist --output-dir output
 ```
 
 The script produces:
@@ -908,7 +908,7 @@ On Linux/macOS, native R packages may require system development libraries or Xc
 Use:
 
 ```powershell
-& $iscc "/DAppVersion=$appVersion" "/DDistDir=$dist" ".\portable\installers\windows\MiraProt.iss"
+& $iscc "/DDistDir=$dist" ".\portable\installers\windows\MiraProt.iss"
 ```
 
 Do not add quote characters around the actual path value after `=`.

@@ -2,7 +2,7 @@
 ; MiraProt Inno Setup Installer Script
 ; =============================================================================
 ; Build with:
-;   iscc /DAppVersion="1.0.0" /DDistDir="C:\path\to\MiraProt_Portable" MiraProt.iss
+;   iscc /DDistDir="C:\path\to\MiraProt_Portable" MiraProt.iss
 ;
 ; DistDir defaults to the repository-root dist\ directory. It must contain:
 ;   MiraProt-launcher.exe
@@ -11,12 +11,22 @@
 ;   r-library\
 ; =============================================================================
 
-#ifndef AppVersion
-  #define AppVersion "0.0.0-dev"
-#endif
-
 #ifndef DistDir
   #define DistDir SourcePath + "..\..\..\dist"
+#endif
+
+#if !FileExists(DistDir + "\VERSION")
+  #error Required canonical version file is missing: "{#DistDir}\VERSION"
+#endif
+#define VersionHandle FileOpen(DistDir + "\VERSION")
+#define CanonicalVersion FileRead(VersionHandle)
+#expr FileClose(VersionHandle)
+#ifdef AppVersion
+  #if AppVersion != CanonicalVersion
+    #error AppVersion does not match DistDir\VERSION
+  #endif
+#else
+  #define AppVersion CanonicalVersion
 #endif
 
 ; Fail at compile time with the selected input path, rather than producing an
@@ -83,6 +93,7 @@ Source: "{#DistDir}\LICENSE.md"; DestDir: "{app}"; Flags: ignoreversion skipifso
 Source: "{#DistDir}\README.md"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 Source: "{#DistDir}\THIRD_PARTY_NOTICES.md"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 Source: "{#DistDir}\CITATION.cff"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
+Source: "{#DistDir}\VERSION"; DestDir: "{app}"; Flags: ignoreversion
 
 [Dirs]
 ; This directory is also the installed-layout signal when no seed cache ships.

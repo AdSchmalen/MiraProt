@@ -25,6 +25,18 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 DEFAULT_R_VERSION="$(tr -d '[:space:]' < "$SCRIPT_DIR/../R_VERSION")"
 R_VERSION="${R_VERSION:-$DEFAULT_R_VERSION}"
 OUTPUT_DIR="${OUTPUT_DIR:-$SCRIPT_DIR/../dist}"
+VERSION_FILE="$PROJECT_ROOT/VERSION"
+if [ ! -f "$VERSION_FILE" ]; then
+  echo "ERROR: Missing canonical MiraProt VERSION file: $VERSION_FILE" >&2; exit 2
+fi
+MIRAPROT_VERSION="$(cat "$VERSION_FILE")"
+if [ "$(wc -l < "$VERSION_FILE")" -ne 1 ] || [[ ! "$MIRAPROT_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  echo "ERROR: VERSION must contain exactly one MAJOR.MINOR.PATCH value." >&2; exit 2
+fi
+CFF_VERSION="$(sed -n 's/^version: "\([^"]*\)"$/\1/p' "$PROJECT_ROOT/CITATION.cff")"
+if [ "$CFF_VERSION" != "$MIRAPROT_VERSION" ]; then
+  echo "ERROR: CITATION.cff version '$CFF_VERSION' does not match VERSION '$MIRAPROT_VERSION'." >&2; exit 2
+fi
 
 usage() {
   cat <<EOF
@@ -92,7 +104,7 @@ echo ""
 
 mkdir -p "$OUTPUT_DIR" "$R_LIBRARY"
 
-for documentation_file in LICENSE.md README.md THIRD_PARTY_NOTICES.md CITATION.cff; do
+for documentation_file in LICENSE.md README.md THIRD_PARTY_NOTICES.md CITATION.cff VERSION; do
   if [ -f "$PROJECT_ROOT/$documentation_file" ]; then
     echo "Including portable documentation: $documentation_file"
     cp "$PROJECT_ROOT/$documentation_file" "$OUTPUT_DIR/$documentation_file"
@@ -439,6 +451,7 @@ rsync -a --include='*.R' --exclude='*' \
 for runtime_file in app.R MiraProt_icon.png; do
   cp "$PROJECT_ROOT/$runtime_file" "$SHINY_APP/$runtime_file"
 done
+cp "$VERSION_FILE" "$SHINY_APP/VERSION"
 
 # Source-development renv state must never enter the standalone application.
 # The allowlist above already omits these paths; remove them defensively if the
@@ -458,12 +471,10 @@ echo ""
 # -----------------------------------------------------------------------
 echo "--- Building Go launcher ---"
 LAUNCHER_DIR="$SCRIPT_DIR/../launcher"
-VERSION="$(git -C "$PROJECT_ROOT" describe --tags --always 2>/dev/null || echo "dev")"
-
 (
   cd "$LAUNCHER_DIR"
   go build \
-    -ldflags "-s -w -X main.Version=$VERSION" \
+    -ldflags "-s -w -X main.Version=$MIRAPROT_VERSION" \
     -o "$OUTPUT_DIR/MiraProt-launcher" .
 )
 

@@ -51,13 +51,16 @@ Do not infer one from another.
 
 ## MiraProt application version
 
-Application-version logic lives in:
+The canonical release version lives in:
 
 ```text
-R/version_info.R
+VERSION
 ```
 
-The application version can incorporate Git/build metadata.
+`R/version_info.R` reads that stable value. Normal commits do not change it;
+Git SHA/date (and portable `BUILD_INFO`) remain separate revision metadata.
+`CITATION.cff` must carry the same version, and release tags conventionally
+use `v<VERSION>`.
 
 ## Portable R version
 
@@ -91,25 +94,8 @@ The Go launcher embeds a build-time version string through:
 -X main.Version=<value>
 ```
 
-Local Git builds commonly derive that value from:
-
-```text
-git describe --tags --always
-```
-
-Therefore normal development builds can contain:
-
-```text
-a673a3c
-```
-
-or:
-
-```text
-v1.0.0-12-ga673a3c
-```
-
-rather than a release SemVer.
+Both maintained bundlers read `VERSION` and inject it into `main.Version`, so
+the launcher and application report the same release SemVer.
 
 ## Platform package version
 
@@ -759,7 +745,7 @@ $dist=(Resolve-Path "..\MiraProt_Portable").Path; $dist
 ## Determine application version
 
 ```powershell
-$versionFile=Join-Path $dist "shiny-app\R\version_info.R"; $buildInfoFile=Join-Path $dist "shiny-app\BUILD_INFO"; $baseMatch=Select-String -Path $versionFile -Pattern 'MIRAPROT_VERSION_BASE\s*<-\s*"([^"]+)"'; $versionBase=$baseMatch.Matches[0].Groups[1].Value; $buildInfo=Get-Content $buildInfoFile -Raw | ConvertFrom-StringData; $appVersion=if($buildInfo.COMMIT_COUNT -match '^\d+$'){"$versionBase.$($buildInfo.COMMIT_COUNT)"}else{$versionBase}; $appVersion
+$appVersion=(Get-Content (Join-Path $dist "VERSION") -Raw).Trim(); $appVersion
 ```
 
 ## Correct PowerShell/Inno syntax
@@ -767,7 +753,7 @@ $versionFile=Join-Path $dist "shiny-app\R\version_info.R"; $buildInfoFile=Join-P
 Compile with:
 
 ```powershell
-& $iscc "/DAppVersion=$appVersion" "/DDistDir=$dist" ".\portable\installers\windows\MiraProt.iss"
+& $iscc "/DDistDir=$dist" ".\portable\installers\windows\MiraProt.iss"
 ```
 
 The quotes shown above are PowerShell argument grouping.
@@ -833,7 +819,7 @@ Current status: **experimental / not yet manually validated end-to-end on native
 Run after stage 1:
 
 ```bash
-bash portable/installers/macos/create-dmg.sh --dist-dir portable/dist --version 1.0.0 --output-dir output
+bash portable/installers/macos/create-dmg.sh --dist-dir portable/dist --output-dir output
 ```
 
 The package layout is approximately:
@@ -916,7 +902,7 @@ Current status: **experimental / not yet manually validated end-to-end on native
 Run after stage 1:
 
 ```bash
-bash portable/installers/linux/create-appimage.sh --dist-dir portable/dist --version 1.0.0 --output-dir output
+bash portable/installers/linux/create-appimage.sh --dist-dir portable/dist --output-dir output
 ```
 
 The AppDir structure includes approximately:
@@ -1213,7 +1199,7 @@ Fix/verify the icon resource path before treating the package as release-quality
 Use:
 
 ```powershell
-& $iscc "/DAppVersion=$appVersion" "/DDistDir=$dist" ".\portable\installers\windows\MiraProt.iss"
+& $iscc "/DDistDir=$dist" ".\portable\installers\windows\MiraProt.iss"
 ```
 
 Do not embed additional quote characters around the `DistDir` value.
