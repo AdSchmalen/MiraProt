@@ -11,218 +11,190 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"sync"
 	"syscall"
 )
 
 // Version is set at build time via -ldflags.
 var Version = "dev"
 
+type launcherConfig struct {
+	port, idleTimeout int
+	appDir, rHome     string
+	debug, version    bool
+	noBrowser, noTray bool
+}
+
+func parseConfig(args []string, stderr io.Writer) (launcherConfig, error) {
+	var cfg launcherConfig
+	fs := flag.NewFlagSet("miraprot-launcher", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.IntVar(&cfg.port, "port", DefaultPort, "Preferred TCP port for the Shiny server")
+	fs.StringVar(&cfg.appDir, "app-dir", "", "Path to the Shiny application directory")
+	fs.StringVar(&cfg.rHome, "r-home", "", "Path to the portable R installation (e.g. r-portable/)")
+	fs.BoolVar(&cfg.debug, "debug", false, "Enable verbose logging")
+	fs.BoolVar(&cfg.version, "version", false, "Print version and exit")
+	fs.BoolVar(&cfg.noBrowser, "no-browser", false, "Do not open the system browser automatically")
+	fs.BoolVar(&cfg.noTray, "no-tray", false, "Do not show system tray icon (headless mode)")
+	fs.IntVar(&cfg.idleTimeout, "idle-timeout", DefaultIdleTimeoutMin, "Minutes of inactivity before auto-shutdown (0 = disabled)")
+	return cfg, fs.Parse(args)
+}
+
 func main() {
-	var (
-		port        int
-		appDir      string
-		rHome       string
-		debug       bool
-		version     bool
-		noBrowser   bool
-		noTray      bool
-		idleTimeout int
-	)
-
-	flag.IntVar(&port, "port", DefaultPort, "Preferred TCP port for the Shiny server")
-	flag.StringVar(&appDir, "app-dir", "", "Path to the Shiny application directory")
-	flag.StringVar(&rHome, "r-home", "", "Path to the portable R installation (e.g. r-portable/)")
-	flag.BoolVar(&debug, "debug", false, "Enable verbose logging")
-	flag.BoolVar(&version, "version", false, "Print version and exit")
-	flag.BoolVar(&noBrowser, "no-browser", false, "Do not open the system browser automatically")
-	flag.BoolVar(&noTray, "no-tray", false, "Do not show system tray icon (headless mode)")
-	flag.IntVar(&idleTimeout, "idle-timeout", DefaultIdleTimeoutMin,
-		"Minutes of inactivity before auto-shutdown (0 = disabled)")
-	flag.Parse()
-
-	if version {
+	cfg, err := parseConfig(os.Args[1:], os.Stderr)
+	if err == nil && cfg.version {
 		fmt.Printf("MiraProt Launcher %s (%s/%s)\n", Version, runtime.GOOS, runtime.GOARCH)
-		os.Exit(0)
+		return
 	}
+	if err == nil {
+		err = run(cfg)
+	}
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "MiraProt Launcher: %v\n", err)
+		os.Exit(1)
+	}
+}
 
-	// --- Resolve default paths relative to the launcher binary ---
+type managedRProcess interface {
+	Start() error
+	Stop() error
+	Done() <-chan struct{}
+	ExitCode() int
+}
+
+type lifecycleDeps struct {
+	newLock     func() InstanceLock
+	newProcess  func(int, string, string, *Logger) managedRProcess
+	validate    func(string, string) error
+	findPort    func(int, int) (int, error)
+	waitReady   func(string, int, int, *Logger) error
+	openBrowser func(string) error
+}
+
+var defaultLifecycleDeps = lifecycleDeps{
+	newLock: NewInstanceLock,
+	newProcess: func(port int, appDir, rHome string, logger *Logger) managedRProcess {
+		return &RProcess{port: port, appDir: appDir, rHome: rHome, logger: logger}
+	},
+	validate: validatePaths, findPort: FindFreePort, waitReady: WaitForShiny, openBrowser: OpenBrowser,
+}
+
+func run(cfg launcherConfig) error { return runWithDeps(cfg, defaultLifecycleDeps) }
+
+func runWithDeps(cfg launcherConfig, deps lifecycleDeps) error {
 	exePath := executableDir()
-	if appDir == "" {
-		appDir = filepath.Join(exePath, "shiny-app")
+	if cfg.appDir == "" {
+		cfg.appDir = filepath.Join(exePath, "shiny-app")
 	}
-	appDir = resolveAppDir(exePath, appDir)
-	if rHome == "" {
-		rHome = resolveRHome(exePath)
+	cfg.appDir = resolveAppDir(exePath, cfg.appDir)
+	if cfg.rHome == "" {
+		cfg.rHome = resolveRHome(exePath)
 	}
 
-	// --- Initialize logger ---
 	logger := &Logger{}
 	if err := logger.Init(LogDir()); err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to initialize logger: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("initialize logger: %w", err)
 	}
 	defer logger.Close()
-
 	logger.Log("LAUNCHER", fmt.Sprintf("MiraProt Launcher %s starting", Version))
 	logger.Log("LAUNCHER", fmt.Sprintf("Platform: %s/%s", runtime.GOOS, runtime.GOARCH))
-	logger.Log("LAUNCHER", fmt.Sprintf("App dir:  %s", appDir))
-	logger.Log("LAUNCHER", fmt.Sprintf("R home:   %s", rHome))
-	logger.Log("LAUNCHER", fmt.Sprintf("Data dir: %s", AppDataDir()))
-	logger.Log("LAUNCHER", fmt.Sprintf("Log file: %s", logger.GetLogPath()))
+	logger.Log("LAUNCHER", fmt.Sprintf("App dir:  %s", cfg.appDir))
+	logger.Log("LAUNCHER", fmt.Sprintf("R home:   %s", cfg.rHome))
 
-	// --- Single instance lock ---
-	lock := NewInstanceLock()
+	lock := deps.newLock()
 	if err := lock.Acquire(); err != nil {
-		logger.Log("LAUNCHER", fmt.Sprintf("Lock error: %v", err))
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("acquire instance lock: %w", err)
 	}
 	defer lock.Release()
-
-	// --- Validate paths ---
-	if err := validatePaths(appDir, rHome); err != nil {
-		logger.Log("LAUNCHER", fmt.Sprintf("Path validation failed: %v", err))
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
+	if err := deps.validate(cfg.appDir, cfg.rHome); err != nil {
+		return fmt.Errorf("validate paths: %w", err)
 	}
-
-	// --- Find a free port ---
-	actualPort, err := FindFreePort(port, MaxPort)
+	actualPort, err := deps.findPort(cfg.port, MaxPort)
 	if err != nil {
-		logger.Log("LAUNCHER", fmt.Sprintf("Port error: %v", err))
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("find free port: %w", err)
 	}
-	if actualPort != port {
-		logger.Log("LAUNCHER", fmt.Sprintf("Port %d in use, using %d instead", port, actualPort))
-	}
+	url := fmt.Sprintf("http://127.0.0.1:%d", actualPort)
 	logger.Log("LAUNCHER", fmt.Sprintf("Using port %d", actualPort))
 
-	url := fmt.Sprintf("http://127.0.0.1:%d", actualPort)
-
-	// quitCh is the unified shutdown signal. Closing it triggers cleanup from
-	// any source: tray Quit button, idle timeout, OS signal, or R crash.
 	quitCh := make(chan struct{})
-
-	// --- Build R process ---
-	rproc := &RProcess{
-		port:   actualPort,
-		appDir: appDir,
-		rHome:  rHome,
-		logger: logger,
-	}
-
-	// startApp contains the core startup logic. When the system tray is
-	// enabled this runs inside the onReady callback (which fires on the
-	// main thread on macOS). Without a tray it runs directly.
+	var quitOnce sync.Once
+	requestQuit := func() { quitOnce.Do(func() { close(quitCh) }) }
+	rproc := deps.newProcess(actualPort, cfg.appDir, cfg.rHome, logger)
+	resultCh := make(chan error, 1)
 	startApp := func() {
-		// Start R process.
-		if err := rproc.Start(); err != nil {
-			logger.Log("LAUNCHER", fmt.Sprintf("Failed to start R: %v", err))
-			fmt.Fprintf(os.Stderr, "Failed to start R process: %v\n", err)
-			fmt.Fprintf(os.Stderr, "Check the log file: %s\n", logger.GetLogPath())
-			os.Exit(1)
-		}
-
-		// Wait for Shiny readiness (or early R death).
-		logger.Log("LAUNCHER", "Waiting for Shiny server to start...")
-		readyCh := make(chan error, 1)
-		go func() {
-			readyCh <- WaitForShiny(url, StartupTimeoutMs, PollIntervalMs, logger)
-		}()
-
-		select {
-		case err := <-readyCh:
-			if err != nil {
-				logger.Log("LAUNCHER", fmt.Sprintf("Shiny readiness failed: %v", err))
-				fmt.Fprintf(os.Stderr, "Shiny server failed to start: %v\n", err)
-				fmt.Fprintf(os.Stderr, "Check the log file: %s\n", logger.GetLogPath())
-				rproc.Stop()
-				os.Exit(1)
-			}
-		case <-rproc.Done():
-			logger.Log("LAUNCHER", fmt.Sprintf("R process exited during startup (code %d)", rproc.ExitCode()))
-			fmt.Fprintf(os.Stderr, "R process exited unexpectedly during startup.\n")
-			fmt.Fprintf(os.Stderr, "Check the log file: %s\n", logger.GetLogPath())
-			os.Exit(1)
-		}
-
-		// Open browser.
-		if !noBrowser {
-			logger.Log("LAUNCHER", fmt.Sprintf("Opening browser at %s", url))
-			if err := OpenBrowser(url); err != nil {
-				logger.Log("LAUNCHER", fmt.Sprintf("Browser error (non-fatal): %v", err))
-			}
-		}
-
-		fmt.Printf("\nMiraProt is running at %s\n", url)
-		fmt.Printf("Press Ctrl+C to stop.\n\n")
-
-		// Check for a newer release in the background (non-blocking).
-		go func() {
-			if msg := CheckForNewRelease(Version, logger); msg != "" {
-				fmt.Printf("\n  [RELEASE] %s\n\n", msg)
-			}
-		}()
-
-		// Start idle monitor.
-		idle := &IdleMonitor{
-			url:        url,
-			timeoutMin: idleTimeout,
-			logger:     logger,
-			quitCh:     quitCh,
-		}
-		idle.Start()
-
-		// Listen for OS signals.
-		sigCh := make(chan os.Signal, 1)
-		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-
-		// Wait for any shutdown trigger.
-		select {
-		case sig := <-sigCh:
-			logger.Log("LAUNCHER", fmt.Sprintf("Received signal: %v", sig))
-		case <-rproc.Done():
-			logger.Log("LAUNCHER", fmt.Sprintf("R process exited (code %d)", rproc.ExitCode()))
-		case <-quitCh:
-			logger.Log("LAUNCHER", "Shutdown requested via tray or idle timeout")
-		}
-
-		// If we're inside the tray event loop, closing quitCh will cause
-		// the tray select to call systray.Quit(), which unblocks RunTray().
-		select {
-		case <-quitCh:
-			// Already closed.
-		default:
-			close(quitCh)
-		}
+		err := runApp(cfg, url, logger, rproc, quitCh, requestQuit, deps)
+		resultCh <- err
+		requestQuit()
 	}
 
-	// shutdownApp cleans up after the event loop ends.
-	shutdownApp := func() {
-		logger.Log("LAUNCHER", "Shutting down...")
-		rproc.Stop()
-		logger.Log("LAUNCHER", "Shutdown complete")
-	}
-
-	// --- Run with or without system tray ---
-	if noTray || !trayAvailable() {
+	if cfg.noTray || !trayAvailable() {
 		startApp()
-		shutdownApp()
-	} else {
-		tray := &TrayApp{
-			url:    url,
-			logger: logger,
-			quitCh: quitCh,
-		}
-		// systray.Run blocks on the main goroutine. The onReady callback
-		// runs the app logic; the onExit callback performs cleanup.
-		tray.RunTray(startApp, shutdownApp)
+		return <-resultCh
 	}
+	tray := &TrayApp{url: url, logger: logger, quitCh: quitCh}
+	// RunTray remains on this goroutine: Cocoa requires this on macOS.
+	// Its ready callback launches startApp, while its exit callback wakes the
+	// lifecycle on a user-initiated tray Quit.
+	tray.RunTray(startApp, requestQuit)
+	return <-resultCh
+}
+
+func runApp(cfg launcherConfig, url string, logger *Logger, rproc managedRProcess, quitCh chan struct{}, requestQuit func(), deps lifecycleDeps) error {
+	if err := rproc.Start(); err != nil {
+		return fmt.Errorf("start R process: %w", err)
+	}
+	defer func() {
+		logger.Log("LAUNCHER", "Shutting down...")
+		if err := rproc.Stop(); err != nil {
+			logger.Log("LAUNCHER", fmt.Sprintf("R shutdown error: %v", err))
+		}
+	}()
+
+	logger.Log("LAUNCHER", "Waiting for Shiny server to start...")
+	readyCh := make(chan error, 1)
+	go func() { readyCh <- deps.waitReady(url, StartupTimeoutMs, PollIntervalMs, logger) }()
+	select {
+	case err := <-readyCh:
+		if err != nil {
+			return fmt.Errorf("wait for Shiny readiness: %w", err)
+		}
+	case <-rproc.Done():
+		return fmt.Errorf("R process exited during startup (code %d)", rproc.ExitCode())
+	case <-quitCh:
+		return nil
+	}
+
+	if !cfg.noBrowser {
+		if err := deps.openBrowser(url); err != nil {
+			logger.Log("LAUNCHER", fmt.Sprintf("Browser error (non-fatal): %v", err))
+		}
+	}
+	fmt.Printf("\nMiraProt is running at %s\nPress Ctrl+C to stop.\n\n", url)
+	go func() {
+		if msg := CheckForNewRelease(Version, logger); msg != "" {
+			fmt.Printf("\n  [RELEASE] %s\n\n", msg)
+		}
+	}()
+	(&IdleMonitor{url: url, timeoutMin: cfg.idleTimeout, logger: logger, quitCh: quitCh}).Start()
+
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	defer signal.Stop(sigCh)
+	select {
+	case sig := <-sigCh:
+		logger.Log("LAUNCHER", fmt.Sprintf("Received signal: %v", sig))
+	case <-rproc.Done():
+		logger.Log("LAUNCHER", fmt.Sprintf("R process exited (code %d)", rproc.ExitCode()))
+	case <-quitCh:
+		logger.Log("LAUNCHER", "Shutdown requested via tray or idle timeout")
+	}
+	requestQuit()
+	return nil
 }
 
 // executableDir returns the directory containing the launcher binary.
@@ -234,15 +206,8 @@ func executableDir() string {
 	return filepath.Dir(exe)
 }
 
-// resolveAppDir determines the Shiny app directory. It checks several
-// conventional locations relative to the launcher binary.
 func resolveAppDir(exeDir, fallback string) string {
-	candidates := []string{
-		fallback,
-		filepath.Join(exeDir, "shiny-app"),
-		filepath.Join(exeDir, "..", "shiny-app"),
-		filepath.Join(exeDir, "..", "Resources", "app"), // macOS .app bundle
-	}
+	candidates := []string{fallback, filepath.Join(exeDir, "shiny-app"), filepath.Join(exeDir, "..", "shiny-app"), filepath.Join(exeDir, "..", "Resources", "app")}
 	for _, c := range candidates {
 		if fi, err := os.Stat(filepath.Join(c, "app.R")); err == nil && !fi.IsDir() {
 			return c
@@ -251,13 +216,8 @@ func resolveAppDir(exeDir, fallback string) string {
 	return fallback
 }
 
-// resolveRHome determines the R installation directory.
 func resolveRHome(exeDir string) string {
-	candidates := []string{
-		filepath.Join(exeDir, "r-portable"),
-		filepath.Join(exeDir, "..", "r-portable"),
-		filepath.Join(exeDir, "..", "Resources", "R"), // macOS .app bundle
-	}
+	candidates := []string{filepath.Join(exeDir, "r-portable"), filepath.Join(exeDir, "..", "r-portable"), filepath.Join(exeDir, "..", "Resources", "R")}
 	for _, c := range candidates {
 		rscript := "Rscript"
 		if runtime.GOOS == "windows" {
@@ -270,14 +230,11 @@ func resolveRHome(exeDir string) string {
 	return filepath.Join(exeDir, "r-portable")
 }
 
-// validatePaths checks that the app directory and R home exist and contain the
-// expected files.
 func validatePaths(appDir, rHome string) error {
 	appR := filepath.Join(appDir, "app.R")
 	if _, err := os.Stat(appR); err != nil {
 		return fmt.Errorf("app.R not found at %s -- is --app-dir correct?", appR)
 	}
-
 	rscript := "Rscript"
 	if runtime.GOOS == "windows" {
 		rscript = "Rscript.exe"
@@ -286,6 +243,5 @@ func validatePaths(appDir, rHome string) error {
 	if _, err := os.Stat(rscriptPath); err != nil {
 		return fmt.Errorf("Rscript not found at %s -- is --r-home correct?", rscriptPath)
 	}
-
 	return nil
 }
