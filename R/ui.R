@@ -343,38 +343,6 @@ build_ui <- function(modEnv) {
     ),
 
     # ========================================
-    # System Info Tab
-    # ========================================
-    tabPanel(
-      title = "System Info",
-      value = "system_info",
-
-      div(style = "padding: 20px;",
-          if (MIRAPROT_IN_PORTABLE) {
-            tags$div(
-              class = "alert alert-info",
-              style = "padding: 8px 12px; margin-bottom: 15px;",
-              tags$strong("Portable Desktop Mode"),
-              tags$span(style = "margin-left: 10px;",
-                        paste("Port:", Sys.getenv("MIRAPROT_PORT", "?")))
-            )
-          },
-          h4("System Information"),
-
-          wellPanel(
-            h5("Window Dimensions"),
-            verbatimTextOutput("window_size"),
-
-            h5("Module Status"),
-            verbatimTextOutput("module_status_detailed"),
-
-            h5("Debug Information"),
-            verbatimTextOutput("debug_info")
-          )
-      )
-    ),
-
-    # ========================================
     # Session Tab
     # ========================================
     tabPanel(
@@ -567,6 +535,38 @@ build_ui <- function(modEnv) {
           tabPanel("Heatmap",                 modEnv$modHeatmapDocUI("heatmap_doc")),
           tabPanel("Plot Grid",               modEnv$modGridDocUI("grid_doc"))
         )
+      )
+    ),
+
+    # ========================================
+    # System Info Tab
+    # ========================================
+    tabPanel(
+      title = "System Info",
+      value = "system_info",
+
+      div(style = "padding: 20px;",
+          if (MIRAPROT_IN_PORTABLE) {
+            tags$div(
+              class = "alert alert-info",
+              style = "padding: 8px 12px; margin-bottom: 15px;",
+              tags$strong("Portable Desktop Mode"),
+              tags$span(style = "margin-left: 10px;",
+                        paste("Port:", Sys.getenv("MIRAPROT_PORT", "?")))
+            )
+          },
+          h4("System Information"),
+
+          wellPanel(
+            h5("Window Dimensions"),
+            verbatimTextOutput("window_size"),
+
+            h5("Module Status"),
+            verbatimTextOutput("module_status_detailed"),
+
+            h5("Debug Information"),
+            verbatimTextOutput("debug_info")
+          )
       )
     ),
 
