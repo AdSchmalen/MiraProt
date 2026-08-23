@@ -1207,7 +1207,7 @@ init_gsea_observers <- function(input, output, session, rv, ns, state,
   create_gsea_plot_from_current_inputs <- function(results, selected_pathways, plot_type,
                                                    legend_position, colors, sizes, theme,
                                                    plot_height_val, dotplot_swap_panels,
-                                                   dotplot_y_ticks_right) {
+                                                   dotplot_y_ticks_right, progress_fn = NULL) {
     req(results, plot_type)
     debug_log(paste("Creating plot:", plot_type), 1)
 
@@ -1244,7 +1244,8 @@ init_gsea_observers <- function(input, output, session, rv, ns, state,
           ids <- get_pathway_indices(results, selected_pathways)
           create_running_score_plot(results, ids, theme, sizes, legend_position, colors)
         },
-        "Pubmed citations"            = create_pubmed_plot(selected_pathways, colors, theme, sizes, legend_position),
+        "Pubmed citations"            = create_pubmed_plot(selected_pathways, colors, theme, sizes, legend_position,
+                                                            progress_fn = progress_fn),
         list(plot = NULL, message = paste("Plot type not implemented:", plot_type))
       )
     }, error = function(e) {
@@ -1455,7 +1456,16 @@ init_gsea_observers <- function(input, output, session, rv, ns, state,
 
   observeEvent(input$create_gsea_plot, {
     plot_inputs <- get_gsea_plot_input_values()
-    do.call(create_gsea_plot_from_current_inputs, plot_inputs)
+    if (identical(plot_inputs$plot_type, "Pubmed citations")) {
+      withProgress(message = "Creating GSEA PubMed Citation Plot...", value = 0, {
+        plot_inputs$progress_fn <- function(value, detail) {
+          setProgress(value = value, detail = detail)
+        }
+        do.call(create_gsea_plot_from_current_inputs, plot_inputs)
+      })
+    } else {
+      do.call(create_gsea_plot_from_current_inputs, plot_inputs)
+    }
   })
 
   observeEvent(plot_recreation_state(), {

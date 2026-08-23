@@ -181,7 +181,14 @@ observeEvent(input$create_go_plot, {
                create_go_enrichment_map_fixed(go_results, selected_terms, colors, sizes, theme, legend_position)
              },
              "Pubmed citations" = {
-               create_go_pubmed_plot(selected_terms, colors, sizes, theme, legend_position)
+               withProgress(message = "Creating GO PubMed Citation Plot...", value = 0, {
+                 create_go_pubmed_plot(
+                   selected_terms, colors, sizes, theme, legend_position,
+                   progress_fn = function(value, detail) {
+                     setProgress(value = value, detail = detail)
+                   }
+                 )
+               })
              },
              {
                debug_log(paste("Unknown plot type:", plot_type), 1)

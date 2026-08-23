@@ -659,8 +659,9 @@ create_go_enrichment_map_fixed <- function(results_list, selected_terms, colors,
 #' @param theme ggplot2 theme object
 #' @param legend_position legend position ("top", "bottom", "left", "right", "none")
 #' @param debug_log logging function
+#' @param progress_fn optional function accepting an absolute value and current-task detail
 create_go_pubmed_plot <- function(selected_terms, colors, sizes, theme, legend_position = "right",
-                                  debug_log = function(message, level = 1) {}) {
+                                  debug_log = function(message, level = 1) {}, progress_fn = NULL) {
   require(enrichplot)
   require(ggplot2)
 
@@ -671,6 +672,8 @@ create_go_pubmed_plot <- function(selected_terms, colors, sizes, theme, legend_p
   }
 
   tryCatch({
+    if (is.function(progress_fn)) progress_fn(0.05, "Preparing GO PubMed citation query")
+
     last_year <- as.numeric(format(Sys.Date(), "%Y")) - 1
     year_range <- (last_year - 5):last_year
 
@@ -682,7 +685,14 @@ create_go_pubmed_plot <- function(selected_terms, colors, sizes, theme, legend_p
 
     debug_log(paste("Generated color gradient:", paste(term_colors, collapse = ", ")), 2)
 
-    plot1 <- enrichplot::pmcplot(selected_terms, year_range) +
+    if (is.function(progress_fn)) progress_fn(0.15, "Querying PubMed/PMC for citation proportions")
+    plot1 <- enrichplot::pmcplot(selected_terms, year_range)
+
+    if (is.function(progress_fn)) progress_fn(0.55, "Querying PubMed/PMC for citation counts")
+    plot2 <- enrichplot::pmcplot(selected_terms, year_range, proportion = FALSE)
+
+    if (is.function(progress_fn)) progress_fn(0.85, "Assembling GO PubMed citation plot")
+    plot1 <- plot1 +
       scale_color_manual(values = term_colors) +
       labs(
         colour = "GO Term",
@@ -697,7 +707,7 @@ create_go_pubmed_plot <- function(selected_terms, colors, sizes, theme, legend_p
         legend.title = element_text(size = sizes$legendTitle)
       )
 
-    plot2 <- enrichplot::pmcplot(selected_terms, year_range, proportion = FALSE) +
+    plot2 <- plot2 +
       scale_color_manual(values = term_colors) +
       labs(
         colour = "GO Term",
@@ -712,6 +722,7 @@ create_go_pubmed_plot <- function(selected_terms, colors, sizes, theme, legend_p
         legend.title = element_text(size = sizes$legendTitle)
       )
 
+    if (is.function(progress_fn)) progress_fn(0.97, "Applying GO PubMed plot styling")
     if (!is.null(legend_position) && legend_position != "right") {
       debug_log(paste("Applying legend position:", legend_position, "to BOTH plots AFTER all customizations"), 2)
 
