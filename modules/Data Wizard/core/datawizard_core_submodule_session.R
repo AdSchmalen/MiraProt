@@ -26,21 +26,22 @@
 # ============================================================================
 
 .run_submodule_restore_callback <- function(callback, module_label, callback_reason) {
-  debug_log(paste0("[RestoreCallback:start] module=", module_label,
-                   " reason=", callback_reason), level = 2)
-  tryCatch({
-    # Deferred restore replay is imperative. Reactive reads are snapshots and
-    # must neither require a consumer nor establish dependencies.
-    shiny::isolate(callback())
-    debug_log(paste0("[RestoreCallback:done] module=", module_label,
-                     " reason=", callback_reason), level = 2)
-    invisible(TRUE)
-  }, error = function(e) {
-    debug_log(paste0("[RestoreCallback:error] module=", module_label,
-                     " reason=", callback_reason,
-                     " error=", conditionMessage(e)), level = 1)
-    invisible(FALSE)
-  })
+  if (!exists(".run_session_restore_callback", mode = "function", inherits = TRUE)) {
+    callback_file <- file.path("R", "session_save_restore",
+                               "session_save_restore_callbacks.R")
+    if (!file.exists(callback_file)) callback_file <- file.path("..", "..", callback_file)
+    sys.source(callback_file, envir = environment(.run_submodule_restore_callback))
+  }
+  .run_session_restore_callback(
+    owner = module_label,
+    reason = callback_reason,
+    generation = 0L,
+    phase = "SUBMODULE_REPLAY",
+    callback = callback,
+    job_metadata = list(current_generation = 0L,
+                        diagnostic_owner_field = "module",
+                        legacy_diagnostics = TRUE)
+  )
 }
 
 #' Create a session-restore state bridge for a Data Wizard submodule

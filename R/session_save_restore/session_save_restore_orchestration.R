@@ -47,6 +47,7 @@
     "MIRAPROT_APP_VERSION",
     "MIRAPROT_SESSION_COMPATIBLE_VERSIONS",
     "MIRAPROT_SESSION_SCHEMA_VERSION",
+    ".run_session_restore_callback",
     ".build_v4_envelope",
     ".qs2_available",
     "resolve_data_pair_for_restore",
