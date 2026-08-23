@@ -53,7 +53,7 @@
     if (length(pending)) return(FALSE)
     outcomes <- vapply(jobs, function(job) job$outcome %||% "completed", character(1))
     errors <- Filter(Negate(is.null), lapply(jobs, `[[`, "error"))
-    failed <- outcomes %in% c("error", "failed")
+    failed <- outcomes %in% c("error", "failed", "failure")
     degraded <- outcomes %in% c("timeout", "skipped", "degraded")
     record$phase <- if (any(failed)) "FAILED" else if (any(degraded) || length(errors)) "DEGRADED" else "SETTLED"
     record$reported <- TRUE
