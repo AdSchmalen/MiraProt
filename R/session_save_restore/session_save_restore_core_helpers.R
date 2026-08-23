@@ -938,64 +938,91 @@ unwrap_snapshot <- function(snapshot) {
     snapshot$version
   } else NA_character_
 
-  # v3: qs payload -> unwrap
-  if (!is.na(version) && version == "3.0.0" && is.raw(snapshot$payload_qs)) {
-    if (!.legacy_qs_available()) {
-      snapshot$.unwrap_error <- paste(
-        "This session file was written in v3 (qs transport) but the qs package",
-        "is not installed.  Install.packages('qs') and try again."
+  merge_payload <- function(payload) {
+    if (!is.list(payload)) return()
+    if (!is.null(payload$rv_snapshot)) snapshot$rv_snapshot <<- payload$rv_snapshot
+    if (!is.null(payload$module_snapshots)) snapshot$module_snapshots <<- payload$module_snapshots
+  }
+  transport <- tryCatch(snapshot$manifest$transport, error = function(e) NULL)
+  transport <- if (is.character(transport) && length(transport) == 1L &&
+                   !is.na(transport)) transport else NA_character_
+
+  # Select the schema first: qs and qs2 payloads are deliberately never
+  # considered outside their own version branch.
+  if (!is.na(version) && identical(version, "4.0.0")) {
+    if (identical(transport, "qs2")) {
+      if (!is.raw(snapshot$payload_qs2)) {
+        snapshot$.unwrap_error <- "The v4 qs2 transport requires a raw payload_qs2 vector."
+        return(snapshot)
+      }
+      if (!isTRUE(tryCatch(.qs2_available(), error = function(e) FALSE))) {
+        snapshot$.unwrap_error <- paste(
+          "This session file uses the v4 qs2 transport, but the qs2 package",
+          "is unavailable. Install 'qs2' and try again."
+        )
+        return(snapshot)
+      }
+      payload <- tryCatch(
+        qs2::qs_deserialize(snapshot$payload_qs2, validate_checksum = TRUE),
+        error = function(e) {
+          snapshot$.unwrap_error <<- paste(
+            "The v4 qs2 payload could not be deserialized or failed checksum validation:",
+            conditionMessage(e)
+          )
+          NULL
+        }
       )
+      merge_payload(payload)
       return(snapshot)
     }
-    payload <- tryCatch(
-      qs::qdeserialize(snapshot$payload_qs),
-      error = function(e) {
-        snapshot$.unwrap_error <<- paste("qs::qdeserialize failed:", e$message)
-        NULL
+    if (identical(transport, "inline_rds")) {
+      if (!is.list(snapshot$payload_inline)) {
+        snapshot$.unwrap_error <- "The v4 inline_rds transport requires a list payload_inline."
+        return(snapshot)
       }
-    )
-    if (is.list(payload)) {
-      if (!is.null(payload$rv_snapshot))      snapshot$rv_snapshot      <- payload$rv_snapshot
-      if (!is.null(payload$module_snapshots)) snapshot$module_snapshots <- payload$module_snapshots
+      merge_payload(snapshot$payload_inline)
+      return(snapshot)
     }
+    snapshot$.unwrap_error <- "Unsupported v4 session transport; expected 'qs2' or 'inline_rds'."
     return(snapshot)
   }
 
-  # v4: qs2 payload -> unwrap. qs2 uses R's serialization API and is not
-  # binary-compatible with the legacy qs payload used by v3.
-  if (!is.na(version) && version == "4.0.0" && is.raw(snapshot$payload_qs2)) {
-    if (!.qs2_available()) {
-      snapshot$.unwrap_error <- paste(
-        "This session file was written in v4 (qs2 transport) but the qs2 package",
-        "is not installed. Install.packages('qs2') and try again."
+  if (!is.na(version) && identical(version, "3.0.0")) {
+    if (identical(transport, "qs")) {
+      if (!is.raw(snapshot$payload_qs)) {
+        snapshot$.unwrap_error <- "The historical v3 qs transport requires a raw payload_qs vector."
+        return(snapshot)
+      }
+      if (!isTRUE(tryCatch(.legacy_qs_available(), error = function(e) FALSE))) {
+        snapshot$.unwrap_error <- paste(
+          "This session file uses the historical v3 qs format, but the legacy qs package is unavailable.",
+          "qs2 cannot read this format; open or convert the file in an environment with legacy qs installed."
+        )
+        return(snapshot)
+      }
+      payload <- tryCatch(
+        qs::qdeserialize(snapshot$payload_qs),
+        error = function(e) {
+          snapshot$.unwrap_error <<- paste(
+            "The historical v3 qs payload could not be deserialized:", conditionMessage(e)
+          )
+          NULL
+        }
       )
+      merge_payload(payload)
       return(snapshot)
     }
-    payload <- tryCatch(
-      qs2::qs_deserialize(snapshot$payload_qs2),
-      error = function(e) {
-        snapshot$.unwrap_error <<- paste("qs2::qs_deserialize failed:", e$message)
-        NULL
+    if (transport %in% c("inline_rds", "inline")) {
+      if (!is.list(snapshot$payload_inline)) {
+        snapshot$.unwrap_error <- "The v3 inline transport requires a list payload_inline."
+        return(snapshot)
       }
-    )
-    if (is.list(payload)) {
-      if (!is.null(payload$rv_snapshot)) snapshot$rv_snapshot <- payload$rv_snapshot
-      if (!is.null(payload$module_snapshots)) snapshot$module_snapshots <- payload$module_snapshots
+      merge_payload(snapshot$payload_inline)
+      return(snapshot)
     }
-    return(snapshot)
-  }
-
-  # v3 inline fallback. Prefer the explicit manifest transport when present,
-  # but still accept payload_inline for older v3 files that used "inline".
-  transport <- snapshot$manifest$transport %||% NA_character_
-  is_inline_transport <- is.character(transport) && length(transport) == 1L &&
-    transport %in% c("inline_rds", "inline")
-  if (!is.na(version) && version %in% c("3.0.0", "4.0.0") &&
-      (is_inline_transport || is.list(snapshot$payload_inline)) &&
-      is.list(snapshot$payload_inline)) {
-    payload <- snapshot$payload_inline
-    if (!is.null(payload$rv_snapshot))      snapshot$rv_snapshot      <- payload$rv_snapshot
-    if (!is.null(payload$module_snapshots)) snapshot$module_snapshots <- payload$module_snapshots
+    snapshot$.unwrap_error <- paste(
+      "Unsupported v3 session transport; expected 'qs', 'inline_rds', or 'inline'."
+    )
     return(snapshot)
   }
 
@@ -1083,7 +1110,7 @@ unwrap_snapshot <- function(snapshot) {
   transport <- snapshot$manifest$transport
   preset <- snapshot$manifest$transport_preset
   valid_transport <- is.character(transport) && length(transport) == 1L &&
-    !is.na(transport) && transport %in% c("qs2", "inline_rds", "inline")
+    !is.na(transport) && transport %in% c("qs2", "inline_rds")
   valid_preset <- is.character(preset) && length(preset) == 1L &&
     !is.na(preset) && nzchar(preset)
   valid_transport_payload <- if (isTRUE(valid_transport) && identical(transport, "qs2")) {
