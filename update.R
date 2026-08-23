@@ -3,7 +3,7 @@
 #
 # This script updates:
 #   - Required Bioconductor packages
-#   - Required CRAN packages (used at runtime, as loaded in app.R)
+#   - Required CRAN packages (direct MiraProt runtime dependencies, including feature-scoped namespace use)
 #   - GitHub packages (e.g., shinyTree)
 #   - Optional/developer/documentation packages
 #
@@ -176,7 +176,8 @@ if (length(bioc_missing_after_retry) && !isTRUE(pkgbuild::has_build_tools(debug 
 ## 3) Required CRAN packages (runtime) --------------------------------------
 
 # NOTE:
-# - This list mirrors the CRAN packages loaded in app.R via `required_packages`.
+# - This list contains direct MiraProt runtime dependencies, including packages
+#   referenced through feature-scoped namespace use.
 
 cran_packages <- c(
   "shiny",        # Shiny web applications
