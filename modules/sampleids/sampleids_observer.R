@@ -58,6 +58,8 @@ register_sampleids_observers <- function(input, output, session, ns,
   restore_poll_active   <- reactiveVal(FALSE)
   restore_poll_attempt  <- reactiveVal(0L)
   restore_poll_captured <- reactiveVal(NULL)
+  restore_poll_generation <- reactiveVal(NULL)
+  restore_poll_job <- reactiveVal(NULL)
 
   restore_context_active <- function() {
     isTRUE(rv$session_restoring) ||
@@ -72,6 +74,16 @@ register_sampleids_observers <- function(input, output, session, ns,
     state$had_plot_on_save(FALSE)
     state$restore_plot_data_cache(NULL)
     state$plot_from_restore_cache(FALSE)
+  }
+
+  settle_restore_poll <- function(outcome, error = NULL) {
+    job_id <- isolate(restore_poll_job())
+    resolver <- session$userData$resolve_restore_job
+    restore_poll_job(NULL)
+    if (!is.null(job_id) && is.function(resolver)) {
+      tryCatch(resolver(job_id, outcome, error), error = function(e) FALSE)
+    }
+    invisible(TRUE)
   }
 
   has_valid_restore_plot_data_cache <- function(cache) {
@@ -777,54 +789,37 @@ register_sampleids_observers <- function(input, output, session, ns,
 
   observeEvent(rv$session_restore_trigger, {
     captured <- isolate(state$pending_ui_inputs())
+    generation <- isolate(rv$session_restore_generation %||% NA_integer_)
+    register_job <- session$userData$register_restore_job
+    job_id <- if (is.function(register_job)) tryCatch(
+      register_job("SampleIDs", "poll and plot rebuild", "render", 2),
+      error = function(e) NULL
+    ) else NULL
+    restore_poll_job(job_id)
+    restore_poll_generation(generation)
     if (is.null(captured)) {
       state$had_plot_on_save(FALSE)
+      settle_restore_poll("skipped", "NO_CAPTURED_SAMPLEIDS_INPUTS")
       return()
     }
+    # onFlushed is imperative: protect it with the shared runner and only arm
+    # the reactive poll. All reads, readiness checks and invalidateLater calls
+    # deliberately remain in the observer below.
     session$onFlushed(function() {
-      tryCatch({
-        cache <- isolate(state$restore_plot_data_cache())
-        has_cached_pair <- has_valid_restore_plot_data_cache(cache)
-
-        # Match the Abundances restore path: if a plot-faithful cached pair is
-        # available, rebuild directly from that pair and the saved UI snapshot.
-        # This avoids waiting for live Data Wizard choices, which may describe a
-        # different currently-loaded dataset and can make legacy/session-cache
-        # restores time out.
-        if (isTRUE(has_cached_pair) && isTRUE(isolate(state$had_plot_on_save()))) {
-          ui_snapshot <- isolate(state$plot_ui_cache())
-          if (!is.list(ui_snapshot)) ui_snapshot <- captured
-          debug_log("[SampleIDs] cached_restore_rebuild_started", 1)
-          rebuild_ok <- tryCatch({
-            regenerate_sampleids_plot(ui_override = ui_snapshot, force_cached = TRUE)
-          }, error = function(e) {
-            debug_log(paste("[SampleIDs] cached_restore_rebuild_error:", e$message), 1)
-            FALSE
-          })
-          if (isTRUE(rebuild_ok)) {
-            apply_sampleids_restored_inputs(captured)
-            restore_poll_active(FALSE)
-            restore_poll_captured(NULL)
-            state$pending_ui_inputs(NULL)
-            state$plot_from_restore_cache(TRUE)
-            # regenerate_sampleids_plot() has copied the pair into the
-            # canonical plot_creation_cache and completed both render objects.
-            state$restore_plot_data_cache(NULL)
-            debug_log(paste0("[SampleIDs] cached_restore_rebuild_finished plot_object_nonnull=",
-                             !is.null(isolate(state$ggplot_object_SampleIDTab()))), 1)
-            return(invisible(NULL))
-          }
-          debug_log("[SampleIDs] cached_restore_rebuild_failed; falling back to live UI synchronization", 1)
+      armed <- .run_session_restore_callback(
+        owner = "SampleIDs", reason = "arm restore poll",
+        generation = generation, phase = "render",
+        job_metadata = list(
+          current_generation = function() isolate(rv$session_restore_generation %||% NA_integer_)
+        ),
+        callback = function() {
+          restore_poll_captured(captured)
+          restore_poll_attempt(0L)
+          restore_poll_active(TRUE)
+          debug_log("[SampleIDs] session restore: UI input sync initiated", 1)
         }
-
-        apply_sampleids_restored_inputs(captured)
-        restore_poll_captured(captured)
-        restore_poll_attempt(0L)
-        restore_poll_active(TRUE)
-        debug_log("[SampleIDs] session restore: UI input sync initiated", 1)
-      }, error = function(e) {
-        debug_log(paste("[SampleIDs] UI input sync failed:", e$message), 1)
-      })
+      )
+      if (!isTRUE(armed)) settle_restore_poll("skipped", "POLL_ARM_REJECTED")
     }, once = TRUE)
   }, ignoreInit = TRUE)
 
@@ -833,20 +828,31 @@ register_sampleids_observers <- function(input, output, session, ns,
     if (!isTRUE(restore_poll_active())) return()
 
     captured <- restore_poll_captured()
+    expected_generation <- restore_poll_generation()
+    current_generation <- rv$session_restore_generation %||% NA_integer_
+    if (!identical(as.integer(current_generation)[1L], as.integer(expected_generation)[1L])) {
+      restore_poll_active(FALSE)
+      state$pending_ui_inputs(NULL)
+      settle_restore_poll("skipped", "STALE_GENERATION")
+      return()
+    }
     if (is.null(captured) || !is.list(captured)) {
       restore_poll_active(FALSE)
       state$pending_ui_inputs(NULL)
       state$had_plot_on_save(FALSE)
+      settle_restore_poll("skipped", "INVALID_CAPTURED_SAMPLEIDS_INPUTS")
       return()
     }
 
     attempt <- isolate(restore_poll_attempt()) + 1L
     restore_poll_attempt(attempt)
+    if (attempt == 1L) apply_sampleids_restored_inputs(captured)
     if (attempt > 20L) {
       debug_log("[SampleIDs] restore timed out waiting for UI/data synchronization", 1)
       restore_poll_active(FALSE)
       state$pending_ui_inputs(NULL)
       state$had_plot_on_save(FALSE)
+      settle_restore_poll("timeout", "SAMPLEIDS_UI_DATA_SYNC_TIMEOUT")
       return()
     }
 
@@ -854,11 +860,12 @@ register_sampleids_observers <- function(input, output, session, ns,
       restore_poll_active(FALSE)
       state$pending_ui_inputs(NULL)
       state$had_plot_on_save(FALSE)
+      settle_restore_poll("skipped", "NO_SAVED_SAMPLEIDS_PLOT")
       return()
     }
 
     if (isTRUE(is_sampleids_restore_ready(captured))) {
-      tryCatch({
+      rebuild_ok <- tryCatch({
         cache <- isolate(state$restore_plot_data_cache())
         if (has_valid_restore_plot_data_cache(cache)) {
           ui_snapshot <- isolate(state$plot_ui_cache())
@@ -866,16 +873,21 @@ register_sampleids_observers <- function(input, output, session, ns,
           rebuild_ok <- regenerate_sampleids_plot(ui_override = ui_snapshot, force_cached = TRUE)
           if (isTRUE(rebuild_ok)) state$restore_plot_data_cache(NULL)
           debug_log("[SampleIDs] session restore: plot rebuilt from cached restore data", 1)
+          isTRUE(rebuild_ok)
         } else {
-          regenerate_sampleids_plot()
+          rebuilt <- regenerate_sampleids_plot()
           debug_log("[SampleIDs] session restore: plot rebuilt from restored inputs", 1)
+          isTRUE(rebuilt)
         }
       }, error = function(e) {
         debug_log(paste("[SampleIDs] restore plot rebuild failed:", e$message), 1)
+        FALSE
       })
       restore_poll_active(FALSE)
       state$pending_ui_inputs(NULL)
       state$plot_from_restore_cache(has_valid_restore_plot_data_cache(isolate(state$restore_plot_data_cache())))
+      settle_restore_poll(if (isTRUE(rebuild_ok)) "completed" else "error",
+                          if (isTRUE(rebuild_ok)) NULL else "SAMPLEIDS_REBUILD_FAILED")
       return()
     }
 

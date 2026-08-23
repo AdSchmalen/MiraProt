@@ -184,6 +184,13 @@ modSampleIDsServer <- function(id, rv, debug_level = 0) {
           }
         }, error = function(e) NA_character_)
 
+        debug_log(sprintf(
+          "[SampleIDs] session save cache references | plot_data_cache_ref=%s | payload=%s",
+          if (is.character(plot_data_cache_ref) && length(plot_data_cache_ref) == 1L &&
+              !is.na(plot_data_cache_ref) && nzchar(plot_data_cache_ref)) plot_data_cache_ref else "<missing-or-malformed>",
+          if (is.list(cached_pair)) "present" else "absent"
+        ), 1)
+
         canonical_key <- tryCatch({
           .build_canonical_plot_cache_key(
             module = "sampleids",
@@ -191,6 +198,12 @@ modSampleIDsServer <- function(id, rv, debug_level = 0) {
             variant = "main"
           )
         }, error = function(e) "sampleids::default::main")
+        cache_ref_trace <- if (is.character(plot_data_cache_ref) && length(plot_data_cache_ref) == 1L &&
+            !is.na(plot_data_cache_ref) && nzchar(plot_data_cache_ref)) plot_data_cache_ref else "<none>"
+        debug_log(sprintf(
+          "[SampleIDs] session save cache-reference fields | plot_data_cache_ref=%s | plot_cache_ref_by_title[%s]=%s",
+          cache_ref_trace, canonical_key, cache_ref_trace
+        ), 1)
 
         had_plot <- tryCatch({
           p <- isolate(state$ggplot_object_SampleIDTab())
@@ -245,14 +258,23 @@ modSampleIDsServer <- function(id, rv, debug_level = 0) {
 
         had_plot_on_save <- isTRUE(s$had_plot) ||
           (!is.null(s$ggplot_object) && inherits(s$ggplot_object, "ggplot"))
-        cache_key <- as.character(s$plot_data_cache_ref %||% NA_character_)[1]
-        cache_intended_restore <- isTRUE(.module_restore_has_cache_intent(s))
+        raw_cache_ref <- s$plot_data_cache_ref
+        cache_ref_status <- if (is.null(raw_cache_ref)) {
+          "missing"
+        } else if (!is.character(raw_cache_ref) || length(raw_cache_ref) != 1L ||
+                   is.na(raw_cache_ref) || !nzchar(raw_cache_ref)) {
+          "malformed"
+        } else {
+          "unresolved"
+        }
+        cache_key <- if (identical(cache_ref_status, "unresolved")) raw_cache_ref else NA_character_
         if (!is.list(s$restore_plot_data_cache) && is.list(s$plot_data_cache_payload)) {
           s$restore_plot_data_cache <- s$plot_data_cache_payload
         }
         cache_hit <- is.list(s$restore_plot_data_cache) &&
           inherits(s$restore_plot_data_cache$data_mod, "data.frame") &&
           inherits(s$restore_plot_data_cache$data_def, "data.frame")
+        if (isTRUE(cache_hit) && identical(cache_ref_status, "unresolved")) cache_ref_status <- "resolved"
         cache_hit_reason <- if (isTRUE(cache_hit)) "cache_restored_module_ref" else "cache_miss_fallback_live"
         if (is.list(s$restore_plot_data_cache_by_title) && is.list(s$plot_ui_inputs)) {
           key <- canonical_plot_key(s$plot_ui_inputs$plotTitle_SampleIDTab)
@@ -266,10 +288,15 @@ modSampleIDsServer <- function(id, rv, debug_level = 0) {
               inherits(cand$data_mod, "data.frame") &&
               inherits(cand$data_def, "data.frame")) {
             s$restore_plot_data_cache <- cand; cache_hit <- TRUE; cache_hit_reason <- "cache_restored_by_title"
+            if (identical(cache_ref_status, "unresolved")) cache_ref_status <- "resolved"
           }
         }
-        degraded_cache_restore <- isTRUE(cache_intended_restore) && !isTRUE(cache_hit) &&
-          !isTRUE(.module_restore_live_contract_compatible(s, rv))
+        live_contract_compatible <- isTRUE(.module_restore_live_contract_compatible(s, rv))
+        # Live fallback is plot-faithful only when both the saved/current data
+        # and metadata contracts match. A reference problem never relaxes that
+        # requirement.
+        degraded_cache_restore <- isTRUE(had_plot_on_save) && !isTRUE(cache_hit) &&
+          !isTRUE(live_contract_compatible)
         if (isTRUE(degraded_cache_restore)) {
           s$restore_plot_data_cache <- NULL
           had_plot_on_save <- FALSE
@@ -305,10 +332,21 @@ modSampleIDsServer <- function(id, rv, debug_level = 0) {
         report <- list(
           cache_key = cache_key,
           cache_hit = isTRUE(cache_hit),
-          data_source = if (isTRUE(cache_hit)) "cache" else "live",
-          reason = if (isTRUE(cache_hit)) cache_hit_reason else if (isTRUE(degraded_cache_restore)) "cache_ref_unresolved_live_data_incompatible" else "cache_miss_fallback_live",
+          data_source = if (isTRUE(cache_hit)) "cache" else if (isTRUE(degraded_cache_restore)) "none" else "live",
+          reason = if (isTRUE(cache_hit)) cache_hit_reason else if (isTRUE(degraded_cache_restore)) {
+            paste0("cache_ref_", cache_ref_status, "_live_data_metadata_incompatible")
+          } else {
+            paste0("cache_ref_", cache_ref_status, "_fallback_live_compatible")
+          },
+          cache_ref_status = cache_ref_status,
+          live_data_metadata_compatible = live_contract_compatible,
           restore_cache_degraded = isTRUE(degraded_cache_restore)
         )
+        debug_log(sprintf(
+          "[SampleIDs] session restore cache references | plot_data_cache_ref=%s | status=%s | live_data_metadata_compatible=%s",
+          if (is.na(cache_key)) "<none>" else cache_key, cache_ref_status,
+          live_contract_compatible
+        ), 1)
         if ((isTRUE(had_plot_on_save) || isTRUE(degraded_cache_restore)) && !isTRUE(cache_hit)) {
           showNotification(if (isTRUE(degraded_cache_restore)) .restore_cache_unavailable_dataset_mismatch_warning else "SampleIDs restored using current dataset (cached plot data unavailable).", type = "warning", duration = 6)
         }
