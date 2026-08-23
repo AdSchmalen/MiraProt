@@ -1915,11 +1915,41 @@ register_module_session_participants <- function(session_registry, module_output
           # `state` is captured by closure so the callback survives
           # restore_fn returning. Falls back to synchronous calls when
           # session$onFlushed is unavailable (e.g. testing harness).
+          restore_job_api <- if (!is.null(session)) session$userData$restore_jobs else NULL
+          dispatch_job <- if (is.list(restore_job_api) &&
+                              is.function(restore_job_api$register_restore_job)) {
+            restore_job_api$register_restore_job(
+              "datawizard", "deferred submodule UI dispatch", "datawizard_ui", timeout = 15
+            )
+          } else NULL
+          guard_job <- if (!is.null(dispatch_job)) {
+            restore_job_api$register_restore_job(
+              "datawizard", "restore guard release", "finalizer", timeout = 15
+            )
+          } else NULL
           dispatch_now <- function() {
             if (!restore_generation_current()) {
               debug_log("Data Wizard restore: skipped stale deferred UI dispatch", 2)
+              if (!is.null(dispatch_job)) {
+                restore_job_api$resolve_restore_job(dispatch_job, "skipped")
+                restore_job_api$resolve_restore_job(guard_job, "skipped")
+              }
               return(invisible(NULL))
             }
+            dispatch_error <- NULL
+            on.exit({
+              if (!is.null(dispatch_job)) {
+                restore_job_api$resolve_restore_job(
+                  dispatch_job,
+                  if (is.null(dispatch_error)) "completed" else "error",
+                  dispatch_error
+                )
+              }
+              if (!is.null(dispatch_error) && !is.null(guard_job)) {
+                restore_job_api$resolve_restore_job(guard_job, "skipped", dispatch_error)
+              }
+            }, add = TRUE)
+            tryCatch({
             extract_submodule_state_payload <- function(st) {
               if (!is.list(st)) return(NULL)
               candidates <- list(
@@ -2082,12 +2112,24 @@ register_module_session_participants <- function(session_registry, module_output
                 })
               }
               if (!is.null(session) && is.function(session$onFlushed)) {
-                session$onFlushed(once = TRUE, finalize_restore_guard)
+                session$onFlushed(once = TRUE, function() {
+                  finalize_restore_guard()
+                  if (!is.null(guard_job)) {
+                    restore_job_api$resolve_restore_job(guard_job, "completed")
+                  }
+                })
               } else {
                 finalize_restore_guard()
+                if (!is.null(guard_job)) {
+                  restore_job_api$resolve_restore_job(guard_job, "completed")
+                }
               }
               debug_log("Data Wizard restore: completed UI replay phase, bumped restore trigger, and deferred guard release until replay consumers flushed", 1)
             }
+            }, error = function(e) {
+              dispatch_error <<- conditionMessage(e)
+              debug_log(paste("Data Wizard deferred UI dispatch failed:", dispatch_error), 1)
+            })
           }
 
           if (!is.null(session) && is.function(session$onFlushed)) {
