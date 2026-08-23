@@ -127,6 +127,24 @@ register_venn_observers <- function(input, output, session, ns, state, rv,
   restore_poll_captured <- reactiveVal(NULL)
   restore_poll_phase    <- reactiveVal("base")
   restore_phase_attempt <- reactiveVal(0L)
+  restore_poll_generation <- reactiveVal(NA_integer_)
+  restore_poll_job <- reactiveVal(NULL)
+  restore_poll_job_settled <- reactiveVal(TRUE)
+
+  settle_restore_poll <- function(outcome, error = NULL) {
+    if (isTRUE(isolate(restore_poll_job_settled()))) return(invisible(FALSE))
+    restore_poll_job_settled(TRUE)
+    job_id <- isolate(restore_poll_job())
+    resolver <- session$userData$resolve_restore_job
+    if (is.null(job_id) || !is.function(resolver)) return(invisible(TRUE))
+    invisible(tryCatch(
+      resolver(job_id, outcome, error),
+      error = function(e) {
+        debug_log(paste("[Venn] restore settlement failed:", e$message), 1)
+        FALSE
+      }
+    ))
+  }
 
   update_last_plot_dimensions <- function(width = NULL, height = NULL, ppi = NULL, format = NULL) {
     ui <- isolate(state$last_plot_ui_inputs() %||% list())
