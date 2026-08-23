@@ -63,19 +63,99 @@ register_datawizard_file_loader_restore <- function(loader_environment = parent.
         return()
       }
 
+      # A replay is one immutable, generation/signature-scoped settlement job.
+      # Capture the list and its identity before any asynchronous flush is queued;
+      # R's copy-on-write semantics then keep callbacks detached from later staging.
       st <- staged
+      captured_generation <- staged_generation
+      captured_signature <- staged_signature
+      captured_payload_signature <- compute_loader_restore_signature(st)
+      restore_job_api <- session$userData$restore_jobs %||% NULL
+      restore_job_id <- if (!is.null(captured_generation) &&
+          is.list(restore_job_api) && is.function(restore_job_api$register_restore_job)) {
+        tryCatch(
+          restore_job_api$register_restore_job(
+            "Data Wizard file loader", "staged loader replay", "REPLAYING", 15
+          ),
+          error = function(e) NULL
+        )
+      } else NULL
+
       pending_loader_state(NULL)
       applying_loader_restore <<- TRUE
+      settled <- FALSE
 
-      release_loader_restore_lock <- function(applied = FALSE) {
-        if (isTRUE(applied)) {
-          last_applied_loader_restore_generation <<- staged_generation
-          last_applied_loader_restore_signature <<- staged_signature
+      identity_is_current <- function() {
+        current_generation <- get_loader_restore_generation()
+        generation_ok <- is.null(captured_generation) ||
+          identical(as.integer(current_generation)[1L], as.integer(captured_generation)[1L])
+        queued <- tryCatch(shiny::isolate(pending_loader_state()), error = function(e) NULL)
+        queued_signature <- if (is.list(queued)) {
+          queued$restore_signature %||% compute_loader_restore_signature(queued)
+        } else captured_signature
+        # The captured payload signature is immutable even though the private
+        # working copy is normalized during replay. A newly staged signature
+        # invalidates every callback belonging to this job.
+        signature_ok <- identical(captured_signature, captured_payload_signature) &&
+          identical(queued_signature, captured_signature)
+        isTRUE(generation_ok && signature_ok)
+      }
+
+      # This is the sole owner of both the loader lock and restore-job outcome.
+      # All success, stale, and failure paths converge here exactly once.
+      settle_loader_restore <- function(outcome, applied = FALSE, error = NULL) {
+        if (isTRUE(settled)) return(invisible(FALSE))
+        # Validate the identity on every terminal path before unlocking or
+        # asking the transaction registry to resolve this job.
+        identity_current <- identity_is_current()
+        settled <<- TRUE
+        if (isTRUE(applied) && identity_current) {
+          last_applied_loader_restore_generation <<- captured_generation
+          last_applied_loader_restore_signature <<- captured_signature
         }
         applying_loader_restore <<- FALSE
+        if (!is.null(restore_job_id) && is.function(restore_job_api$resolve_restore_job)) {
+          restore_job_api$resolve_restore_job(restore_job_id, outcome, error)
+        }
+        invisible(TRUE)
+      }
+
+      run_restore_step <- function(reason, phase, callback) {
+        if (!identity_is_current()) {
+          settle_loader_restore("skipped", FALSE, "STALE_LOADER_RESTORE_IDENTITY")
+          return(invisible(FALSE))
+        }
+        ok <- .run_session_restore_callback(
+          owner = "Data Wizard file loader", reason = reason,
+          generation = captured_generation %||% get_loader_restore_generation() %||% 0L,
+          phase = phase, callback = callback,
+          job_metadata = list(current_generation = function() {
+            get_loader_restore_generation() %||% captured_generation %||% 0L
+          })
+        )
+        if (!isTRUE(ok)) {
+          # The shared runner explicitly records REACTIVE_CONTEXT_VIOLATION;
+          # ordinary invalid-sheet/header/choice errors remain CALLBACK_ERROR.
+          settle_loader_restore("failure", FALSE, paste0(reason, " callback failed"))
+        }
+        invisible(ok)
+      }
+
+      schedule_restore_flush <- function(reason, callback) {
+        if (is.function(session$onFlushed)) {
+          session$onFlushed(once = TRUE, function() {
+            run_restore_step(reason, "flush", callback)
+          })
+        } else {
+          run_restore_step(paste0(reason, " (fallback)"), "fallback", callback)
+        }
       }
 
       tryCatch({
+        if (!identity_is_current()) {
+          settle_loader_restore("skipped", FALSE, "STALE_LOADER_RESTORE_IDENTITY")
+          return(invisible(FALSE))
+        }
         set_loader_mode("restore_replay", "apply pending loader state")
         restore_replay_active(TRUE)
         skip_next_restore_header_reprocess_primary(TRUE)
@@ -127,21 +207,22 @@ register_datawizard_file_loader_restore <- function(loader_environment = parent.
                 updateRadioButtons(session, "data_source_type", selected = st_inputs$data_source_type)
               }
 
-              if (is.function(session$onFlushed)) {
-                session$onFlushed(once = TRUE, function() {
-                  restore_replay_active(FALSE)
-                  set_loader_mode("interactive_load", "labels-only restore settled")
-                  release_loader_restore_lock(applied = TRUE)
-                })
-              } else {
+              schedule_restore_flush("labels-only settlement", function() {
+                if (!identity_is_current()) {
+                  settle_loader_restore("skipped", FALSE, "STALE_LOADER_RESTORE_IDENTITY")
+                  return(invisible(FALSE))
+                }
                 restore_replay_active(FALSE)
-                set_loader_mode("interactive_load", "labels-only restore settled (fallback)")
-                release_loader_restore_lock(applied = TRUE)
-              }
+                set_loader_mode("interactive_load", "labels-only restore settled")
+                settle_loader_restore("success", applied = TRUE)
+              })
             }, error = function(e) {
-              restore_replay_active(FALSE)
-              set_loader_mode("interactive_load", "labels-only restore failed")
-              release_loader_restore_lock(applied = FALSE)
+              if (identical(datawizard_condition_class(e), "reactive_context_violation")) stop(e)
+              if (identity_is_current()) {
+                restore_replay_active(FALSE)
+                set_loader_mode("interactive_load", "labels-only restore failed")
+              }
+              settle_loader_restore("failure", applied = FALSE, error = e$message)
               debug_log(paste0(
                 "Error applying labels-only loader inputs [",
                 format_loader_restore_id(staged_generation, staged_signature),
@@ -150,13 +231,11 @@ register_datawizard_file_loader_restore <- function(loader_environment = parent.
             })
           }
 
-          if (is.function(session$onFlushed)) {
-            session$onFlushed(once = TRUE, function() {
-              session$onFlushed(once = TRUE, apply_labels_only_inputs)
-            })
-          } else {
-            apply_labels_only_inputs()
-          }
+          # Preserve browser ordering: one flush rebuilds UI, the second
+          # applies selections. Both callbacks cross the shared restore runner.
+          schedule_restore_flush("labels-only UI rebuild", function() {
+            schedule_restore_flush("labels-only input replay", apply_labels_only_inputs)
+          })
           return(invisible(TRUE))
         }
 
@@ -332,17 +411,15 @@ register_datawizard_file_loader_restore <- function(loader_environment = parent.
           # observer cascades triggered by the restored header inputs cannot
           # re-enter process_data_with_header()/clean_and_index and rebuild
           # Row Index (which would reset metadata on restore).
-          if (is.function(session$onFlushed)) {
-            session$onFlushed(once = TRUE, function() {
-              restore_replay_active(FALSE)
-              set_loader_mode("interactive_load", "restore replay settled")
-              release_loader_restore_lock(applied = TRUE)
-            })
-          } else {
+          schedule_restore_flush("loader replay settlement", function() {
+            if (!identity_is_current()) {
+              settle_loader_restore("skipped", FALSE, "STALE_LOADER_RESTORE_IDENTITY")
+              return(invisible(FALSE))
+            }
             restore_replay_active(FALSE)
-            set_loader_mode("interactive_load", "restore replay settled (fallback)")
-            release_loader_restore_lock(applied = TRUE)
-          }
+            set_loader_mode("interactive_load", "restore replay settled")
+            settle_loader_restore("success", applied = TRUE)
+          })
             debug_log(paste0(
               "Loader restore[", format_loader_restore_id(staged_generation, staged_signature),
               "]: session state applied: header_row=",
@@ -356,9 +433,12 @@ register_datawizard_file_loader_restore <- function(loader_environment = parent.
               " (choices=", length(sheets2), ")"
             ), 2)
           }, error = function(e) {
-            restore_replay_active(FALSE)
-            set_loader_mode("interactive_load", "restore replay failed")
-            release_loader_restore_lock(applied = FALSE)
+            if (identical(datawizard_condition_class(e), "reactive_context_violation")) stop(e)
+            if (identity_is_current()) {
+              restore_replay_active(FALSE)
+              set_loader_mode("interactive_load", "restore replay failed")
+            }
+            settle_loader_restore("failure", applied = FALSE, error = e$message)
             debug_log(paste0(
               "Error applying loader session inputs [",
               format_loader_restore_id(staged_generation, staged_signature),
@@ -366,16 +446,15 @@ register_datawizard_file_loader_restore <- function(loader_environment = parent.
             ), 1)
           })
         }
-        if (is.function(session$onFlushed)) {
-          session$onFlushed(once = TRUE, function() {
-            session$onFlushed(once = TRUE, apply_inputs)
-          })
-        } else {
-          apply_inputs()
-        }
+        schedule_restore_flush("loader UI rebuild", function() {
+          schedule_restore_flush("loader input replay", apply_inputs)
+        })
       }, error = function(e) {
-        restore_replay_active(FALSE)
-        release_loader_restore_lock(applied = FALSE)
+        if (identical(datawizard_condition_class(e), "reactive_context_violation")) {
+          debug_log(paste0("Loader restore reactive-context violation: ", e$message), 1)
+        }
+        if (identity_is_current()) restore_replay_active(FALSE)
+        settle_loader_restore("failure", applied = FALSE, error = e$message)
         debug_log(paste0(
           "Error applying loader session state [",
           format_loader_restore_id(staged_generation, staged_signature),
