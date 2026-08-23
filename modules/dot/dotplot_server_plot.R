@@ -1185,6 +1185,32 @@ observeEvent(plot_update_trigger(), {
     }, once = TRUE)
   }
 
+  register_dotplot_restore_job <- function(reason, phase = "ui-sync") {
+    api <- session$userData$restore_jobs
+    if (!is.list(api) || !is.function(api$register_restore_job)) return(NULL)
+    tryCatch(api$register_restore_job("Dotplot", reason, phase, timeout = 15),
+             error = function(e) NULL)
+  }
+  resolve_dotplot_restore_job <- function(job_id, outcome = "completed", error = NULL) {
+    api <- session$userData$restore_jobs
+    if (is.null(job_id) || !is.list(api) || !is.function(api$resolve_restore_job)) return(FALSE)
+    isTRUE(api$resolve_restore_job(job_id, outcome, error))
+  }
+  schedule_dotplot_restore_flush <- function(reason, callback, phase = "ui-sync") {
+    job_id <- register_dotplot_restore_job(reason, phase)
+    session$onFlushed(function() {
+      outcome <- "completed"
+      problem <- NULL
+      on.exit(resolve_dotplot_restore_job(job_id, outcome, problem), add = TRUE)
+      tryCatch(callback(), error = function(e) {
+        outcome <<- "error"
+        problem <<- e$message
+        dotplot_debug_log(paste("[Dotplot]", reason, "failed:", e$message), 1)
+      })
+    }, once = TRUE)
+    invisible(job_id)
+  }
+
   sync_dotplot_ui_from_state <- function() {
     # Always schedule the restore guard release up front -- even if no
     # UI values were captured or the update loop below errors, the
@@ -1372,13 +1398,16 @@ observeEvent(plot_update_trigger(), {
         # Re-apply after one additional flush so selectInput targets are
         # preserved even if their choices are rebuilt asynchronously from
         # restored data_def.
-        session$onFlushed(function() {
+        schedule_dotplot_restore_flush("second-pass UI synchronization", function() {
           isolate(tryCatch({
             apply_captured_inputs(captured)
             slider_ok_2 <- isTRUE(restore_axis_slider_bounds(captured))
 
             if ((!slider_ok || !slider_ok_2) && pass_no < 4L) {
-              session$onFlushed(function() isolate(run_sync_pass(pass_no + 1L)), once = TRUE)
+              schedule_dotplot_restore_flush(
+                sprintf("UI synchronization retry pass %d", pass_no + 1L),
+                function() isolate(run_sync_pass(pass_no + 1L))
+              )
               return(invisible())
             }
 
@@ -1396,14 +1425,17 @@ observeEvent(plot_update_trigger(), {
             dotplot_debug_log(paste("[Dotplot] second-pass UI sync failed:", e$message), 1)
             pending_ui_inputs(NULL)
           }))
-        }, once = TRUE)
+        })
       }, error = function(e) {
         dotplot_debug_log(paste("[Dotplot] UI sync failed:", e$message), 1)
         pending_ui_inputs(NULL)
       })
     }
 
-    session$onFlushed(function() isolate(run_sync_pass(1L)), once = TRUE)
+    schedule_dotplot_restore_flush(
+      "first-pass UI synchronization",
+      function() isolate(run_sync_pass(1L))
+    )
   }
 
   # Regenerate the dotplot from the restored config + region_configs.  Used
@@ -1415,35 +1447,60 @@ observeEvent(plot_update_trigger(), {
   # ggplot guarantees the on-screen plot reflects the per-region styling
   # even if the serialized ggplot failed to carry the scale_identity
   # colour/size/alpha/shape vectors through saveRDS.
-  regenerate_dotplot_from_restored_state <- function(reason = "session restore") {
+  capture_dotplot_restore_snapshot <- function() isolate({
     cached_pair <- dotplot_state$restore_plot_data_cache
-    data <- if (is.list(cached_pair) && inherits(cached_pair$data_mod, "data.frame")) cached_pair$data_mod else tryCatch(data_in(), error = function(e) NULL)
-    data_def <- if (is.list(cached_pair) && inherits(cached_pair$data_def, "data.frame")) cached_pair$data_def else tryCatch(data_def_in(), error = function(e) NULL)
-    if (is.null(data) || is.null(data_def)) return(invisible(FALSE))
-    if (is.null(dotplot_state$axis_config)) dotplot_state$axis_config <- list()
+    use_cache <- is.list(cached_pair) && is.data.frame(cached_pair$data_mod) &&
+      is.data.frame(cached_pair$data_def)
+    allow_live <- isTRUE(dotplot_state$restore_live_fallback_available)
+    list(
+      contract = "dotplot-restore-snapshot-v1",
+      cached_pair = cached_pair,
+      data = if (use_cache) cached_pair$data_mod else if (allow_live) tryCatch(data_in(), error = function(e) NULL) else NULL,
+      data_def = if (use_cache) cached_pair$data_def else if (allow_live) tryCatch(data_def_in(), error = function(e) NULL) else NULL,
+      axis_config = dotplot_state$axis_config %||% list(),
+      plot_request_axis = tryCatch(dotplot_state$plot_request$axis_config, error = function(e) NULL),
+      plot_ui_cache = dotplot_state$plot_ui_cache,
+      thresholds = dotplot_state$thresholds,
+      color_rules = dotplot_state$color_rules,
+      region_configs = region_configs(),
+      region_structure = region_structure(),
+      input_values = reactiveValuesToList(input),
+      restore_in_progress = isTRUE(dotplot_state$restore_in_progress),
+      plot_from_restore_cache = use_cache
+    )
+  })
 
-    replay_ui_for_axis <- dotplot_state$plot_ui_cache
-    request_axis <- tryCatch(dotplot_state$plot_request$axis_config, error = function(e) NULL)
+  regenerate_dotplot_from_restored_state <- function(snapshot, reason = "session restore") {
+    if (!is.list(snapshot) || !identical(snapshot$contract, "dotplot-restore-snapshot-v1")) {
+      stop("regenerate_dotplot_from_restored_state requires a captured restore snapshot", call. = FALSE)
+    }
+    data <- snapshot$data
+    data_def <- snapshot$data_def
+    if (is.null(data) || is.null(data_def)) return(invisible(FALSE))
+    axis_config <- snapshot$axis_config
+
+    replay_ui_for_axis <- snapshot$plot_ui_cache
+    request_axis <- snapshot$plot_request_axis
     if (is.list(request_axis)) {
-      dotplot_state$axis_config <- utils::modifyList(request_axis, dotplot_state$axis_config, keep.null = TRUE)
+      axis_config <- utils::modifyList(request_axis, axis_config, keep.null = TRUE)
     }
     if (is.list(replay_ui_for_axis)) {
-      dotplot_state$axis_config$x_col <- dotplot_state$axis_config$x_col %||% replay_ui_for_axis$x_axis_column
-      dotplot_state$axis_config$y_col <- dotplot_state$axis_config$y_col %||% replay_ui_for_axis$y_axis_column
-      dotplot_state$axis_config$x_transform <- dotplot_state$axis_config$x_transform %||% replay_ui_for_axis$x_transform %||% "raw"
-      dotplot_state$axis_config$y_transform <- dotplot_state$axis_config$y_transform %||% replay_ui_for_axis$y_transform %||% "raw"
-      dotplot_state$axis_config$x_label <- dotplot_state$axis_config$x_label %||% replay_ui_for_axis$x_axis_label
-      dotplot_state$axis_config$y_label <- dotplot_state$axis_config$y_label %||% replay_ui_for_axis$y_axis_label
+      axis_config$x_col <- axis_config$x_col %||% replay_ui_for_axis$x_axis_column
+      axis_config$y_col <- axis_config$y_col %||% replay_ui_for_axis$y_axis_column
+      axis_config$x_transform <- axis_config$x_transform %||% replay_ui_for_axis$x_transform %||% "raw"
+      axis_config$y_transform <- axis_config$y_transform %||% replay_ui_for_axis$y_transform %||% "raw"
+      axis_config$x_label <- axis_config$x_label %||% replay_ui_for_axis$x_axis_label
+      axis_config$y_label <- axis_config$y_label %||% replay_ui_for_axis$y_axis_label
     }
 
     validation <- tryCatch(
-      dotplot_validate_config(dotplot_state$axis_config, data_def, data),
+      dotplot_validate_config(axis_config, data_def, data),
       error = function(e) list(valid = FALSE, message = e$message)
     )
     if (!isTRUE(validation$valid)) return(invisible(FALSE))
 
-    replay_ui <- dotplot_state$plot_ui_cache
-    dot_input <- if (is.list(replay_ui)) utils::modifyList(reactiveValuesToList(input), replay_ui, keep.null = TRUE) else input
+    replay_ui <- snapshot$plot_ui_cache
+    dot_input <- if (is.list(replay_ui)) utils::modifyList(snapshot$input_values, replay_ui, keep.null = TRUE) else snapshot$input_values
     plot_params <- tryCatch(dotplot_extract_plot_parameters(dot_input), error = function(e) NULL)
     if (is.null(plot_params)) return(invisible(FALSE))
 
@@ -1456,23 +1513,23 @@ observeEvent(plot_update_trigger(), {
       if (exists("dotplot_create_complete_plot_with_regions_enhanced")) {
         dotplot_create_complete_plot_with_regions_enhanced(
           data = data, data_def = data_def,
-          axis_config = dotplot_state$axis_config,
-          thresholds = dotplot_state$thresholds,
-          color_rules = dotplot_state$color_rules,
+          axis_config = axis_config,
+          thresholds = snapshot$thresholds,
+          color_rules = snapshot$color_rules,
           plot_params = plot_params,
-          region_configs = isolate(region_configs()),
-          region_structure = isolate(region_structure()),
+          region_configs = snapshot$region_configs,
+          region_structure = snapshot$region_structure,
           ui_labels = ui_labels
         )
       } else {
         dotplot_create_complete_plot_with_regions(
           data = data, data_def = data_def,
-          axis_config = dotplot_state$axis_config,
-          thresholds = dotplot_state$thresholds,
-          color_rules = dotplot_state$color_rules,
+          axis_config = axis_config,
+          thresholds = snapshot$thresholds,
+          color_rules = snapshot$color_rules,
           plot_params = plot_params,
-          region_configs = isolate(region_configs()),
-          region_structure = isolate(region_structure())
+          region_configs = snapshot$region_configs,
+          region_structure = snapshot$region_structure
         )
       }
     }, error = function(e) {
@@ -1482,6 +1539,7 @@ observeEvent(plot_update_trigger(), {
 
     if (!is.null(plot_result)) {
       store_natural_axis_ranges(plot_result)
+      dotplot_state$axis_config <- axis_config
       dotplot_state$current_plot <- plot_result
       dotplot_state$base_plot_without_labels <- plot_result
       dotplot_state$plot_ready <- TRUE
@@ -1490,22 +1548,17 @@ observeEvent(plot_update_trigger(), {
         paste0(nrow(data), "x", ncol(data), "::", nrow(data_def), "x", ncol(data_def), "::",
                paste(colnames(data), collapse = "|"), "::", paste(colnames(data_def), collapse = "|"))
       } else NULL
-      if (isTRUE(isolate(dotplot_state$restore_in_progress)) && is.list(dotplot_state$plot_ui_cache)) {
+      if (isTRUE(snapshot$restore_in_progress) && is.list(snapshot$plot_ui_cache)) {
         # During restore, keep the captured UI snapshot authoritative;
         # live input echoes can still be transient/default at this point.
-      } else {
-        dotplot_state$plot_ui_cache <- dotplot_flatten_plot_ui_cache_for_restore(
-          dotplot_capture_plot_ui_cache(input, dotplot_state, region_configs, region_structure)
-        )
-      }
+      } else dotplot_state$plot_ui_cache <- snapshot$plot_ui_cache
       dotplot_state$plot_cache_ref_by_title <- stats::setNames(
         list(dotplot_state$source_data_signature %||% ""),
-        as.character(input$plot_title %||% "default")[1]
+        as.character(dot_input$plot_title)[1]
       )
-      dotplot_state$plot_data_cache_ref <- dotplot_build_cache_key(input$plot_title %||% plot_params$plot_title)
-      dotplot_state$plot_from_restore_cache <- is.list(cached_pair) &&
-        is.data.frame(cached_pair$data_mod) && is.data.frame(cached_pair$data_def)
-      if (isTRUE(isolate(dotplot_state$restore_in_progress))) {
+      dotplot_state$plot_data_cache_ref <- dotplot_build_cache_key(dot_input$plot_title %||% plot_params$plot_title)
+      dotplot_state$plot_from_restore_cache <- snapshot$plot_from_restore_cache
+      if (isTRUE(snapshot$restore_in_progress)) {
         # The rebuilt plot, plot_creation_cache, UI cache, labels and canonical
         # reference are complete. Drop only the transient restore aliases.
         dotplot_state$restore_plot_data_cache <- NULL
@@ -1530,7 +1583,8 @@ observeEvent(plot_update_trigger(), {
       # styling.
       if (is.null(dotplot_state$current_plot)) {
         dotplot_debug_log("[Dotplot] session restore: regenerating plot from restored config", 1)
-        regenerate_dotplot_from_restored_state(reason = "session restore fallback")
+        regenerate_dotplot_from_restored_state(
+          capture_dotplot_restore_snapshot(), reason = "session restore fallback")
       } else {
         dotplot_debug_log("[Dotplot] session restore: ggplot object present", 1)
       }
@@ -1552,16 +1606,12 @@ observeEvent(plot_update_trigger(), {
       # label data carries pre-computed x/y coordinates and style info so
       # it does not depend on the identifier column UI being set yet.
       session$onFlushed(function() {
-        session$onFlushed(function() {
+        schedule_dotplot_restore_flush("authoritative rerender", function() {
           reconstruction_succeeded <- FALSE
           isolate(tryCatch({
-            cached_pair <- tryCatch(isolate(dotplot_state$restore_plot_data_cache), error = function(e) NULL)
-            data <- if (is.list(cached_pair) && is.data.frame(cached_pair$data_mod)) cached_pair$data_mod else tryCatch(data_in(), error = function(e) NULL)
-            data_def <- if (is.list(cached_pair) && is.data.frame(cached_pair$data_def)) cached_pair$data_def else tryCatch(data_def_in(), error = function(e) NULL)
-            if (!is.null(data) && !is.null(data_def)) {
-              reconstruction_succeeded <- isTRUE(isolate(regenerate_dotplot_from_restored_state(
-                reason = "session restore authoritative rerender")))
-            }
+            snapshot <- capture_dotplot_restore_snapshot()
+            reconstruction_succeeded <- isTRUE(regenerate_dotplot_from_restored_state(
+              snapshot, reason = "session restore authoritative rerender"))
           }, error = function(e) {
             dotplot_debug_log(
               paste("[Dotplot] authoritative rerender failed:", e$message), 1)
@@ -1616,7 +1666,7 @@ observeEvent(plot_update_trigger(), {
             }
             dotplot_state$restore_notification_emitted <- TRUE
           })
-        }, once = TRUE)
+        }, phase = "authoritative-rerender")
       }, once = TRUE)
     }, error = function(e) {
       dotplot_debug_log(paste("[Dotplot] session restore fallback failed:", e$message), 1)
