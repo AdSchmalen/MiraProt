@@ -390,7 +390,9 @@ register_pca_rendering_core <- function(input, output, session, rv, state, debug
       if (!is.list(reports)) reports <- list()
       report <- reports$PCA %||% list()
       if (!identical(report$restore_generation, generation) ||
-          !identical(state$restore_generation(), generation)) return(FALSE)
+          !identical(state$restore_generation(), generation) ||
+          !identical(report$session_restore_generation,
+                     rv$session_restore_generation %||% NA_integer_)) return(FALSE)
       report$render_status <- status
       report$render_completed <- identical(status, "render_completed")
       report$plot_recreated <- report$render_completed
@@ -405,6 +407,13 @@ register_pca_rendering_core <- function(input, output, session, rv, state, debug
       TRUE
     })
     if (!isTRUE(updated)) return(FALSE)
+    report <- isolate((rv$restore_reports %||% list())$PCA %||% list())
+    resolver <- session$userData$resolve_restore_job
+    if (is.function(resolver) && !is.null(report$render_job_id)) {
+      outcome <- if (identical(status, "render_completed")) "success" else "failure"
+      error <- if (identical(outcome, "failure")) error_message %||% "PCA render failed" else NULL
+      resolver(report$render_job_id, outcome, error)
+    }
     debug_log(sprintf("[PCA] restore %s (generation=%s)", status, generation), 1)
     TRUE
   }
