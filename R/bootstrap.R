@@ -37,13 +37,8 @@
   "DEqMS",
   "BiocFileCache",
   "sva",            # ComBat Batch correction
-  "RUVSeq",         # RUV Batch Correction
-  "ProteoMM",       # EigenMS Batch Correction
-  "preprocessCore", # Quantile Normalizing for Batch Correction
-  "matrixStats",    # Vectorized BWS with rowRanks()
   "GO.db",          # GO Children dropdown
   "AnnotationDbi",  # Annotation
-  "Biostrings",     # Annotation
   "biomaRt"        # Annotation
 ), source_label = "Bioconductor")
 
@@ -72,7 +67,6 @@
   "igraph",         # Static String network
   "visNetwork",     # Interactive STRING network
   "dplyr",          # Data manipulation
-  "dbplyr",         # Data manipulation for databases
   "RColorBrewer",   # Color palette for STRING network
   "ComplexUpset",   # Upset plots
   "VennDiagram",    # Venn Diagram
@@ -80,7 +74,6 @@
   "missForest",     # Random Forest Imputation
   "mice",           # MICE imputation
   "stats",          # Statistical testing
-  "coin",           # Permutationstest for n<3
   "pracma",         # Estimation of Hyper-parameter (Limma/DEqMS)
   "colourpicker",   # UI colourpicker
   "scales",         # Breaks and labels for axes and legends
@@ -92,9 +85,6 @@
   "ggupset",        # Upset Gene Ontology
   "ggridges",       # Ridgeline plot GSEA
   "grid",           # Extract column name from plot
-  "ggtangle",       # Modify Cnet plots
-  "ggpubr",         # Extract legends
-  "shinyBS",        # collapsible Panel
   "umap",           # UMAP calculation (PCA tab)
   "rlang",
   "sortable",       # Drag & drop functionality for plot reordering
