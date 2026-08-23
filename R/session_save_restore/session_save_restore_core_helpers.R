@@ -29,19 +29,23 @@
 # Schema version for the session snapshot format.
 # Increment when the snapshot structure changes in a backward-incompatible way.
 #
-# v3.0.0 introduces a "qs envelope":
+# v3.0.0 is the historical "qs envelope" / inline transport:
 #   - The outer object written via saveRDS() is a small header list carrying
 #     metadata plus a raw-vector `payload_qs` field produced by qs::qserialize().
-#   - The heavy, deeply-nested snapshot tree (rv, module snapshots, plot
-#     bundles) lives inside payload_qs.  qs uses an iterative C traversal and
-#     so is not subject to R's `serialize()` node-stack recursion limit --
-#     this is what fixes the historical `saveRDS failed: node stack overflow`.
 #   - When qs is not installed, v3 degrades to an in-list `payload_inline`
 #     that stores the same tree directly (same behaviour as v2, best-effort).
-MIRAPROT_SESSION_SCHEMA_VERSION <- "3.0.0"
+#
+# v4.0.0 introduces the "qs2 envelope" / inline transport:
+#   - New saves put the payload in `payload_qs2`, produced by
+#     qs2::qs_serialize(), or use `payload_inline` when qs2 is unavailable or
+#     serialization fails.
+#   - qs and qs2 are binary-incompatible formats. qs2 uses R's serialization
+#     API, so v3 payload_qs data must continue to be read with the legacy qs
+#     adapter and v4 payload_qs2 data must be read with qs2.
+MIRAPROT_SESSION_SCHEMA_VERSION <- "4.0.0"
 
 # Known compatible schema versions that can be restored by this code.
-MIRAPROT_SESSION_COMPATIBLE_VERSIONS <- c("1.0.0", "2.0.0", "3.0.0")
+MIRAPROT_SESSION_COMPATIBLE_VERSIONS <- c("1.0.0", "2.0.0", "3.0.0", "4.0.0")
 
 # MiraProt application version stored in the snapshot for informational purposes.
 MIRAPROT_APP_VERSION <- "2.0"
@@ -735,13 +739,85 @@ validate_session_snapshot <- function(snapshot) {
 }
 
 # ========================================
-# v3 envelope helpers (qs-backed payload)
+# v3/v4 envelope helpers (legacy qs and current qs2 payloads)
 # ========================================
 
-#' Is the qs package available?
+#' Is the qs2 package available for current session payloads?
 #' @keywords internal
-.qs_available <- function() {
+.qs2_available <- function() {
+  requireNamespace("qs2", quietly = TRUE)
+}
+
+#' Is the legacy qs package available for v3 session payloads?
+#' @keywords internal
+.legacy_qs_available <- function() {
   requireNamespace("qs", quietly = TRUE)
+}
+
+#' Build a v4 snapshot envelope
+#'
+#' Serializes the payload with qs2 when available. qs2 and legacy qs are
+#' binary-incompatible; qs2 uses R's serialization API. Availability and
+#' serialization failures therefore fall back to an inline RDS payload.
+#'
+#' @return A named list suitable for \code{saveRDS()}.
+#' @keywords internal
+.build_v4_envelope <- function(rv_snapshot, module_snapshots, save_level,
+                               failed_modules = character(),
+                               qs_preset = "balanced") {
+  data_dims <- tryCatch({
+    if (inherits(rv_snapshot$data_mod, "data.frame")) {
+      c(nrow(rv_snapshot$data_mod), ncol(rv_snapshot$data_mod))
+    } else c(NA_integer_, NA_integer_)
+  }, error = function(e) c(NA_integer_, NA_integer_))
+  qs_preset <- if (is.character(qs_preset) && length(qs_preset) >= 1L &&
+                   nzchar(qs_preset[[1L]])) qs_preset[[1L]] else "balanced"
+  payload <- list(rv_snapshot = rv_snapshot, module_snapshots = module_snapshots)
+  envelope <- list(
+    miraprot_session = TRUE,
+    version = MIRAPROT_SESSION_SCHEMA_VERSION,
+    app_version = MIRAPROT_APP_VERSION,
+    created_at = Sys.time(),
+    save_level = save_level,
+    manifest = list(
+      module_ids = names(module_snapshots) %||% character(),
+      failed_modules = as.character(failed_modules),
+      data_dims = as.integer(data_dims),
+      transport = "inline_rds",
+      transport_preset = qs_preset
+    )
+  )
+
+  qs2_available <- tryCatch(.qs2_available(), error = function(e) {
+    message("MiraProt session save: qs2 availability check failed; using inline RDS fallback: ",
+            conditionMessage(e))
+    FALSE
+  })
+  serialized <- if (isTRUE(qs2_available)) {
+    tryCatch(
+      qs2::qs_serialize(
+        payload,
+        compress_level = if (identical(save_level, SESSION_SAVE_LEVEL_DATA)) 1L else 3L,
+        nthreads = 1L,
+        shuffle = TRUE
+      ),
+      error = function(e) {
+        message("MiraProt session save: qs2 serialization failed; using inline RDS fallback: ",
+                conditionMessage(e))
+        NULL
+      }
+    )
+  } else {
+    message("MiraProt session save: qs2 package is unavailable; using inline RDS fallback transport.")
+    NULL
+  }
+  if (is.raw(serialized)) {
+    envelope$manifest$transport <- "qs2"
+    envelope$payload_qs2 <- serialized
+  } else {
+    envelope$payload_inline <- payload
+  }
+  envelope
 }
 
 #' Build a v3 snapshot envelope
@@ -775,7 +851,7 @@ validate_session_snapshot <- function(snapshot) {
     "balanced"
   }
 
-  qs_available <- .qs_available()
+  qs_available <- .legacy_qs_available()
 
   manifest <- list(
     module_ids       = names(module_snapshots) %||% character(),
@@ -792,7 +868,7 @@ validate_session_snapshot <- function(snapshot) {
 
   envelope <- list(
     miraprot_session = TRUE,
-    version           = MIRAPROT_SESSION_SCHEMA_VERSION,
+    version           = "3.0.0",
     app_version       = MIRAPROT_APP_VERSION,
     created_at        = Sys.time(),
     save_level        = save_level,
@@ -800,14 +876,11 @@ validate_session_snapshot <- function(snapshot) {
   )
 
   if (qs_available) {
-    # qs's C implementation walks the tree iteratively; does not trip R's
-    # serialize() stack.  The caller selects the qs preset so data-only
-    # saves can prioritize speed while full saves keep the historical default.
     envelope$payload_qs <- qs::qserialize(payload, preset = qs_preset)
   } else {
     message(
       "MiraProt session save: qs package is unavailable; using inline RDS fallback transport. ",
-      "Install 'qs' for stack-safe session serialization."
+      "Install 'qs' to read and write the legacy v3 binary transport."
     )
     # Fallback: inline the payload.  If the caller's upstream sanitizer did
     # its job, saveRDS() will still work; otherwise we rely on the legacy
@@ -849,7 +922,7 @@ validate_session_snapshot <- function(snapshot) {
 
 #' Unwrap a snapshot to expose rv_snapshot / module_snapshots at top level
 #'
-#' Accepts any of the v1 / v2 / v3 on-disk shapes and returns an object
+#' Accepts any of the v1 / v2 / v3 / v4 on-disk shapes and returns an object
 #' whose top-level fields \code{rv_snapshot} and \code{module_snapshots}
 #' are populated.  Used by \code{\link{validate_session_snapshot}} and by
 #' the restore observer so downstream code does not have to care about
@@ -867,7 +940,7 @@ unwrap_snapshot <- function(snapshot) {
 
   # v3: qs payload -> unwrap
   if (!is.na(version) && version == "3.0.0" && is.raw(snapshot$payload_qs)) {
-    if (!.qs_available()) {
+    if (!.legacy_qs_available()) {
       snapshot$.unwrap_error <- paste(
         "This session file was written in v3 (qs transport) but the qs package",
         "is not installed.  Install.packages('qs') and try again."
@@ -888,12 +961,36 @@ unwrap_snapshot <- function(snapshot) {
     return(snapshot)
   }
 
+  # v4: qs2 payload -> unwrap. qs2 uses R's serialization API and is not
+  # binary-compatible with the legacy qs payload used by v3.
+  if (!is.na(version) && version == "4.0.0" && is.raw(snapshot$payload_qs2)) {
+    if (!.qs2_available()) {
+      snapshot$.unwrap_error <- paste(
+        "This session file was written in v4 (qs2 transport) but the qs2 package",
+        "is not installed. Install.packages('qs2') and try again."
+      )
+      return(snapshot)
+    }
+    payload <- tryCatch(
+      qs2::qs_deserialize(snapshot$payload_qs2),
+      error = function(e) {
+        snapshot$.unwrap_error <<- paste("qs2::qs_deserialize failed:", e$message)
+        NULL
+      }
+    )
+    if (is.list(payload)) {
+      if (!is.null(payload$rv_snapshot)) snapshot$rv_snapshot <- payload$rv_snapshot
+      if (!is.null(payload$module_snapshots)) snapshot$module_snapshots <- payload$module_snapshots
+    }
+    return(snapshot)
+  }
+
   # v3 inline fallback. Prefer the explicit manifest transport when present,
   # but still accept payload_inline for older v3 files that used "inline".
   transport <- snapshot$manifest$transport %||% NA_character_
   is_inline_transport <- is.character(transport) && length(transport) == 1L &&
     transport %in% c("inline_rds", "inline")
-  if (!is.na(version) && version == "3.0.0" &&
+  if (!is.na(version) && version %in% c("3.0.0", "4.0.0") &&
       (is_inline_transport || is.list(snapshot$payload_inline)) &&
       is.list(snapshot$payload_inline)) {
     payload <- snapshot$payload_inline
@@ -986,11 +1083,11 @@ unwrap_snapshot <- function(snapshot) {
   transport <- snapshot$manifest$transport
   preset <- snapshot$manifest$transport_preset
   valid_transport <- is.character(transport) && length(transport) == 1L &&
-    !is.na(transport) && transport %in% c("qs", "inline_rds", "inline")
+    !is.na(transport) && transport %in% c("qs2", "inline_rds", "inline")
   valid_preset <- is.character(preset) && length(preset) == 1L &&
     !is.na(preset) && nzchar(preset)
-  valid_transport_payload <- if (isTRUE(valid_transport) && identical(transport, "qs")) {
-    is.raw(snapshot$payload_qs)
+  valid_transport_payload <- if (isTRUE(valid_transport) && identical(transport, "qs2")) {
+    is.raw(snapshot$payload_qs2)
   } else if (isTRUE(valid_transport)) {
     payload <- snapshot$payload_inline
     is.list(payload) &&
@@ -1003,7 +1100,7 @@ unwrap_snapshot <- function(snapshot) {
 
   # unwrap_snapshot() retains the envelope fields while exposing the payload
   # members (module_snapshots is optional). Requiring the rv payload shape
-  # distinguishes a successfully unwrapped v3 envelope from a version-stamped,
+  # distinguishes a successfully unwrapped current envelope from a version-stamped,
   # structurally legacy top-level snapshot.
   valid_unwrapped_payload <- is.list(snapshot$rv_snapshot) &&
     (is.null(snapshot$module_snapshots) || is.list(snapshot$module_snapshots))
@@ -1015,12 +1112,12 @@ unwrap_snapshot <- function(snapshot) {
 upgrade_session_snapshot_to_current_schema <- function(snapshot) {
   if (!is.list(snapshot)) return(snapshot)
 
-  native_v3 <- .session_restore_is_native_current_schema(snapshot)
-  if (isTRUE(native_v3) && is.null(snapshot$plot_data_cache_pool)) {
+  native_current <- .session_restore_is_native_current_schema(snapshot)
+  if (isTRUE(native_current) && is.null(snapshot$plot_data_cache_pool)) {
     snapshot$plot_data_cache_pool <- list()
   }
   bundle <- .session_restore_build_canonical_bundle(snapshot)
-  mode <- if (isTRUE(native_v3)) "native_current_schema" else "legacy_upgraded_schema"
+  mode <- if (isTRUE(native_current)) "native_current_schema" else "legacy_upgraded_schema"
 
   if (!is.list(snapshot$rv_snapshot)) snapshot$rv_snapshot <- list()
   if (.session_restore_is_df(bundle$data_mod)) snapshot$rv_snapshot$data_mod <- bundle$data_mod
@@ -1052,7 +1149,7 @@ upgrade_session_snapshot_to_current_schema <- function(snapshot) {
   dw$module_state <- st
   snapshot$module_snapshots$datawizard <- dw
 
-  legacy_full_session <- !isTRUE(native_v3) &&
+  legacy_full_session <- !isTRUE(native_current) &&
     (identical(snapshot$save_level, SESSION_SAVE_LEVEL_FULL) ||
        identical(snapshot$save_level, "full_session") ||
        is.null(snapshot$save_level))
@@ -1083,7 +1180,7 @@ upgrade_session_snapshot_to_current_schema <- function(snapshot) {
     data_source = bundle$data_source,
     metadata_source = bundle$metadata_source,
     metadata_pending = isTRUE(bundle$metadata_pending),
-    note = if (isTRUE(native_v3)) "native current schema" else "legacy snapshot normalized before module restore"
+    note = if (isTRUE(native_current)) "native current schema" else "legacy snapshot normalized before module restore"
   )
   debug_log(paste(
     "Session restore compatibility:",
@@ -2507,9 +2604,9 @@ is_plain_ui_payload <- function(x) {
   # factors, Date/POSIXt, and data.frames / matrices whose columns are
   # all atomic/factor/Date/POSIXt), skip the expensive qserialize probe
   # entirely.  These shapes serialize cleanly in 100% of realistic
-  # cases; the probe was doing a full qs::qserialize() of potentially
+  # cases; the probe was doing a full qs2::qs_serialize() of potentially
   # huge data frames (data_mod, expression matrices, etc.) merely to
-  # test -- and the actual transport in .build_v3_envelope() then
+  # test -- and the actual transport in .build_v4_envelope() then
   # serializes them again.  Cutting the probe here removes that
   # duplicate work, which is a major contributor to slow session saves.
   #
@@ -2534,8 +2631,8 @@ is_plain_ui_payload <- function(x) {
   # entire rv/module snapshots merely to decide that they were serializable.
   if (!is_plain_list_container) {
     ok <- tryCatch({
-      if (.qs_available()) {
-        qs::qserialize(x)
+      if (.qs2_available()) {
+        qs2::qs_serialize(x, compress_level = 3L, nthreads = 1L, shuffle = TRUE)
       } else {
         serialize(x, connection = NULL)
       }
@@ -2616,8 +2713,8 @@ is_plain_ui_payload <- function(x) {
   # final probe because attributes/classes may carry non-portable state.
   if (!is_plain_list_container) {
     ok2 <- tryCatch({
-      if (.qs_available()) {
-        qs::qserialize(x)
+      if (.qs2_available()) {
+        qs2::qs_serialize(x, compress_level = 3L, nthreads = 1L, shuffle = TRUE)
       } else {
         serialize(x, connection = NULL)
       }
