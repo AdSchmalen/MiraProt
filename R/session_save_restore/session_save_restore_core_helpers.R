@@ -10,7 +10,7 @@
 #
 # Responsibilities:
 #   - Provide the session registry factory and snapshot validation helpers.
-#   - Provide qs envelope builders/unwrappers and complex object bundlers.
+#   - Provide session envelope builders/unwrappers and complex object bundlers.
 #   - Provide defensive safe-call and sanitization helpers used across save/restore.
 #
 # Non-Responsibilities (Must NOT be here):
@@ -29,19 +29,14 @@
 # Schema version for the session snapshot format.
 # Increment when the snapshot structure changes in a backward-incompatible way.
 #
-# v3.0.0 is the historical "qs envelope" / inline transport:
-#   - The outer object written via saveRDS() is a small header list carrying
-#     metadata plus a raw-vector `payload_qs` field produced by qs::qserialize().
-#   - When qs is not installed, v3 degrades to an in-list `payload_inline`
-#     that stores the same tree directly (same behaviour as v2, best-effort).
+# v3.0.0 supports an in-list `payload_inline` transport. Historical binary
+# payloads using the obsolete qs transport are intentionally unsupported.
 #
 # v4.0.0 introduces the "qs2 envelope" / inline transport:
 #   - New saves put the payload in `payload_qs2`, produced by
 #     qs2::qs_serialize(), or use `payload_inline` when qs2 is unavailable or
 #     serialization fails.
-#   - qs and qs2 are binary-incompatible formats. qs2 uses R's serialization
-#     API, so v3 payload_qs data must continue to be read with the legacy qs
-#     adapter and v4 payload_qs2 data must be read with qs2.
+#   - v4 payload_qs2 data is read with qs2 checksum validation.
 MIRAPROT_SESSION_SCHEMA_VERSION <- "4.0.0"
 
 # Known compatible schema versions that can be restored by this code.
@@ -655,8 +650,8 @@ migrate_legacy_plot_object_state <- function(state) {
 #' session snapshot schema. Returns a list with \code{valid} (logical) and
 #' \code{message} (character) fields.
 #'
-#' Accepts v1 / v2 (rv_snapshot at top level) and v3 (qs envelope with a
-#' payload) shapes.  v3 snapshots are unwrapped first via
+#' Accepts v1 / v2 (rv_snapshot at top level) and v3 inline envelope shapes.
+#' Envelope snapshots are unwrapped first via
 #' \code{\link{unwrap_snapshot}}.
 #'
 #' @param snapshot The object returned by \code{readRDS()}.
@@ -686,7 +681,7 @@ validate_session_snapshot <- function(snapshot) {
   }
 
   # 2. Magic marker
-  if (!isTRUE(snapshot$miraprot_session)) {
+  if (!.is_supported_session_marker(snapshot)) {
     return(list(
       valid = FALSE,
       message = "The file is not a MiraProt session file (missing identification marker)."
@@ -739,8 +734,13 @@ validate_session_snapshot <- function(snapshot) {
 }
 
 # ========================================
-# v3/v4 envelope helpers (legacy qs and current qs2 payloads)
+# v3/v4 envelope helpers (inline and current qs2 payloads)
 # ========================================
+
+.is_supported_session_marker <- function(snapshot) {
+  is.list(snapshot) &&
+    (isTRUE(snapshot$miraprot_session) || isTRUE(snapshot$shinyprot_session))
+}
 
 #' Is the qs2 package available for current session payloads?
 #' @keywords internal
@@ -748,17 +748,10 @@ validate_session_snapshot <- function(snapshot) {
   requireNamespace("qs2", quietly = TRUE)
 }
 
-#' Is the legacy qs package available for v3 session payloads?
-#' @keywords internal
-.legacy_qs_available <- function() {
-  requireNamespace("qs", quietly = TRUE)
-}
-
 #' Build a v4 snapshot envelope
 #'
-#' Serializes the payload with qs2 when available. qs2 and legacy qs are
-#' binary-incompatible; qs2 uses R's serialization API. Availability and
-#' serialization failures therefore fall back to an inline RDS payload.
+#' Serializes the payload with qs2 when available. Availability and
+#' serialization failures fall back to an inline RDS payload.
 #'
 #' @return A named list suitable for \code{saveRDS()}.
 #' @keywords internal
@@ -822,17 +815,14 @@ validate_session_snapshot <- function(snapshot) {
 
 #' Build a v3 snapshot envelope
 #'
-#' The heavy tree (`rv_snapshot`, `module_snapshots`, optional `plot_bundles`)
-#' is serialized with \code{qs::qserialize()} when available, avoiding the
-#' \code{serialize()} C-stack recursion that causes `node stack overflow` on
-#' deeply-nested ggplot / ggproto / S4 objects.  The envelope itself is a
-#' small list that can be written with \code{saveRDS()}.
+#' Builds the historical v3 inline envelope used by compatibility tests and
+#' readers. The envelope itself is written with \code{saveRDS()}.
 #'
 #' @param rv_snapshot Shared rv state (list).
 #' @param module_snapshots Named list of module snapshots (may be NULL).
 #' @param save_level One of the SESSION_SAVE_LEVEL_* constants.
 #' @param failed_modules Character vector of module IDs that failed to snapshot.
-#' @param qs_preset Serialization preset passed to \code{qs::qserialize()} when qs transport is available; also selects base-R fallback compression.
+#' @param qs_preset Preset used to select base-R fallback compression.
 #' @return A named list suitable for \code{saveRDS()}.
 #' @keywords internal
 .build_v3_envelope <- function(rv_snapshot, module_snapshots, save_level,
@@ -851,13 +841,11 @@ validate_session_snapshot <- function(snapshot) {
     "balanced"
   }
 
-  qs_available <- .legacy_qs_available()
-
   manifest <- list(
     module_ids       = names(module_snapshots) %||% character(),
     failed_modules   = as.character(failed_modules),
     data_dims        = as.integer(data_dims),
-    transport        = if (qs_available) "qs" else "inline_rds",
+    transport        = "inline_rds",
     transport_preset = qs_preset
   )
 
@@ -875,18 +863,7 @@ validate_session_snapshot <- function(snapshot) {
     manifest          = manifest
   )
 
-  if (qs_available) {
-    envelope$payload_qs <- qs::qserialize(payload, preset = qs_preset)
-  } else {
-    message(
-      "MiraProt session save: qs package is unavailable; using inline RDS fallback transport. ",
-      "Install 'qs' to read and write the legacy v3 binary transport."
-    )
-    # Fallback: inline the payload.  If the caller's upstream sanitizer did
-    # its job, saveRDS() will still work; otherwise we rely on the legacy
-    # retry-without-module-snapshots path in the download handler.
-    envelope$payload_inline <- payload
-  }
+  envelope$payload_inline <- payload
   envelope
 }
 
@@ -947,8 +924,8 @@ unwrap_snapshot <- function(snapshot) {
   transport <- if (is.character(transport) && length(transport) == 1L &&
                    !is.na(transport)) transport else NA_character_
 
-  # Select the schema first: qs and qs2 payloads are deliberately never
-  # considered outside their own version branch.
+  # Select the schema first so payloads are never considered outside their
+  # own version branch.
   if (!is.na(version) && identical(version, "4.0.0")) {
     if (identical(transport, "qs2")) {
       if (!is.raw(snapshot$payload_qs2)) {
@@ -988,30 +965,6 @@ unwrap_snapshot <- function(snapshot) {
   }
 
   if (!is.na(version) && identical(version, "3.0.0")) {
-    if (identical(transport, "qs")) {
-      if (!is.raw(snapshot$payload_qs)) {
-        snapshot$.unwrap_error <- "The historical v3 qs transport requires a raw payload_qs vector."
-        return(snapshot)
-      }
-      if (!isTRUE(tryCatch(.legacy_qs_available(), error = function(e) FALSE))) {
-        snapshot$.unwrap_error <- paste(
-          "This session file uses the historical v3 qs format, but the legacy qs package is unavailable.",
-          "qs2 cannot read this format; open or convert the file in an environment with legacy qs installed."
-        )
-        return(snapshot)
-      }
-      payload <- tryCatch(
-        qs::qdeserialize(snapshot$payload_qs),
-        error = function(e) {
-          snapshot$.unwrap_error <<- paste(
-            "The historical v3 qs payload could not be deserialized:", conditionMessage(e)
-          )
-          NULL
-        }
-      )
-      merge_payload(payload)
-      return(snapshot)
-    }
     if (transport %in% c("inline_rds", "inline")) {
       if (!is.list(snapshot$payload_inline)) {
         snapshot$.unwrap_error <- "The v3 inline transport requires a list payload_inline."
@@ -1021,7 +974,7 @@ unwrap_snapshot <- function(snapshot) {
       return(snapshot)
     }
     snapshot$.unwrap_error <- paste(
-      "Unsupported v3 session transport; expected 'qs', 'inline_rds', or 'inline'."
+      "Unsupported v3 session transport; expected 'inline_rds' or 'inline'."
     )
     return(snapshot)
   }
@@ -2342,8 +2295,8 @@ resolve_data_pair_for_restore <- function(rv,
 
 #' Recursively strip closures/functions from a nested structure
 #'
-#' \code{qs::qserialize} and base \code{serialize} both preserve function
-#' objects (closures) verbatim. Any closure that rides along inside a UI
+#' R serialization preserves function objects (closures) verbatim. Any closure
+#' that rides along inside a UI
 #' config list will later reach \code{updateSelectizeInput(selected = v)}
 #' on restore and trigger \dQuote{cannot coerce type 'closure' to vector
 #' of type 'character'}. This helper walks a (possibly nested) list and

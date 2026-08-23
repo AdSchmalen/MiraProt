@@ -48,7 +48,6 @@
     "MIRAPROT_SESSION_COMPATIBLE_VERSIONS",
     "MIRAPROT_SESSION_SCHEMA_VERSION",
     ".build_v4_envelope",
-    ".legacy_qs_available",
     ".qs2_available",
     "resolve_data_pair_for_restore",
     "unwrap_snapshot",
@@ -2191,8 +2190,7 @@
   if (isTRUE(save_result$fallback_used)) {
     if (isTRUE(save_result$modules_removed_entirely)) {
       showNotification(
-        paste0("Session saved without module snapshots (", save_result$error,
-               "). Install the 'qs' package for more reliable saves."),
+        paste0("Session saved without module snapshots (", save_result$error, ")."),
         type = "warning", duration = 10
       )
     } else {
@@ -2200,8 +2198,7 @@
         paste0("Session saved without the following module(s) due ",
                "to serialization errors: ",
                paste(save_result$dropped_modules, collapse = ", "),
-               " (", save_result$error, "). Install the 'qs' package for ",
-               "more reliable saves."),
+               " (", save_result$error, ")."),
         type = "warning", duration = 12
       )
     }
