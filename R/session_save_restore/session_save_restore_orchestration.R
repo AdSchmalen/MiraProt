@@ -178,7 +178,8 @@
     ))
   }
 
-  if (!is.null(envelope$payload_qs2) || !is.null(envelope$payload_qs)) {
+  transport <- envelope$manifest$transport %||% NA_character_
+  if (identical(transport, "qs2")) {
     return(list(
       saved = FALSE,
       envelope = envelope,
@@ -188,7 +189,17 @@
     ))
   }
 
-  # Non-qs fallback: drop modules one at a time, largest first, instead of
+  if (!identical(transport, "inline_rds")) {
+    return(list(
+      saved = FALSE,
+      envelope = envelope,
+      fallback_used = FALSE,
+      dropped_modules = character(),
+      error = paste0("Unsupported session transport during write: ", transport)
+    ))
+  }
+
+  # Inline-RDS fallback: drop modules one at a time, largest first, instead of
   # nuking every module snapshot in one shot. Most real-world overflows originate
   # in a single heavy module, so incremental dropping keeps every other module
   # round-trippable.
@@ -2061,33 +2072,19 @@
 }
 
 .build_session_plot_data_cache_bundle <- .build_save_time_plot_data_cache_bundle
-.build_session_save_envelope <- function(rv_list, module_snapshots, save_level, failed_modules, plot_data_cache_pool, plot_data_cache_index, gc_report, progress) {
+.decorate_session_v4_envelope <- function(envelope, rv_snapshot, module_snapshots,
+                                          plot_data_cache_pool,
+                                          plot_data_cache_index, gc_report) {
   .session_assert_finalized_snapshot_cache_invariants(
     module_snapshots = module_snapshots,
     plot_data_cache_pool = plot_data_cache_pool,
-    rv_snapshot = rv_list
+    rv_snapshot = rv_snapshot
   )
 
   .session_assert_no_legacy_plot_bundles(module_snapshots, context = "module_snapshots")
-  .session_assert_no_legacy_plot_bundles(rv_list, context = "rv_snapshot")
+  .session_assert_no_legacy_plot_bundles(rv_snapshot, context = "rv_snapshot")
   .session_assert_no_legacy_plot_bundles(plot_data_cache_pool, context = "plot_data_cache_pool")
-
-  session_qs_preset <- if (identical(save_level, SESSION_SAVE_LEVEL_DATA)) {
-    getOption("miraprot.session_qs_preset_data", "fast")
-  } else {
-    "balanced"
-  }
-
-  # Build the v4 envelope using qs2, with an inline RDS fallback.
-  progress$set(value = 0.80, message = "Building session envelope...")
-  envelope <- .build_v4_envelope(
-    rv_snapshot      = rv_list,
-    module_snapshots = if (length(module_snapshots) > 0L) module_snapshots else NULL,
-    save_level       = save_level,
-    failed_modules   = failed_modules,
-    qs_preset        = session_qs_preset
-  )
-  if (!identical(save_level, SESSION_SAVE_LEVEL_DATA)) {
+  if (!identical(envelope$save_level, SESSION_SAVE_LEVEL_DATA)) {
     envelope$plot_data_cache_pool <- if (length(plot_data_cache_pool) > 0L) plot_data_cache_pool else NULL
   }
   envelope$plot_data_cache_index <- if (length(plot_data_cache_index) > 0L) plot_data_cache_index else list()
@@ -2100,30 +2097,22 @@
 
   .session_assert_no_legacy_plot_bundles(envelope, context = "session_envelope")
 
-  if (identical(envelope$manifest$transport, "inline_rds") ||
-      identical(envelope$manifest$transport, "inline")) {
+  if (identical(envelope$manifest$transport, "inline_rds")) {
     debug_log(paste0(
       "qs2 package unavailable or serialization failed; using inline RDS fallback transport ",
-      "with saveRDS(compress = ",
-      deparse(.session_rds_compress_for_transport_preset(
-        envelope$manifest$transport,
-        envelope$manifest$transport_preset
-      )),
-      ")."
+      "with saveRDS(compress = TRUE)."
     ), 1)
   }
 
   debug_log(paste0("[SaveStage:envelope_build] envelope manifest ids_len=", length(envelope$manifest$module_ids %||% character()), " failed_len=", length(envelope$manifest$failed_modules %||% character())), 1)
 
-  list(
-    envelope = envelope
-  )
+  envelope
 }
 
 .attach_session_save_diagnostics_to_envelope <- function(envelope, session) {
   # Embed the current daily debug log file as a top-level envelope
   # field so it travels with the snapshot for post-hoc diagnostics.
-  # Kept outside payload_qs2 / payload_inline so it can be read without
+  # Kept outside the versioned transport payload so it can be read without
   # deserializing the heavy payload.  Missing / unreadable log is
   # silently skipped (stored as NULL).
   # Embed the log buffer so the level-filtered view works identically
@@ -2158,9 +2147,9 @@
 }
 
 .write_session_save_envelope <- function(envelope, file, module_snapshots, progress) {
-  # Final serialization. The outer envelope is tiny; the heavy tree is
-  # already a raw vector (payload_qs2) or, in the inline fallback, has been
-  # sanitized per-module above. The inline-RDS retry policy lives in a
+  # Final serialization. With qs2, the heavy tree is already a raw vector;
+  # with inline_rds it remains a sanitized per-module tree. The inline-RDS
+  # retry policy lives in a
   # top-level helper to keep the Shiny download handler parse-shallow and
   # avoid fragile nested brace/tryCatch structures in this orchestrator.
   progress$set(value = 0.90, message = "Writing session file...")
@@ -2466,10 +2455,9 @@ setup_session_save_restore <- function(input, output, session, rv,
       paste0("MiraProt_session_", timestamp, ".rds")
     },
     content = function(file) {
-      # Raise R's expression stack limit for the duration of the save.
-      # saveRDS()/serialize() walk every reference in the snapshot, and
-      # deeply-nested ggplot environments can trip the default limit
-      # (R suggests bumping options(expressions=) in that error message).
+      # Provide extra expression depth for the inline-RDS fallback. Current
+      # session payloads normally use qs2; this does not guarantee stack safety
+      # for arbitrary objects accepted from module snapshots.
       old_expr <- getOption("expressions")
       options(expressions = 500000L)
       on.exit(options(expressions = old_expr), add = TRUE)
@@ -2564,17 +2552,24 @@ setup_session_save_restore <- function(input, output, session, rv,
           }
         }
 
-        envelope_bundle <- .build_session_save_envelope(
-          rv_list = rv_list,
+        progress$set(
+          value = 0.80,
+          message = "Serializing session payload (qs2 with inline RDS fallback)..."
+        )
+        envelope <- .build_v4_envelope(
+          rv_snapshot = rv_list,
           module_snapshots = module_snapshots,
           save_level = save_level,
-          failed_modules = failed_modules,
+          failed_modules = failed_modules
+        )
+        envelope <- .decorate_session_v4_envelope(
+          envelope = envelope,
+          rv_snapshot = rv_list,
+          module_snapshots = module_snapshots,
           plot_data_cache_pool = plot_data_cache_pool,
           plot_data_cache_index = plot_data_cache_index,
-          gc_report = gc_report,
-          progress = progress
+          gc_report = gc_report
         )
-        envelope <- envelope_bundle$envelope
 
         envelope <- .attach_session_save_diagnostics_to_envelope(
           envelope = envelope,
