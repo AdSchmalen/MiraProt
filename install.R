@@ -233,11 +233,8 @@ cran_packages <- c(
   "patchwork",      # plot composition (used in GSEA plots)
   "promises",       # Dependency
   "Rcpp",           # Dependency
-  "rlang"          # Dependency
-#  "qs"              # Stack-safe serialization used by the v3 session
-                    # save/restore envelope; avoids saveRDS()
-                    # "node stack overflow" on deep ggplot/ggproto/S4
-                    # structures (see R/session_save_restore.R).
+  "rlang",          # Dependency
+  "qs2"             # Session serialization
 )
 
 # Install only missing required CRAN packages

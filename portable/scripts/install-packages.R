@@ -278,8 +278,8 @@ cran_packages <- c(
   "patchwork",
   "promises",
   "Rcpp",
-  "rlang"#,
-  # "qs"
+  "rlang",
+  "qs2"
 )
 
 cran_missing <- cran_packages[!cran_packages %in% rownames(installed.packages(lib.loc = lib_path))]
