@@ -669,8 +669,26 @@ set_session_restore_phase <- function(rv = NULL, phase) {
   invisible(phase)
 }
 
+# Classify conditions which indicate that an imperative API accidentally read a
+# reactive outside a consumer.  Callers must not turn this programming error
+# into the same FALSE/NULL used for an optional or not-yet-populated value.
+datawizard_condition_class <- function(condition) {
+  message <- tryCatch(conditionMessage(condition), error = function(e) "")
+  classes <- tryCatch(class(condition), error = function(e) character(0))
+  if ("reactiveContextError" %in% classes ||
+      grepl("without an active reactive context|outside of reactive consumer",
+            message, ignore.case = TRUE)) {
+    return("reactive_context_violation")
+  }
+  "operational_error"
+}
+
 datawizard_restore_phase_active <- function(rv = NULL, phases = NULL) {
-  phase <- tryCatch(rv$session_restore_phase %||% rv$restore_phase %||% NULL, error = function(e) NULL)
+  snapshot <- shiny::isolate(list(
+    session_restore_phase = if (!is.null(rv)) rv$session_restore_phase else NULL,
+    restore_phase = if (!is.null(rv)) rv$restore_phase else NULL
+  ))
+  phase <- snapshot$session_restore_phase %||% snapshot$restore_phase %||% NULL
   if (is.null(phase)) {
     return(FALSE)
   }

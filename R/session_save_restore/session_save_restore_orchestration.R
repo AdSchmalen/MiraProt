@@ -1419,11 +1419,13 @@
             .describe_snapshot_object(cleaned$central_rule_file)
           ), 1)
         }, error = function(e) {
+          condition_class <- datawizard_condition_class(e)
           .session_log_optional_module_skip(
             "sanitization:module", mod_id,
-            paste0("Data Wizard diagnostics failed: ", conditionMessage(e)),
+            paste0("Data Wizard diagnostics failed [", condition_class, "]: ", conditionMessage(e)),
             1
           )
+          if (identical(condition_class, "reactive_context_violation")) stop(e)
         })
       }
       module_snapshots[[mod_id]] <- cleaned
