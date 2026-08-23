@@ -25,6 +25,24 @@
 #   context per module session, source-DAG acyclicity, and existing timing guards.
 # ============================================================================
 
+.run_submodule_restore_callback <- function(callback, module_label, callback_reason) {
+  debug_log(paste0("[RestoreCallback:start] module=", module_label,
+                   " reason=", callback_reason), level = 2)
+  tryCatch({
+    # Deferred restore replay is imperative. Reactive reads are snapshots and
+    # must neither require a consumer nor establish dependencies.
+    shiny::isolate(callback())
+    debug_log(paste0("[RestoreCallback:done] module=", module_label,
+                     " reason=", callback_reason), level = 2)
+    invisible(TRUE)
+  }, error = function(e) {
+    debug_log(paste0("[RestoreCallback:error] module=", module_label,
+                     " reason=", callback_reason,
+                     " error=", conditionMessage(e)), level = 1)
+    invisible(FALSE)
+  })
+}
+
 #' Create a session-restore state bridge for a Data Wizard submodule
 #'
 #' Generalises the File Loader's parameter-passing pattern (see
@@ -303,10 +321,13 @@ create_submodule_session_state <- function(session, input,
     }
 
     schedule_restore_callback <- function(st, callback_reason, callback) {
+      run_restore_callback <- function() {
+        .run_submodule_restore_callback(callback, module_label, callback_reason)
+      }
+
       if (!is.function(session$onFlushed)) {
-        callback_fn <- force(callback)
-        callback_fn()
-        return(invisible(TRUE))
+        force(callback)
+        return(run_restore_callback())
       }
 
       retry_key <- restore_retry_key(st, callback_reason)
@@ -319,7 +340,7 @@ create_submodule_session_state <- function(session, input,
         if (exists(retry_key, envir = active_retry_keys, inherits = FALSE)) {
           rm(list = retry_key, envir = active_retry_keys)
         }
-        callback()
+        run_restore_callback()
       })
       invisible(TRUE)
     }
