@@ -471,10 +471,23 @@ echo ""
 # -----------------------------------------------------------------------
 echo "--- Building Go launcher ---"
 LAUNCHER_DIR="$SCRIPT_DIR/../launcher"
+LAUNCHER_VERSION="v$MIRAPROT_VERSION"
+if command -v git >/dev/null 2>&1 && git -C "$PROJECT_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  SHORT_SHA="$(git -C "$PROJECT_ROOT" rev-parse --short=7 HEAD 2>/dev/null || true)"
+  NEAREST_TAG="$(git -C "$PROJECT_ROOT" describe --tags --abbrev=0 2>/dev/null || true)"
+  if [ -n "$NEAREST_TAG" ]; then
+    COMMIT_DISTANCE="$(git -C "$PROJECT_ROOT" rev-list --count "$NEAREST_TAG..HEAD" 2>/dev/null || true)"
+  else
+    COMMIT_DISTANCE="$(git -C "$PROJECT_ROOT" rev-list --count HEAD 2>/dev/null || true)"
+  fi
+  if [[ "$SHORT_SHA" =~ ^[0-9a-fA-F]{7}$ && "$COMMIT_DISTANCE" =~ ^[0-9]+$ ]]; then
+    LAUNCHER_VERSION="v$MIRAPROT_VERSION-$COMMIT_DISTANCE-g$SHORT_SHA"
+  fi
+fi
 (
   cd "$LAUNCHER_DIR"
   go build \
-    -ldflags "-s -w -X main.Version=$MIRAPROT_VERSION" \
+    -ldflags "-s -w -X main.Version=$LAUNCHER_VERSION" \
     -o "$OUTPUT_DIR/MiraProt-launcher" .
 )
 
