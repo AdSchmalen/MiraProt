@@ -47,16 +47,6 @@ create_safe_ui_system <- function(session, module_name, debug_level = 0) {
     }
   }
 
-  # Check if we're in a reactive context
-  check_reactive_context <- function() {
-    tryCatch({
-      isolate(session$userData$test <- TRUE)
-      TRUE
-    }, error = function(e) {
-      FALSE
-    })
-  }
-
   # Safe input update function
   update_input_safely <- function(input_id, value, input_type = "selectInput") {
     tryCatch({
@@ -100,24 +90,31 @@ create_safe_ui_system <- function(session, module_name, debug_level = 0) {
     })
   }
 
-  # Safe delayed execution
-  execute_when_ready <- function(update_function, config) {
-    in_reactive_context <- check_reactive_context()
+  #' Schedule an interactive UI update after the current Shiny flush.
+  #'
+  #' This helper is not a restore dispatcher. Restore owners must use the shared
+  #' restore callback runner so generation, phase, owner, and job identity are
+  #' retained. Requiring caller intent here keeps scheduling provenance explicit
+  #' instead of trying to infer it from Shiny's runtime state.
+  #' @param update_function interactive update callback accepting `config`
+  #' @param config configuration passed to `update_function`
+  #' @param caller_intent must be the explicit string `"interactive"`
+  execute_when_ready <- function(update_function, config, caller_intent) {
+    if (missing(caller_intent) || !identical(caller_intent, "interactive")) {
+      stop("execute_when_ready() is interactive-only; set caller_intent = \"interactive\"")
+    }
+    if (!is.function(update_function)) {
+      stop("update_function must be a function")
+    }
 
-    if (in_reactive_context) {
-      debug_log("Using delayed UI updates (reactive context)", 2)
-      session$onFlushed(function() {
-        update_function(config)
-      }, once = TRUE)
-    } else {
-      debug_log("Using immediate UI updates (non-reactive context)", 2)
+    debug_log("Scheduling interactive UI update after flush", 2)
+    session$onFlushed(function() {
       tryCatch({
         update_function(config)
       }, error = function(e) {
-        debug_log(paste("Immediate update failed:", e$message), 1)
-        # Store for later if needed
+        debug_log(paste("Interactive post-flush update failed:", e$message), 1)
       })
-    }
+    }, once = TRUE)
   }
 
   # Return the safe UI system
@@ -125,7 +122,6 @@ create_safe_ui_system <- function(session, module_name, debug_level = 0) {
     update_input_safely = update_input_safely,
     show_notification_safely = show_notification_safely,
     execute_when_ready = execute_when_ready,
-    check_reactive_context = check_reactive_context,
     debug_log = debug_log
   )
 }
