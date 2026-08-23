@@ -2413,6 +2413,46 @@ setup_session_save_restore <- function(input, output, session, rv,
     identical(isolate(rv$session_restore_generation %||% NA_integer_), generation)
   }
 
+  restore_settlement <- function(report) {
+    if (!restore_generation_current(report$generation)) return(invisible(FALSE))
+    jobs <- report$jobs
+    failed_fields <- isolate(rv$.restore_failed_fields %||% character())
+    failed_modules <- isolate(rv$.restore_failed_modules %||% character())
+    warning_parts <- character()
+    if (length(failed_fields)) warning_parts <- c(warning_parts, paste0(length(failed_fields), " rv field(s) failed"))
+    if (length(failed_modules)) warning_parts <- c(warning_parts, paste0(length(failed_modules), " module(s) failed: ", paste(failed_modules, collapse = ", ")))
+    if (report$skipped) warning_parts <- c(warning_parts, paste0(report$skipped, " callback(s) skipped"))
+    if (report$timeouts) warning_parts <- c(warning_parts, paste0(report$timeouts, " callback(s) timed out"))
+    if (length(report$errors)) warning_parts <- c(warning_parts, paste0(length(report$errors), " callback error(s)"))
+    n_modules <- isolate(rv$.restore_module_count %||% 0L) - length(failed_modules)
+    if (identical(report$state, "SETTLED") && !length(warning_parts)) {
+      showNotification(paste0("Session restored successfully. ", n_modules,
+                              " module(s) restored. Modules will re-process the data."),
+                       type = "message", duration = 8)
+    } else {
+      outstanding_names <- vapply(report$outstanding, function(job) paste(job$owner, job$reason, sep = ":"), character(1))
+      debug_log(paste("Session restore settlement", report$state, "outstanding jobs:",
+                      paste(outstanding_names, collapse = ", ")), 1)
+      showNotification(paste0("Session restored ", tolower(report$state), ": ",
+                              paste(warning_parts, collapse = "; "), "."),
+                       type = if (identical(report$state, "FAILED")) "error" else "warning", duration = 10)
+    }
+    debug_log(paste("Session restoration completed.", n_modules, "module(s) restored, state", report$state,
+                    "outcomes:", paste(names(report$outcomes), report$outcomes, sep = "=", collapse = ", ")), 1)
+    invisible(TRUE)
+  }
+  restore_jobs <- .create_restore_job_registry(
+    generation_fn = function() isolate(rv$session_restore_generation %||% NA_integer_),
+    schedule_timeout = function(callback, delay) later::later(callback, delay = delay),
+    settled_callback = restore_settlement
+  )
+  # Restore-only capability object: modules receive it through session$userData;
+  # it intentionally has no save/snapshot operations.
+  session$userData$restore_jobs <- restore_jobs
+  session$userData$register_restore_job <- restore_jobs$register_restore_job
+  session$userData$resolve_restore_job <- restore_jobs$resolve_restore_job
+  session$userData$outstanding_restore_jobs <- restore_jobs$outstanding_restore_jobs
+
   reset_rv_for_session_restore <- function(rv_snapshot) {
     incoming_fields <- names(rv_snapshot) %||% character()
     current_fields <- tryCatch(
@@ -3009,7 +3049,9 @@ setup_session_save_restore <- function(input, output, session, rv,
         # second restore starts before they run.
         restore_generation <- isolate((rv$session_restore_generation %||% 0L) + 1L)
         rv$session_restore_generation <- restore_generation
+        restore_jobs$start_generation(restore_generation)
         rv$session_restoring <- TRUE
+        restore_jobs$set_phase(restore_generation, "HYDRATED")
         set_session_restore_phase(rv, "canonical_data")
 
         # --- Phase 1: Reset and restore rv fields ---
@@ -3048,6 +3090,7 @@ setup_session_save_restore <- function(input, output, session, rv,
         if (!is.null(session_registry) && is.list(module_snapshots) &&
             length(module_snapshots) > 0L) {
           debug_log(paste("Restoring", length(module_snapshots), "module snapshot(s)"), 1)
+          restore_jobs$set_phase(restore_generation, "REPLAYING")
           restore_phases <- c(
             "canonical_data",
             "datawizard_ui",
@@ -3142,6 +3185,9 @@ setup_session_save_restore <- function(input, output, session, rv,
         # rv$session_restoring (FALSE), and clobber restored state
         # (e.g. rv$data_def) before our restore_fns have a chance to win.
         setProgress(value = 0.95, message = "Finalizing session restoration...")
+        finalization_job <- restore_jobs$register_restore_job(
+          "session", "final reactive flush", "finalizer", timeout = 15
+        )
         if (is.function(session$onFlushed)) {
           session$onFlushed(once = TRUE, function() {
             isolate({
@@ -3157,6 +3203,7 @@ setup_session_save_restore <- function(input, output, session, rv,
               } else {
                 debug_log("Session restore: skipped stale finalization callback", 2)
               }
+              restore_jobs$resolve_restore_job(finalization_job, "completed")
             })
           })
         } else {
@@ -3170,39 +3217,17 @@ setup_session_save_restore <- function(input, output, session, rv,
                 (rv$session_restore_trigger %||% 0L) + 1L
               )
             }
+            restore_jobs$resolve_restore_job(finalization_job, "completed")
           }
         }
 
-        # Summary notification
-        total_warnings <- length(failed_fields) + length(failed_modules)
+        # Seal only after every deferred action required by the synchronous
+        # transaction has registered its job. Settlement owns user-visible success.
+        rv$.restore_failed_fields <- failed_fields
+        rv$.restore_failed_modules <- failed_modules
+        rv$.restore_module_count <- length(module_snapshots)
         n_modules_restored <- length(module_snapshots) - length(failed_modules)
-        if (total_warnings > 0) {
-          warning_parts <- character()
-          if (length(failed_fields) > 0) {
-            warning_parts <- c(warning_parts,
-                               paste0(length(failed_fields), " rv field(s) failed"))
-          }
-          if (length(failed_modules) > 0) {
-            warning_parts <- c(warning_parts,
-                               paste0(length(failed_modules), " module(s) failed: ",
-                                      paste(failed_modules, collapse = ", ")))
-          }
-          showNotification(
-            paste0("Session restored with warnings: ", paste(warning_parts, collapse = "; "), "."),
-            type = "warning", duration = 10
-          )
-        } else {
-          showNotification(
-            paste0("Session restored successfully. ",
-                   n_modules_restored, " module(s) restored. ",
-                   "Modules will re-process the data."),
-            type = "message", duration = 8
-          )
-        }
-
-        debug_log(paste("Session restoration completed.",
-                         n_modules_restored, "module(s) restored,",
-                         total_warnings, "warning(s)."), 1)
+        restore_jobs$seal_generation(restore_generation)
         imported_file_name <- if (!is.null(file_info$name) &&
                                   is.character(file_info$name) &&
                                   nzchar(file_info$name)) {
@@ -3713,5 +3738,7 @@ setup_session_save_restore <- function(input, output, session, rv,
     }
   })
 
-  invisible(NULL)
+  invisible(restore_jobs[c(
+    "register_restore_job", "resolve_restore_job", "outstanding_restore_jobs"
+  )])
 }

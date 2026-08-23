@@ -18,6 +18,113 @@
 #   - Register module-specific participant closures.
 # ============================================================================
 
+# Restore work is deliberately separate from the snapshot participant registry.
+# A registry instance belongs to one Shiny session and is created by
+# setup_session_save_restore(); job ids carry their generation so a late callback
+# can never accidentally complete work belonging to a subsequent import.
+.create_restore_job_registry <- function(generation_fn, schedule_timeout,
+                                         settled_callback = function(report) NULL) {
+  state <- new.env(parent = emptyenv())
+  state$jobs <- new.env(parent = emptyenv())
+  state$generations <- new.env(parent = emptyenv())
+  state$sequence <- 0L
+
+  generation_record <- function(generation, create = FALSE) {
+    key <- as.character(as.integer(generation))
+    if (!exists(key, state$generations, inherits = FALSE) && create) {
+      assign(key, list(generation = as.integer(generation), phase = "HYDRATED",
+                       sealed = FALSE, reported = FALSE), state$generations)
+    }
+    get0(key, state$generations, inherits = FALSE, ifnotfound = NULL)
+  }
+  put_generation <- function(record) {
+    assign(as.character(record$generation), record, state$generations)
+  }
+  jobs_for <- function(generation) {
+    ids <- ls(state$jobs, all.names = TRUE)
+    jobs <- lapply(ids, function(id) get(id, state$jobs, inherits = FALSE))
+    Filter(function(job) identical(job$generation, as.integer(generation)), jobs)
+  }
+  report_if_ready <- function(generation) {
+    record <- generation_record(generation)
+    if (is.null(record) || !isTRUE(record$sealed) || isTRUE(record$reported)) return(FALSE)
+    jobs <- jobs_for(generation)
+    pending <- Filter(function(job) is.null(job$resolved_at), jobs)
+    if (length(pending)) return(FALSE)
+    outcomes <- vapply(jobs, function(job) job$outcome %||% "completed", character(1))
+    errors <- Filter(Negate(is.null), lapply(jobs, `[[`, "error"))
+    failed <- outcomes %in% c("error", "failed")
+    degraded <- outcomes %in% c("timeout", "skipped", "degraded")
+    record$phase <- if (any(failed)) "FAILED" else if (any(degraded) || length(errors)) "DEGRADED" else "SETTLED"
+    record$reported <- TRUE
+    put_generation(record)
+    settled_callback(list(
+      generation = record$generation, state = record$phase, jobs = jobs,
+      errors = errors, skipped = sum(outcomes == "skipped"),
+      timeouts = sum(outcomes == "timeout"), outcomes = outcomes,
+      outstanding = jobs[outcomes %in% c("timeout", "error", "failed", "skipped", "degraded")]
+    ))
+    TRUE
+  }
+  start_generation <- function(generation) {
+    generation_record(generation, create = TRUE)
+    invisible(as.integer(generation))
+  }
+  set_phase <- function(generation, phase) {
+    stopifnot(phase %in% c("HYDRATED", "REPLAYING"))
+    record <- generation_record(generation, create = TRUE)
+    record$phase <- phase
+    put_generation(record)
+    invisible(phase)
+  }
+  register_restore_job <- function(owner, reason, phase, timeout = 15) {
+    generation <- as.integer(generation_fn())
+    if (length(generation) != 1L || is.na(generation)) stop("No active restore generation")
+    record <- generation_record(generation)
+    if (is.null(record) || isTRUE(record$sealed)) stop("Restore transaction is not accepting jobs")
+    state$sequence <- state$sequence + 1L
+    id <- sprintf("restore-%d-%d", generation, state$sequence)
+    job <- list(id = id, generation = generation, owner = as.character(owner),
+                reason = as.character(reason), phase = as.character(phase),
+                timeout = as.numeric(timeout), registered_at = Sys.time(),
+                resolved_at = NULL, outcome = NULL, error = NULL)
+    assign(id, job, state$jobs)
+    if (is.finite(job$timeout) && job$timeout > 0) {
+      schedule_timeout(function() {
+        # resolve_restore_job performs both the generation and exactly-once checks.
+        resolve_restore_job(id, "timeout", sprintf("timed out after %ss", job$timeout))
+      }, job$timeout)
+    }
+    id
+  }
+  resolve_restore_job <- function(job_id, outcome, error = NULL) {
+    job <- get0(job_id, state$jobs, inherits = FALSE, ifnotfound = NULL)
+    if (is.null(job) || !identical(as.integer(generation_fn()), job$generation) ||
+        !is.null(job$resolved_at)) return(FALSE)
+    job$resolved_at <- Sys.time()
+    job$outcome <- as.character(outcome)[1L]
+    job$error <- if (is.null(error)) NULL else as.character(error)[1L]
+    assign(job_id, job, state$jobs)
+    report_if_ready(job$generation)
+    TRUE
+  }
+  outstanding_restore_jobs <- function(generation = generation_fn()) {
+    Filter(function(job) is.null(job$resolved_at), jobs_for(as.integer(generation)))
+  }
+  seal_generation <- function(generation) {
+    record <- generation_record(generation, create = TRUE)
+    record$sealed <- TRUE
+    put_generation(record)
+    report_if_ready(generation)
+    invisible(record$phase)
+  }
+  list(start_generation = start_generation, set_phase = set_phase,
+       register_restore_job = register_restore_job,
+       resolve_restore_job = resolve_restore_job,
+       outstanding_restore_jobs = outstanding_restore_jobs,
+       seal_generation = seal_generation)
+}
+
 # R/session_save_restore.R
 # ========================================
 # Session Save/Restore: Download and Upload Session State
