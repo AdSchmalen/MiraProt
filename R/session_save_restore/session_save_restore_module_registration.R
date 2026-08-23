@@ -819,6 +819,44 @@ assert_datawizard_data_only_restore_invariants <- function(rv, strict = FALSE) {
   })
 }
 
+# Restore the Assign Rules bridge from callbacks that may run outside a
+# reactive consumer (notably the deferred Data Wizard onFlushed dispatch).
+# Keep the outcome explicit so callers never report success after an error.
+.restore_assign_rules_payload <- function(assign_rules_out, payload, log_suffix) {
+  if (!is.list(payload) || !is.list(assign_rules_out)) return("unavailable")
+
+  restore_fn <- assign_rules_out$restore_condition_state
+  success_message <- paste(
+    "Data Wizard restore: restored Assign Rules condition state", log_suffix
+  )
+  failure_context <- "condition-state"
+
+  if (!is.function(restore_fn)) {
+    restore_fn <- assign_rules_out$set_session_state
+    success_message <- paste(
+      "Data Wizard restore: restored Assign Rules state", log_suffix,
+      "via legacy setter"
+    )
+    failure_context <- "legacy state"
+  }
+  if (!is.function(restore_fn)) return("unavailable")
+
+  error <- tryCatch({
+    shiny::isolate(restore_fn(payload))
+    NULL
+  }, error = identity)
+  if (!is.null(error)) {
+    debug_log(paste(
+      "Data Wizard restore: Assign Rules", failure_context,
+      "restore failed:", conditionMessage(error)
+    ), 1)
+    return("error")
+  }
+
+  debug_log(success_message, 1)
+  "success"
+}
+
 # ========================================
 # Module Session Participant Registration
 # ========================================
@@ -1529,19 +1567,9 @@ register_module_session_participants <- function(session_registry, module_output
               st$ui_submodule_states$assign_rules_out
           }
           restore_assign_rules_payload <- function(assign_rules_payload, log_suffix) {
-            if (is.list(assign_rules_payload) && is.list(dw$assign_rules_out) &&
-                is.function(dw$assign_rules_out$restore_condition_state)) {
-              .safe_fn_call_arg(dw$assign_rules_out$restore_condition_state, assign_rules_payload)
-              debug_log(paste("Data Wizard restore: restored Assign Rules condition state", log_suffix), 1)
-              TRUE
-            } else if (is.list(assign_rules_payload) && is.list(dw$assign_rules_out) &&
-                       is.function(dw$assign_rules_out$set_session_state)) {
-              .safe_fn_call_arg(dw$assign_rules_out$set_session_state, assign_rules_payload)
-              debug_log(paste("Data Wizard restore: restored Assign Rules state", log_suffix, "via legacy setter"), 1)
-              TRUE
-            } else {
-              FALSE
-            }
+            .restore_assign_rules_payload(
+              dw$assign_rules_out, assign_rules_payload, log_suffix
+            )
           }
           publish_metadata_choices_ready <- function() {
             if (!is.null(rv)) {
@@ -1953,10 +1981,11 @@ register_module_session_participants <- function(session_registry, module_output
               assign_rules_payload <- build_synthetic_assign_rules_payload(local_state, restored_handson_metadata)
             }
             set_restore_phase("datawizard_ui")
-            if (!isTRUE(restore_assign_rules_payload(
+            assign_rules_restore_status <- restore_assign_rules_payload(
               assign_rules_payload,
               "before downstream submodule UI"
-            ))) {
+            )
+            if (identical(assign_rules_restore_status, "unavailable")) {
               debug_log("Data Wizard restore: no Assign Rules condition-state payload to restore before downstream submodule UI", 2)
             }
             publish_metadata_choices_ready()
