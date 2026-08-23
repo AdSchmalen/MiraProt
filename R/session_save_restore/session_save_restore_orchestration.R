@@ -47,6 +47,9 @@
     "MIRAPROT_APP_VERSION",
     "MIRAPROT_SESSION_COMPATIBLE_VERSIONS",
     "MIRAPROT_SESSION_SCHEMA_VERSION",
+    ".build_v4_envelope",
+    ".legacy_qs_available",
+    ".qs2_available",
     "resolve_data_pair_for_restore",
     "unwrap_snapshot",
     "validate_session_snapshot"
@@ -175,7 +178,7 @@
     ))
   }
 
-  if (!is.null(envelope$payload_qs)) {
+  if (!is.null(envelope$payload_qs2) || !is.null(envelope$payload_qs)) {
     return(list(
       saved = FALSE,
       envelope = envelope,
@@ -867,8 +870,8 @@
     stop("GO/GSEA fast-path result field contains a ggplot object")
   }
   ok <- tryCatch({
-    if (.qs_available()) {
-      qs::qserialize(x)
+    if (.qs2_available()) {
+      qs2::qs_serialize(x, compress_level = 3L, nthreads = 1L, shuffle = TRUE)
     } else {
       serialize(x, connection = NULL)
     }
@@ -2079,12 +2082,9 @@
     "balanced"
   }
 
-  # Build the v3 envelope.  qs::qserialize() (when available) walks
-  # the heavy tree iteratively at the C level and does not trip the
-  # `node stack overflow` that saveRDS() hits on deeply-nested
-  # ggplot/ggproto environments.
+  # Build the v4 envelope using qs2, with an inline RDS fallback.
   progress$set(value = 0.80, message = "Building session envelope...")
-  envelope <- .build_v3_envelope(
+  envelope <- .build_v4_envelope(
     rv_snapshot      = rv_list,
     module_snapshots = if (length(module_snapshots) > 0L) module_snapshots else NULL,
     save_level       = save_level,
@@ -2107,13 +2107,13 @@
   if (identical(envelope$manifest$transport, "inline_rds") ||
       identical(envelope$manifest$transport, "inline")) {
     debug_log(paste0(
-      "qs package unavailable; using inline RDS fallback transport ",
+      "qs2 package unavailable or serialization failed; using inline RDS fallback transport ",
       "with saveRDS(compress = ",
       deparse(.session_rds_compress_for_transport_preset(
         envelope$manifest$transport,
         envelope$manifest$transport_preset
       )),
-      "). Install the 'qs' package for stack-safe session serialization."
+      ")."
     ), 1)
   }
 
@@ -2127,7 +2127,7 @@
 .attach_session_save_diagnostics_to_envelope <- function(envelope, session) {
   # Embed the current daily debug log file as a top-level envelope
   # field so it travels with the snapshot for post-hoc diagnostics.
-  # Kept outside payload_qs / payload_inline so it can be read without
+  # Kept outside payload_qs2 / payload_inline so it can be read without
   # deserializing the heavy payload.  Missing / unreadable log is
   # silently skipped (stored as NULL).
   # Embed the log buffer so the level-filtered view works identically
@@ -2163,7 +2163,7 @@
 
 .write_session_save_envelope <- function(envelope, file, module_snapshots, progress) {
   # Final serialization. The outer envelope is tiny; the heavy tree is
-  # already a raw vector (payload_qs) or, in the non-qs fallback, has been
+  # already a raw vector (payload_qs2) or, in the inline fallback, has been
   # sanitized per-module above. The inline-RDS retry policy lives in a
   # top-level helper to keep the Shiny download handler parse-shallow and
   # avoid fragile nested brace/tryCatch structures in this orchestrator.
