@@ -30,7 +30,6 @@
 
 # --- Bioconductor packages ---
 .bootstrap_load_packages(c(
-  "InteractiveComplexHeatmap",
   "AnnotationHub",
   "clusterProfiler",
   "enrichplot",
@@ -43,7 +42,6 @@
   "preprocessCore", # Quantile Normalizing for Batch Correction
   "matrixStats",    # Vectorized BWS with rowRanks()
   "GO.db",          # GO Children dropdown
-  "mixOmics",       # PCA calculations
   "AnnotationDbi",  # Annotation
   "Biostrings",     # Annotation
   "biomaRt"        # Annotation
@@ -65,8 +63,6 @@
   "ggplot2",        # Visualize plots
   "ggrepel",        # Label dots in ggplot dotplot
   "viridis",        # Color Palette
-  "FactoMineR",     # PCA
-  "factoextra",     # PCA
   "stringr",        # string functions
   "gridExtra",      # Arrange plots in a grid (Volcano plots)
   "doParallel",     # CPU parallelization for demanding calculations
@@ -87,7 +83,6 @@
   "coin",           # Permutationstest for n<3
   "pracma",         # Estimation of Hyper-parameter (Limma/DEqMS)
   "colourpicker",   # UI colourpicker
-  "rstudioapi",     # Set root Directory to script folder
   "scales",         # Breaks and labels for axes and legends
   "shinyalert",     # Warnings for shiny applications
   "svglite",        # SVG graphics driver
@@ -96,18 +91,12 @@
   "openxlsx",       # Create XLSX workbooks
   "ggupset",        # Upset Gene Ontology
   "ggridges",       # Ridgeline plot GSEA
-  "europepmc",      # Pubmed Search GSEA
-  "shinybrowser",   # Get pixel width and height
   "grid",           # Extract column name from plot
   "ggtangle",       # Modify Cnet plots
   "ggpubr",         # Extract legends
   "shinyBS",        # collapsible Panel
-  "callr",          # run app in separate R process
-  "processx",       # run system processes in the background
   "umap",           # UMAP calculation (PCA tab)
   "rlang",
-  "webshot",        # PCA interactive
-  "webshot2",       # PCA interactive
   "sortable",       # Drag & drop functionality for plot reordering
   "png",            # Heatmap to PNG to ggplot
   "rsvg",           # Heatmap to SVG to ggplot
