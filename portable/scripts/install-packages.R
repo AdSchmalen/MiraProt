@@ -188,6 +188,9 @@ bioc_packages <- c(
   "STRINGdb",
   "DEqMS",
   "BiocFileCache",
+  "limma",          # Data Wizard statistical and batch operations
+  "fgsea",          # selected GSEA engine
+  "BiocParallel",   # GSEA execution parallelization
   "sva",
   "GO.db",
   "AnnotationDbi",
