@@ -228,8 +228,8 @@ cran_packages <- c(
   "patchwork",      # plot composition (used in GSEA plots)
   "promises",       # Dependency
   "Rcpp",           # Dependency
-  "rlang",          # Dependency
-  "qs"              # Stack-safe serialization used by session save/restore
+  "rlang"           # Dependency
+  # "qs"            # Stack-safe serialization used by session save/restore
 )
 
 # Update only missing required CRAN packages
