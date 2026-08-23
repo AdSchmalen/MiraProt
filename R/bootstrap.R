@@ -110,7 +110,6 @@ rm(.bootstrap_load_packages)
 
 options(datawizard.debug = FALSE)   # TRUE for detailed Debug info
 options(datawizard.verbose = TRUE)  # FALSE for Silent mode
-options(miraprot.session_qs_preset_data = "fast")
 
 options(shiny.maxRequestSize = 500 * 1024^2) # allow file uploads up to 500MB
 
