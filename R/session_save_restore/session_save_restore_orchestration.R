@@ -870,11 +870,7 @@
     stop("GO/GSEA fast-path result field contains a ggplot object")
   }
   ok <- tryCatch({
-    if (.qs2_available()) {
-      qs2::qs_serialize(x, compress_level = 3L, nthreads = 1L, shuffle = TRUE)
-    } else {
-      serialize(x, connection = NULL)
-    }
+    base::serialize(x, connection = NULL)
     TRUE
   }, error = function(e) FALSE)
   if (!isTRUE(ok)) {
