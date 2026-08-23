@@ -3424,7 +3424,7 @@ setup_session_save_restore <- function(input, output, session, rv,
     lvl <- input$debug_level_select
     sections <- get_session_log_sections(lvl)
 
-    known_tags <- c("MAIN APP", "FILE LOADER")
+    known_tags <- c("MAIN APP", "FILE LOADER", "LAUNCHER")
     tags <- character()
     for (buf in sections) {
       if (is.data.frame(buf) && "tag" %in% names(buf)) {
