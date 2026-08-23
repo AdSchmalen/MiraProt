@@ -333,31 +333,33 @@ modAutoAssignServer <- function(id, metadata_skeleton, rule_files = NULL,
         })
       },
       apply_extra = function(extra) {
-        if (!is.list(extra)) return(invisible(NULL))
-        payload <- if (is.list(extra$rule_envelope) && is.list(extra$rule_envelope$rules)) {
-          c(extra$rule_envelope$rules, list(
-            provenance=extra$rule_envelope$provenance,
-            contrast_mappings=extra$rule_envelope$contrasts,
-            required_capabilities=extra$rule_envelope$required_capabilities))
-        } else if (all(vapply(extra[c("table_rules", "condition_rules", "ratio_rules")], is.data.frame, logical(1)))) {
-          list(table=extra$table_rules, condition=extra$condition_rules, ratio=extra$ratio_rules,
-            provenance=extra$provenance_mappings, contrast_mappings=extra$contrast_mappings,
-            required_capabilities=extra$required_capabilities)
-        } else NULL
-        if (!is.null(payload) && !isTRUE(isolate(load_rules_directly(payload, notify=FALSE))))
-          stop("Auto-Assign aggregate restore was rejected")
-        if (is.character(extra$extracted_conds)) extractedConds_autoassign_dw(extra$extracted_conds)
-        if (!is.null(extra$current_ui_config)) current_ui_config(extra$current_ui_config)
-        # Restore selections only when their stable identities still exist.
-        selections <- list(content=extra$selected_content_rule,
-          condition=extra$selected_condition_rule, ratio=extra$selected_ratio_rule)
-        frames <- list(content=rv_table_rules_autoassign_dw(),
-          condition=rv_condition_rules_autoassign_dw(), ratio=rv_rules_autoassign_dw())
-        setters <- list(content=selected_content_rule, condition=selected_condition_rule,
-          ratio=selected_ratio_rule)
-        for (kind in names(selections)) if (length(selections[[kind]]) == 1L &&
-            selections[[kind]] %in% frames[[kind]]$RuleId) setters[[kind]](selections[[kind]])
-        invisible(NULL)
+        shiny::isolate({
+          if (!is.list(extra)) return(invisible(NULL))
+          payload <- if (is.list(extra$rule_envelope) && is.list(extra$rule_envelope$rules)) {
+            c(extra$rule_envelope$rules, list(
+              provenance=extra$rule_envelope$provenance,
+              contrast_mappings=extra$rule_envelope$contrasts,
+              required_capabilities=extra$rule_envelope$required_capabilities))
+          } else if (all(vapply(extra[c("table_rules", "condition_rules", "ratio_rules")], is.data.frame, logical(1)))) {
+            list(table=extra$table_rules, condition=extra$condition_rules, ratio=extra$ratio_rules,
+              provenance=extra$provenance_mappings, contrast_mappings=extra$contrast_mappings,
+              required_capabilities=extra$required_capabilities)
+          } else NULL
+          if (!is.null(payload) && !isTRUE(load_rules_directly(payload, notify=FALSE)))
+            stop("Auto-Assign aggregate restore was rejected")
+          if (is.character(extra$extracted_conds)) extractedConds_autoassign_dw(extra$extracted_conds)
+          if (!is.null(extra$current_ui_config)) current_ui_config(extra$current_ui_config)
+          # Restore selections only when their stable identities still exist.
+          selections <- list(content=extra$selected_content_rule,
+            condition=extra$selected_condition_rule, ratio=extra$selected_ratio_rule)
+          frames <- list(content=rv_table_rules_autoassign_dw(),
+            condition=rv_condition_rules_autoassign_dw(), ratio=rv_rules_autoassign_dw())
+          setters <- list(content=selected_content_rule, condition=selected_condition_rule,
+            ratio=selected_ratio_rule)
+          for (kind in names(selections)) if (length(selections[[kind]]) == 1L &&
+              selections[[kind]] %in% frames[[kind]]$RuleId) setters[[kind]](selections[[kind]])
+          invisible(NULL)
+        })
       },
       restore_trigger = session_restore_trigger
     )
