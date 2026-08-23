@@ -51,6 +51,59 @@ test_that("deferred submodule restore callback errors are named and nonfatal", {
   )))
 })
 
+test_that("imperative readiness keeps absence separate from reactive-context conditions", {
+  test_env <- new.env(parent = globalenv())
+  test_env$messages <- character(0)
+  test_env$debug_log <- function(message, level) {
+    test_env$messages <- c(test_env$messages, message)
+  }
+  sys.source(core_session_file, envir = test_env)
+
+  # These are the restore owners whose readiness gates are imperative. Calling
+  # each predicate from an ordinary function deliberately provides no reactive
+  # consumer, matching an onFlushed/later restore callback.
+  owners <- c("Data Wizard", "GSEA", "SampleIDs", "Venn", "PCA", "Volcano", "Dotplot")
+  for (owner in owners) {
+    unavailable <- (function() {
+      test_env$.evaluate_restore_readiness(owner, function() FALSE)
+    })()
+    expect_false(unavailable$ready, info = owner)
+    expect_true(unavailable$retry, info = owner)
+    expect_null(unavailable$code, info = owner)
+
+    reactive_source <- shiny::reactiveVal(TRUE)
+    violation <- (function() {
+      test_env$.evaluate_restore_readiness(owner, function() reactive_source())
+    })()
+    expect_false(violation$ready, info = owner)
+    expect_false(violation$retry, info = owner)
+    expect_identical(violation$code, "REACTIVE_CONTEXT_VIOLATION", info = owner)
+  }
+})
+
+test_that("reactive-context readiness violations settle their named restore job", {
+  test_env <- new.env(parent = globalenv())
+  test_env$debug_log <- function(message, level) NULL
+  sys.source(core_session_file, envir = test_env)
+  settlements <- list()
+  source <- shiny::reactiveVal(TRUE)
+
+  result <- (function() {
+    test_env$.evaluate_restore_readiness(
+      "PCA", function() source(),
+      list(job_id = "restore-4-2", resolve_job = function(id, outcome, error) {
+        settlements[[length(settlements) + 1L]] <<- list(id, outcome, error)
+        TRUE
+      })
+    )
+  })()
+
+  expect_false(result$retry)
+  expect_identical(settlements[[1L]][[1L]], "restore-4-2")
+  expect_identical(settlements[[1L]][[2L]], "failure")
+  expect_match(settlements[[1L]][[3L]], "REACTIVE_CONTEXT_VIOLATION", fixed = TRUE)
+})
+
 test_that("AutoAssign restore transaction isolates canonical identity reads", {
   autoassign_file <- file.path("modules", "Data Wizard", "datawizard_auto_assign.R")
   if (!file.exists(autoassign_file)) autoassign_file <- file.path("..", "..", autoassign_file)

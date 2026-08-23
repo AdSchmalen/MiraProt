@@ -277,7 +277,13 @@ create_submodule_session_state <- function(session, input,
   if (!is.null(restore_trigger)) {
     is_globally_ready <- function() {
       if (!is.function(is_ready)) return(TRUE)
-      isTRUE(tryCatch(is_ready(), error = function(e) FALSE))
+      if (!exists(".evaluate_restore_readiness", mode = "function", inherits = TRUE)) {
+        callback_file <- file.path("R", "session_save_restore",
+                                   "session_save_restore_callbacks.R")
+        if (!file.exists(callback_file)) callback_file <- file.path("..", "..", callback_file)
+        sys.source(callback_file, envir = environment(is_globally_ready))
+      }
+      .evaluate_restore_readiness(module_label, is_ready)
     }
 
     input_is_bound <- function(id) {
@@ -367,7 +373,12 @@ create_submodule_session_state <- function(session, input,
       }
 
       attempt <- as.integer(st$attempt %||% 0L)
-      if (!is_globally_ready()) {
+      readiness <- is_globally_ready()
+      if (is.list(readiness) && !isTRUE(readiness$retry) && !isTRUE(readiness$ready)) {
+        drop_exhausted_restore(st, paste0(reason, ":", readiness$code), names(pending))
+        return(invisible(NULL))
+      }
+      if (!isTRUE(if (is.list(readiness)) readiness$ready else readiness)) {
         if (attempt + 1L >= max_restore_attempts) {
           drop_exhausted_restore(st, reason, names(pending))
           return(invisible(NULL))

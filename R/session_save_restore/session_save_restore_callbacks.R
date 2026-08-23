@@ -17,6 +17,44 @@
             conditionMessage(condition), ignore.case = TRUE))
 }
 
+# Evaluate a readiness predicate without confusing "not ready" with an error.
+# Imperative restore code must use this boundary rather than `tryCatch(...,
+# error = FALSE)`: a reactive-context violation is a programming error and will
+# never become ready merely by polling again.
+.evaluate_restore_readiness <- function(owner, predicate, job_metadata = NULL) {
+  if (!is.function(predicate)) stop("Restore readiness predicate must be a function", call. = FALSE)
+  condition <- NULL
+  value <- tryCatch(predicate(), error = function(e) {
+    condition <<- e
+    FALSE
+  })
+  if (is.null(condition)) {
+    return(list(ready = isTRUE(value), retry = !isTRUE(value), code = NULL,
+                condition = NULL))
+  }
+
+  code <- if (.is_shiny_context_error(condition)) {
+    "REACTIVE_CONTEXT_VIOLATION"
+  } else {
+    "READINESS_CONDITION"
+  }
+  metadata <- if (is.list(job_metadata)) job_metadata else list()
+  resolver <- metadata$resolve_job %||% metadata$resolve_restore_job %||% NULL
+  job_id <- metadata$job_id %||% metadata$id %||% NULL
+  outcome <- metadata$condition_outcome %||%
+    if (identical(code, "REACTIVE_CONTEXT_VIOLATION")) "failure" else "degraded"
+  if (!is.null(job_id) && is.function(resolver)) {
+    tryCatch(resolver(job_id, outcome, paste0(code, ": ", conditionMessage(condition))),
+             error = function(e) FALSE)
+  }
+  debug_log(paste0("[RestoreReadiness:error] owner=", owner, " code=", code,
+                   " error=", conditionMessage(condition)), 1L)
+  list(ready = FALSE,
+       # Caught conditions are not absence. In particular, polling cannot fix a
+       # missing Shiny consumer, so terminate/degrade the named job now.
+       retry = FALSE, code = code, condition = condition)
+}
+
 # Internal capability for imperative Category 1 session-restore replay only.
 .run_session_restore_callback <- function(owner, reason, generation, phase,
                                           callback, job = NULL,
