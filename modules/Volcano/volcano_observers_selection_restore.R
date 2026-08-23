@@ -1,6 +1,16 @@
 # Observer registration group extracted from volcano_observers.R.
 # Reactive state and plot objects are supplied by the module entry point.
 
+.run_volcano_restore_finalizer <- function(generation, callback, job_id,
+                                            resolve_job, current_generation) {
+  .run_session_restore_callback(
+    owner = "Volcano", reason = "restore finalizer",
+    generation = generation, phase = "finalizer", callback = callback,
+    job_metadata = list(job_id = job_id, resolve_job = resolve_job,
+                        current_generation = current_generation)
+  )
+}
+
 register_volcano_selection_restore_observers <- function(
     input, output, session, rv,
     res_GSEA, GO_res, module_outputs,
@@ -199,26 +209,53 @@ register_volcano_selection_restore_observers <- function(
   # rebuilds plots from saved plot data or resolved cache data, and then selects
   # the previously active plot. Labels are applied by get_current_display_plot().
   observeEvent(rv$session_restore_trigger, {
+    restore_generation <- isolate(rv$session_restore_generation %||% NA_integer_)
+    register_restore_job <- session$userData$register_restore_job
+    resolve_restore_job <- session$userData$resolve_restore_job
+    finalizer_job <- if (is.function(register_restore_job)) {
+      tryCatch(
+        register_restore_job("Volcano", "restore finalizer", "finalizer", 15),
+        error = function(e) {
+          debug_log(paste("[Volcano] could not register restore finalizer:", e$message), 1)
+          NULL
+        }
+      )
+    } else NULL
+
     tryCatch({
       volcano_state$restore_in_progress <- TRUE
 
+      finalizer_scheduled <- FALSE
       finalize_restore <- function(trigger_render = TRUE) {
-        if (is.function(session$onFlushed)) {
-          session$onFlushed(once = TRUE, function() {
-            volcano_state$restore_in_progress <- FALSE
-            volcano_state$pending_ui_inputs <- NULL
-            if (isTRUE(trigger_render)) {
-              plot_update_trigger(isolate(plot_update_trigger()) + 1L)
+        if (isTRUE(finalizer_scheduled)) return(invisible(FALSE))
+        finalizer_scheduled <<- TRUE
+        callback <- function() {
+          .run_volcano_restore_finalizer(
+            generation = restore_generation,
+            job_id = finalizer_job,
+            resolve_job = resolve_restore_job,
+            current_generation = function() isolate(rv$session_restore_generation %||% NA_integer_),
+            callback = function() {
+              current_generation <- isolate(rv$session_restore_generation %||% NA_integer_)
+              if (!identical(as.integer(current_generation)[1L],
+                             as.integer(restore_generation)[1L])) {
+                stop("STALE_VOLCANO_GENERATION")
+              }
+              volcano_state$restore_in_progress <- FALSE
+              volcano_state$pending_ui_inputs <- NULL
+              if (isTRUE(trigger_render)) {
+                plot_update_trigger(isolate(plot_update_trigger()) + 1L)
+              }
+              debug_log("[Volcano] session restore guard cleared; rendering re-enabled", 1)
             }
-            debug_log("[Volcano] session restore guard cleared; rendering re-enabled", 1)
-          })
-        } else {
-          volcano_state$restore_in_progress <- FALSE
-          volcano_state$pending_ui_inputs <- NULL
-          if (isTRUE(trigger_render)) {
-            plot_update_trigger(isolate(plot_update_trigger()) + 1L)
-          }
+          )
         }
+        if (is.function(session$onFlushed)) {
+          session$onFlushed(once = TRUE, callback)
+        } else {
+          callback()
+        }
+        invisible(TRUE)
       }
 
       # ------------------------------------------------------------------
