@@ -2373,7 +2373,7 @@ resolve_data_pair_for_restore <- function(rv,
   }
   # Environments cannot be serialized cleanly either — a live environment
   # reference (e.g. reactive scope, module state container) reaches the
-  # sanitizer's qserialize() probe unchanged and triggers a full-subtree
+  # sanitizer's base-serialization probe unchanged and triggers a full-subtree
   # failure. Treat environments the same way we treat closures: drop them
   # with a breadcrumb and let the outer code fall back to NULL for the
   # enclosing field.
@@ -2488,13 +2488,13 @@ resolve_data_pair_for_restore <- function(rv,
 #' Is this object trivially serializable? (fast-path predicate)
 #'
 #' Returns \code{TRUE} only for shapes that are known to round-trip
-#' through \code{qs::qserialize()} / \code{serialize()} without any
+#' through base \code{serialize()} without any
 #' special handling: \code{NULL}, atomic vectors (including character),
 #' factors, \code{Date} / \code{POSIXt}, and data.frames / matrices
 #' whose columns are themselves trivially serializable atomic/factor
 #' types.  Any list column, S4 slot, environment, function / closure,
 #' or ggplot object causes this predicate to return \code{FALSE} so
-#' the caller falls through to the full \code{qs::qserialize()} probe.
+#' the caller falls through to the full base-serialization probe.
 #'
 #' This is purely an optimisation: the predicate is conservative -- a
 #' \code{FALSE} return is never wrong, it just means the caller does
@@ -2629,9 +2629,9 @@ is_plain_ui_payload <- function(x) {
 
   # Trust fast-path: for obviously safe types (NULL, atomic vectors,
   # factors, Date/POSIXt, and data.frames / matrices whose columns are
-  # all atomic/factor/Date/POSIXt), skip the expensive qserialize probe
+  # all atomic/factor/Date/POSIXt), skip the expensive serialization probe
   # entirely.  These shapes serialize cleanly in 100% of realistic
-  # cases; the probe was doing a full qs2::qs_serialize() of potentially
+  # cases; the probe was serializing potentially
   # huge data frames (data_mod, expression matrices, etc.) merely to
   # test -- and the actual transport in .build_v4_envelope() then
   # serializes them again.  Cutting the probe here removes that
@@ -2658,11 +2658,7 @@ is_plain_ui_payload <- function(x) {
   # entire rv/module snapshots merely to decide that they were serializable.
   if (!is_plain_list_container) {
     ok <- tryCatch({
-      if (.qs2_available()) {
-        qs2::qs_serialize(x, compress_level = 3L, nthreads = 1L, shuffle = TRUE)
-      } else {
-        serialize(x, connection = NULL)
-      }
+      base::serialize(x, connection = NULL)
       TRUE
     }, error = function(e) FALSE)
     if (ok) {
@@ -2736,15 +2732,11 @@ is_plain_ui_payload <- function(x) {
   x <- out[keep_idx]
 
   # Final safety check: plain lists whose children were sanitized are safe
-  # without another full-tree qserialize probe.  Classed lists still get one
+  # without another full-tree serialization probe. Classed lists still get one
   # final probe because attributes/classes may carry non-portable state.
   if (!is_plain_list_container) {
     ok2 <- tryCatch({
-      if (.qs2_available()) {
-        qs2::qs_serialize(x, compress_level = 3L, nthreads = 1L, shuffle = TRUE)
-      } else {
-        serialize(x, connection = NULL)
-      }
+      base::serialize(x, connection = NULL)
       TRUE
     }, error = function(e) FALSE)
     if (!ok2) {
