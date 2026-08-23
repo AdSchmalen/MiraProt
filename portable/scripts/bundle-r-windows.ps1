@@ -927,8 +927,21 @@ try {
 
     Push-Location $LauncherStage
     $LauncherLocationPushed = $true
-    $version = if ($HasGitMetadata) { git -C $ProjectRoot describe --tags --always 2>$null } else { "dev" }
-    if (-not $version) { $version = "dev" }
+    $launcherVersion = "v$version"
+    if ($HasGitMetadata) {
+        $shortSha = git -C $ProjectRoot rev-parse --short=7 HEAD 2>$null
+        if ($LASTEXITCODE -eq 0 -and $shortSha -match '^[0-9a-fA-F]{7}$') {
+            $nearestTag = git -C $ProjectRoot describe --tags --abbrev=0 2>$null
+            if ($LASTEXITCODE -eq 0 -and $nearestTag) {
+                $commitDistance = git -C $ProjectRoot rev-list --count "$nearestTag..HEAD" 2>$null
+            } else {
+                $commitDistance = git -C $ProjectRoot rev-list --count HEAD 2>$null
+            }
+            if ($LASTEXITCODE -eq 0 -and $commitDistance -match '^\d+$') {
+                $launcherVersion = "v$version-$commitDistance-g$shortSha"
+            }
+        }
+    }
 
     $env:GOOS = "windows"
     $env:GOARCH = "amd64"
@@ -956,9 +969,9 @@ try {
     & $GoWinres make
     if ($LASTEXITCODE -ne 0) { throw "go-winres failed with exit code $LASTEXITCODE." }
 
-    Write-Host "Compiling launcher (version: $version)..."
+    Write-Host "Compiling launcher (version: $launcherVersion)..."
     go build `
-        -ldflags "-s -w -X main.Version=$version" `
+        -ldflags "-s -w -X main.Version=$launcherVersion" `
         -o $launcherOut .
 
     if ($LASTEXITCODE -ne 0) {
