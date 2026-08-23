@@ -24,6 +24,7 @@
 })
 
 .sr_subscripts <- c(
+  "session_save_restore_cache_keys.R",
   "session_save_restore_core_helpers.R",
   "session_save_restore_callbacks.R",
   "session_save_restore_module_registration.R",

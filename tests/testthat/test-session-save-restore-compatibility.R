@@ -8,6 +8,8 @@ if (!file.exists(core_helpers_file)) {
 session_test_env <- new.env(parent = globalenv())
 session_test_env$`%||%` <- function(x, y) if (is.null(x)) y else x
 session_test_env$debug_log <- function(...) invisible(NULL)
+cache_keys_file <- file.path(dirname(core_helpers_file), "session_save_restore_cache_keys.R")
+sys.source(cache_keys_file, envir = session_test_env)
 sys.source(core_helpers_file, envir = session_test_env)
 
 minimal_rv_snapshot <- function() {

@@ -1423,33 +1423,6 @@ upgrade_session_snapshot_to_current_schema <- function(snapshot) {
 
 
 
-# Build canonical per-plot cache keys across modules.
-# Schema: <module>::<logical_plot_id>::<variant>
-.build_canonical_plot_cache_key <- function(module, logical_plot_id = "default", variant = "main") {
-  module <- as.character(module %||% "module")[1]
-  logical_plot_id <- as.character(logical_plot_id %||% "default")[1]
-  variant <- as.character(variant %||% "main")[1]
-  paste(module, logical_plot_id, variant, sep = "::")
-}
-
-# Deterministically serialize a variant-spec list for canonical key usage.
-# Keep this as a lightweight, stable string without adding a new dependency.
-.serialize_plot_variant_spec <- function(spec = NULL) {
-  if (is.null(spec)) return("main")
-  if (!is.list(spec)) return(as.character(spec)[1])
-  nms <- names(spec) %||% character()
-  if (length(spec) == 0L || length(nms) == 0L) return("main")
-  ord <- order(nms)
-  nms <- nms[ord]
-  vals <- spec[ord]
-  parts <- vapply(seq_along(vals), function(i) {
-    val <- vals[[i]]
-    val_txt <- paste(as.character(val %||% "none"), collapse = "~")
-    paste0(nms[[i]], "=", val_txt)
-  }, character(1L))
-  paste(parts, collapse = "__")
-}
-
 # Scalar coercion helpers for cache reference contracts.
 .session_scalar_chr <- function(x, default = "") {
   value <- tryCatch(

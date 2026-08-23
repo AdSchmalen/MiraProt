@@ -53,8 +53,13 @@
 #     when the Shiny session ends.
 # ==============================================================================
 
-if (file.exists("R/session_save_restore/session_save_restore_core_helpers.R")) {
-  sys.source("R/session_save_restore/session_save_restore_core_helpers.R", envir = modEnv)
+for (.pca_restore_source in c(
+  "session_save_restore_cache_keys.R",
+  "session_save_restore_core_helpers.R",
+  "session_save_restore_callbacks.R"
+)) {
+  .pca_restore_path <- file.path("R", "session_save_restore", .pca_restore_source)
+  if (file.exists(.pca_restore_path)) sys.source(.pca_restore_path, envir = modEnv)
 }
 
 sys.source("modules/PCA/pca_module_UI.R",               envir = modEnv)
@@ -240,17 +245,10 @@ modPCAServer <- function(id, rv, res_GSEA = NULL, res_GO = NULL, module_outputs 
 
     debug_log("PCA module server starting", 1)
 
-    pca_cache_fallback_noted <- FALSE
     pca_build_cache_key <- function(module, logical_plot_id, variant) {
-      helper <- get0(".build_canonical_plot_cache_key", envir = globalenv(), inherits = TRUE)
-      if (is.function(helper)) {
-        return(helper(module = module, logical_plot_id = logical_plot_id, variant = variant))
-      }
-      if (!isTRUE(pca_cache_fallback_noted)) {
-        debug_log("[PCA] canonical cache key helper missing; using local fallback schema", 1)
-        pca_cache_fallback_noted <<- TRUE
-      }
-      paste(as.character(module)[1], as.character(logical_plot_id)[1], as.character(variant)[1], sep = "::")
+      .build_canonical_plot_cache_key(
+        module = module, logical_plot_id = logical_plot_id, variant = variant
+      )
     }
 
     record_restore_report <- function(module_name, report) {
@@ -482,6 +480,30 @@ modPCAServer <- function(id, rv, res_GSEA = NULL, res_GO = NULL, module_outputs 
     pca_restore_generation_key <- function(session_generation, pca_generation) {
       paste(as.character(session_generation)[1], as.character(pca_generation)[1], sep = "::")
     }
+    # Job ids are captured per composite generation. They are registered while
+    # the restore transaction is still accepting work and settled only by the
+    # corresponding finalizer/render callback.
+    pca_restore_jobs <- new.env(parent = emptyenv())
+    pca_jobs_for <- function(session_generation, pca_generation, create = FALSE) {
+      key <- pca_restore_generation_key(session_generation, pca_generation)
+      if (!exists(key, pca_restore_jobs, inherits = FALSE) && isTRUE(create))
+        assign(key, list(finalizer = NULL, render = NULL), pca_restore_jobs)
+      get0(key, pca_restore_jobs, inherits = FALSE, ifnotfound = list(finalizer = NULL, render = NULL))
+    }
+    pca_put_jobs <- function(session_generation, pca_generation, jobs) {
+      assign(pca_restore_generation_key(session_generation, pca_generation), jobs, pca_restore_jobs)
+    }
+    pca_register_job <- function(reason, phase, timeout) {
+      api <- session$userData$restore_jobs
+      if (is.list(api) && is.function(api$register_restore_job))
+        api$register_restore_job("PCA", reason, phase, timeout = timeout)
+      else NULL
+    }
+    pca_resolve_job <- function(job_id, outcome, error = NULL) {
+      api <- session$userData$restore_jobs
+      if (is.null(job_id) || !is.list(api) || !is.function(api$resolve_restore_job)) return(FALSE)
+      api$resolve_restore_job(job_id, outcome, error)
+    }
 
     observeEvent(rv$session_restore_trigger, {
       observed_generation <- isolate(list(
@@ -552,7 +574,36 @@ modPCAServer <- function(id, rv, res_GSEA = NULL, res_GO = NULL, module_outputs 
         invisible(TRUE)
       }
       schedule_finalizer <- function(status = "complete") {
-        session$onFlushed(function() finalize_restore(status), once = TRUE)
+        jobs <- pca_jobs_for(restore_context$session_restore_generation,
+                            restore_context$pca_restore_generation, create = TRUE)
+        if (is.null(jobs$finalizer)) {
+          jobs$finalizer <- tryCatch(
+            pca_register_job("restore finalizer", "finalizer", timeout = 15),
+            error = function(e) NULL
+          )
+          pca_put_jobs(restore_context$session_restore_generation,
+                       restore_context$pca_restore_generation, jobs)
+        }
+        finalizer_job <- jobs$finalizer
+        session$onFlushed(function() {
+          .run_session_restore_callback(
+            owner = "PCA", reason = "restore finalizer",
+            generation = restore_context$session_restore_generation,
+            phase = "finalizer",
+            callback = function() {
+              if (!pca_restore_generation_is_current(
+                    restore_context$session_restore_generation,
+                    restore_context$pca_restore_generation))
+                stop("STALE_PCA_GENERATION")
+              if (!isTRUE(finalize_restore(status))) stop("PCA finalizer was not applied")
+            },
+            job_metadata = list(
+              job_id = finalizer_job,
+              resolve_job = pca_resolve_job,
+              current_generation = function() isolate(rv$session_restore_generation %||% NA_integer_)
+            )
+          )
+        }, once = TRUE)
       }
 
       restore_status <- "complete"
@@ -904,7 +955,9 @@ modPCAServer <- function(id, rv, res_GSEA = NULL, res_GO = NULL, module_outputs 
           pca_build_cache_key(module = "pca", logical_plot_id = logical_plot_id, variant = "main")
         }
         legacy_plot_key <- function(comparison_target = NULL) {
-          as.character(comparison_target %||% "default")[1]
+          key <- .legacy_plot_cache_key(comparison_target)
+          debug_log(sprintf("[PCA restore] checking explicit legacy cache key: %s", key), 2)
+          key
         }
         if (is.null(state)) return()
 
@@ -926,12 +979,28 @@ modPCAServer <- function(id, rv, res_GSEA = NULL, res_GO = NULL, module_outputs 
             pca_generation = pca_state$restore_generation()
           ))
           restore_generation <- restore_context$pca_generation
+          jobs <- pca_jobs_for(restore_context$session_generation, restore_context$pca_generation, create = TRUE)
+          if (is.null(jobs$finalizer)) {
+            jobs$finalizer <- pca_register_job("restore finalizer", "finalizer", timeout = 15)
+          }
+          timeout_seconds <- suppressWarnings(as.numeric(
+            getOption("miraprot.pca_restore_render_timeout", 30)
+          ))[1]
+          if (!is.finite(timeout_seconds) || timeout_seconds < 0) timeout_seconds <- 30
+          if (isTRUE(rv$pca_restore_rebuild_expected) && is.null(jobs$render)) {
+            # Bounded independently from the finalizer: a cache hit supplies
+            # inputs, but only the renderer can settle this expectation.
+            jobs$render <- pca_register_job("render settlement", "render", timeout = timeout_seconds + 1)
+          }
+          pca_put_jobs(restore_context$session_generation, restore_context$pca_generation, jobs)
           report <- isolate({
             reports <- rv$restore_reports
             if (!is.list(reports)) reports <- list()
             reports$PCA %||% list()
           })
           report$restore_generation <- restore_generation
+          report$session_restore_generation <- restore_context$session_generation
+          report$render_job_id <- jobs$render
           report$rebuild_requested <- isTRUE(rv$pca_restore_rebuild_expected)
           report$plot_recreated <- FALSE
           report$render_completed <- FALSE
@@ -945,10 +1014,7 @@ modPCAServer <- function(id, rv, res_GSEA = NULL, res_GO = NULL, module_outputs 
             # must never use a captured reactive context or repair render state.
             timeout_session_generation <- restore_context$session_generation[1]
             timeout_pca_generation <- restore_context$pca_generation[1]
-            timeout_seconds <- suppressWarnings(as.numeric(
-              getOption("miraprot.pca_restore_render_timeout", 30)
-            ))[1]
-            if (!is.finite(timeout_seconds) || timeout_seconds < 0) timeout_seconds <- 30
+            timeout_render_job <- jobs$render
             later::later(function() {
               tryCatch({
                 current <- isolate({
@@ -971,6 +1037,7 @@ modPCAServer <- function(id, rv, res_GSEA = NULL, res_GO = NULL, module_outputs 
                 current_report$render_timed_out <- TRUE
                 current_report$render_status <- "render_timed_out"
                 record_restore_report("PCA", current_report)
+                pca_resolve_job(timeout_render_job, "timeout", "PCA render expectation timed out")
                 debug_log(sprintf(
                   "[PCA] restore render timed out (generation=%s, timeout=%ss)",
                   timeout_pca_generation, timeout_seconds
