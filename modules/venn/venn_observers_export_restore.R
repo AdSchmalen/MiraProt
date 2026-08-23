@@ -120,30 +120,70 @@ register_venn_export_restore_observers <- function(observer_env) {
   # Session restore: replay UI and regenerate plot from restored inputs
   # ==========================================================================
   observeEvent(rv$session_restore_trigger, {
+    restore_generation <- isolate(rv$session_restore_generation %||% NA_integer_)
+    register_restore_job <- session$userData$register_restore_job
+    replay_job <- if (is.function(register_restore_job)) tryCatch(
+      register_restore_job("Venn", "poll and plot rebuild", "render", 31),
+      error = function(e) {
+        debug_log(paste("[Venn] could not register restore replay job:", e$message), 1)
+        NULL
+      }
+    ) else NULL
+
     tryCatch({
       captured <- isolate(state$pending_ui_inputs())
+      # A newer trigger supersedes an armed poll. Attempt its settlement before
+      # replacing the job token; the registry itself rejects late generations.
+      if (!isTRUE(isolate(restore_poll_job_settled()))) {
+        settle_restore_poll("skipped", "STALE_GENERATION")
+      }
+      restore_poll_generation(restore_generation)
+      restore_poll_job(replay_job)
+      restore_poll_job_settled(FALSE)
 
       session$onFlushed(function() {
-        tryCatch({
-          restore_poll_captured(captured)
-          restore_poll_attempt(0L)
-          restore_poll_phase("base")
-          restore_phase_attempt(0L)
-          state$last_restore_report(NULL)
-          restore_poll_active(TRUE)
-          debug_log("[Venn] session restore: poll armed (waiting for Data Wizard-driven choices)", 1)
-        }, error = function(e) {
-          debug_log(paste("[Venn] session restore UI replay failed:", e$message), 1)
-        })
+        armed <- .run_session_restore_callback(
+          owner = "Venn", reason = "arm restore poll",
+          generation = restore_generation, phase = "render",
+          job_metadata = list(
+            current_generation = function() isolate(rv$session_restore_generation %||% NA_integer_)
+          ),
+          callback = function() {
+            restore_poll_captured(captured)
+            restore_poll_attempt(0L)
+            restore_poll_phase("base")
+            restore_phase_attempt(0L)
+            state$last_restore_report(NULL)
+            restore_poll_active(TRUE)
+            debug_log("[Venn] session restore: poll armed (waiting for Data Wizard-driven choices)", 1)
+          }
+        )
+        if (!isTRUE(armed)) settle_restore_poll("skipped", "STALE_GENERATION")
       }, once = TRUE)
     }, error = function(e) {
       debug_log(paste("[Venn] session restore failed:", e$message), 1)
+      restore_poll_active(FALSE)
+      settle_restore_poll("failure", e$message)
     })
   }, ignoreInit = TRUE)
 
   observe({
-    if (!isTRUE(restore_poll_active())) return()
+    expected_generation <- restore_poll_generation()
+    current_generation <- rv$session_restore_generation %||% NA_integer_
+    poll_active <- isTRUE(restore_poll_active())
+    if (poll_active && !identical(as.integer(current_generation)[1L],
+                   as.integer(expected_generation)[1L])) {
+      # Clearing the active dependency suspends this observer until a current
+      # generation is explicitly armed.
+      restore_poll_active(FALSE)
+      state$pending_ui_inputs(NULL)
+      state$had_plot_on_save(FALSE)
+      settle_restore_poll("skipped", "STALE_GENERATION")
+      return()
+    }
+    if (!poll_active) return()
 
+    tryCatch({
     captured <- restore_poll_captured()
     phase <- isolate(restore_poll_phase())
     restoring_with_cached <- is.list(state$restore_plot_data_cache())
@@ -159,6 +199,7 @@ register_venn_export_restore_observers <- function(observer_env) {
       state$pending_ui_inputs(NULL)
       state$had_plot_on_save(FALSE)
       finalize_restore_report("restore_timeout", reason = "global_timeout")
+      settle_restore_poll("timeout", "global_timeout")
       return()
     }
 
@@ -169,6 +210,7 @@ register_venn_export_restore_observers <- function(observer_env) {
       state$pending_ui_inputs(NULL)
       state$had_plot_on_save(FALSE)
       finalize_restore_report("restore_timeout", reason = paste0("phase_timeout_", phase))
+      settle_restore_poll("timeout", paste0("phase_timeout_", phase))
       return()
     }
 
@@ -358,6 +400,7 @@ register_venn_export_restore_observers <- function(observer_env) {
       state$pending_ui_inputs(NULL)
       state$had_plot_on_save(FALSE)
       finalize_restore_report("restore_skipped", reason = "had_plot_on_save_false")
+      settle_restore_poll("skipped", "had_plot_on_save_false")
       return()
     }
 
@@ -419,6 +462,7 @@ register_venn_export_restore_observers <- function(observer_env) {
         state$had_plot_on_save(FALSE)
         finalize_restore_report("restore_validation_failed", source = "none",
                                 reason = "cached_data_required_missing")
+        settle_restore_poll("failure", "cached_data_required_missing")
         return()
       }
       if (restoring_with_cached) {
@@ -428,6 +472,7 @@ register_venn_export_restore_observers <- function(observer_env) {
         state$had_plot_on_save(FALSE)
         finalize_restore_report("restore_validation_failed", source = "cached",
                                 reason = "cached_cache_build_failed")
+        settle_restore_poll("failure", "cached_cache_build_failed")
         return()
       }
       invalidateLater(50, session)
@@ -449,6 +494,7 @@ register_venn_export_restore_observers <- function(observer_env) {
         source = rebuilt_cache$source_mode %||% if (restoring_with_cached) "cached" else "live",
         reason = "plot_builder_returned_null"
       )
+      settle_restore_poll("failure", "plot_builder_returned_null")
       return()
     }
     if (!is.null(rebuilt_plot)) {
@@ -568,6 +614,18 @@ register_venn_export_restore_observers <- function(observer_env) {
     restore_phase_attempt(0L)
     state$pending_ui_inputs(NULL)
     state$had_plot_on_save(FALSE)
+    settle_restore_poll("success")
+    }, error = function(e) {
+      restore_poll_active(FALSE)
+      restore_poll_phase("base")
+      restore_phase_attempt(0L)
+      state$pending_ui_inputs(NULL)
+      state$had_plot_on_save(FALSE)
+      finalize_restore_report("restore_reconstruction_failed",
+                              reason = "observer_error")
+      settle_restore_poll("failure", conditionMessage(e))
+      debug_log(paste("[Venn] restore observer failed:", conditionMessage(e)), 1)
+    })
   })
 
   }, envir = observer_env)
