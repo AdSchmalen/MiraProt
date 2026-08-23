@@ -1281,6 +1281,14 @@ init_gsea_observers <- function(input, output, session, rv, ns, state,
 
   gsea_restore_pending <- reactiveVal(NULL)
   gsea_restore_last_applied_signature <- reactiveVal(NULL)
+  gsea_restore_observer <- NULL
+
+  gsea_restore_unavailable <- function(default) {
+    function(e) {
+      if (.is_shiny_context_error(e)) stop(e)
+      default
+    }
+  }
 
   gsea_value_in_choices <- function(value, choices) {
     if (is.null(value) || length(value) == 0L) return(TRUE)
@@ -1289,15 +1297,21 @@ init_gsea_observers <- function(input, output, session, rv, ns, state,
   }
 
   gsea_restore_pathway_choices <- function() {
-    results <- tryCatch(res_GSEA(), error = function(e) NULL)
+    results <- tryCatch(res_GSEA(), error = gsea_restore_unavailable(NULL))
     if (is.null(results) || is.null(results$Results)) return(character(0))
-    choices <- tryCatch(as.data.frame(results$Results)$Description, error = function(e) character(0))
+    choices <- tryCatch(as.data.frame(results$Results)$Description,
+                        error = gsea_restore_unavailable(character(0)))
     choices[!is.na(choices) & nzchar(choices)]
   }
 
   gsea_restore_metadata_choices <- function(def, saved_inputs) {
-    datawizard_choices_ready <- isTRUE(tryCatch(rv$datawizard_metadata_choices_ready, error = function(e) FALSE)) &&
-      !is.null(tryCatch(rv$datawizard_metadata_choices_revision, error = function(e) NULL))
+    datawizard_choices_ready <- isTRUE(tryCatch(
+      rv$datawizard_metadata_choices_ready,
+      error = gsea_restore_unavailable(FALSE)
+    )) && !is.null(tryCatch(
+      rv$datawizard_metadata_choices_revision,
+      error = gsea_restore_unavailable(NULL)
+    ))
     if (!datawizard_choices_ready || is.null(def) || !has_gsea_metadata_ready_content(def) || datawizard_metadata_defer_downstream_choices(rv)) {
       return(NULL)
     }
@@ -1339,7 +1353,12 @@ init_gsea_observers <- function(input, output, session, rv, ns, state,
   apply_gsea_restore_state <- function(restored_state) {
     saved_inputs <- restored_state$ui_inputs %||% list()
     signature <- restored_state$restore_signature %||% paste0("GSEA:", paste(unlist(lapply(saved_inputs, as.character), use.names = FALSE), collapse = "|"))
-    generation <- restored_state$restore_generation %||% as.integer(Sys.time())
+    generation <- isolate(rv$session_restore_generation %||%
+                            restored_state$restore_generation %||% NA_integer_)
+
+    if (!is.null(gsea_restore_observer)) {
+      gsea_restore_observer$destroy()
+    }
 
     gsea_restore_pending(list(
       state = restored_state,
@@ -1350,9 +1369,21 @@ init_gsea_observers <- function(input, output, session, rv, ns, state,
       max_attempts = 12L
     ))
 
-    try_apply <- function() {
+    # Readiness belongs to this genuine reactive consumer.  The callback that
+    # stages a restore never polls reactives imperatively.
+    gsea_restore_observer <<- observe({
       pending <- gsea_restore_pending()
-      if (is.null(pending) || identical(gsea_restore_last_applied_signature(), pending$signature)) return(invisible(FALSE))
+      if (is.null(pending) || identical(gsea_restore_last_applied_signature(), pending$signature)) {
+        gsea_restore_observer$destroy()
+        return()
+      }
+      current_generation <- rv$session_restore_generation %||% NA_integer_
+      if (!identical(as.integer(current_generation)[1L], as.integer(pending$generation)[1L])) {
+        gsea_restore_pending(NULL)
+        gsea_restore_observer$destroy()
+        debug_log("GSEA restore cancelled: stale session restore generation", 1)
+        return()
+      }
       if (exists("active_restore_signature", inherits = TRUE) && identical(active_restore_signature(), pending$signature)) active_restore_signature(NULL)
       pending$attempts <- as.integer(pending$attempts %||% 0L) + 1L
       gsea_restore_pending(pending)
@@ -1362,7 +1393,8 @@ init_gsea_observers <- function(input, output, session, rv, ns, state,
       metadata_choices <- gsea_restore_metadata_choices(df_data_definition_post_mod(), saved)
       file_choices <- gmt_file_choices()
 
-      ready <- !is.null(tryCatch(res_GSEA(), error = function(e) NULL)) &&
+      readiness <- .evaluate_restore_readiness("GSEA", function() {
+        !is.null(res_GSEA()) &&
         length(pathway_choices) > 0L &&
         !is.null(metadata_choices) &&
         gsea_value_in_choices(saved$custom_Enrich_select, pathway_choices) &&
@@ -1374,11 +1406,19 @@ init_gsea_observers <- function(input, output, session, rv, ns, state,
         gsea_value_in_choices(saved$RefenceValues_GSEA, metadata_choices$RefenceValues_GSEA) &&
         gsea_value_in_choices(saved$numeratorSel_GSEA, metadata_choices$numeratorSel_GSEA) &&
         gsea_value_in_choices(saved$denominatorSel_GSEA, metadata_choices$denominatorSel_GSEA)
+      })
+      ready <- readiness$ready
+
+      if (!ready && !isTRUE(readiness$retry)) {
+        gsea_restore_pending(NULL)
+        gsea_restore_observer$destroy()
+        stop(readiness$condition)
+      }
 
       if (!ready) {
         if (pending$attempts >= pending$max_attempts) {
           unresolved <- c(
-            if (is.null(tryCatch(res_GSEA(), error = function(e) NULL))) "res_GSEA",
+            if (is.null(tryCatch(res_GSEA(), error = gsea_restore_unavailable(NULL)))) "res_GSEA",
             if (length(pathway_choices) == 0L || !gsea_value_in_choices(saved$custom_Enrich_select, pathway_choices)) "custom_Enrich_select",
             if (!gsea_value_in_choices(saved$fileSelector_GSEA, file_choices)) "fileSelector_GSEA",
             if (is.null(metadata_choices)) "metadata choices"
@@ -1387,13 +1427,12 @@ init_gsea_observers <- function(input, output, session, rv, ns, state,
           if (exists("pending_session_ui_restore", inherits = TRUE)) pending_session_ui_restore(NULL)
           if (exists("active_restore_signature", inherits = TRUE)) active_restore_signature(NULL)
           debug_log(paste("GSEA restore dropped unresolved restored UI values:", paste(unique(unresolved), collapse = "; ")), 1)
-          return(invisible(FALSE))
+          gsea_restore_observer$destroy()
+          return()
         }
-        signature <- pending$signature
-        if (exists("active_restore_signature", inherits = TRUE) && identical(active_restore_signature(), signature)) return(invisible(FALSE))
-        if (exists("active_restore_signature", inherits = TRUE)) active_restore_signature(signature)
-        later::later(try_apply, delay = 0.25)
-        return(invisible(FALSE))
+        if (exists("active_restore_signature", inherits = TRUE)) active_restore_signature(pending$signature)
+        invalidateLater(250, session)
+        return()
       }
 
       updateSelectInput(session, "fileSelector_GSEA", choices = file_choices, selected = saved$fileSelector_GSEA)
@@ -1427,18 +1466,35 @@ init_gsea_observers <- function(input, output, session, rv, ns, state,
         plot_height(saved$plot_height)
       }
 
+      restored_pathways <- as.character(saved$custom_Enrich_select %||% character(0))
+      selected_enrichment(restored_pathways)
+      plot_inputs <- get_gsea_plot_input_values(selected_pathways_override = restored_pathways)
+      plot_inputs$selected_pathways <- restored_pathways
+      plot_inputs$plot_type <- saved$plot_type_GSEA %||% plot_inputs$plot_type
+      if (!is.null(saved$plot_height)) plot_inputs$plot_height_val <- saved$plot_height
+      register_job <- session$userData$register_restore_job
+      resolve_job <- session$userData$resolve_restore_job
+      plot_job <- if (is.function(register_job)) tryCatch(
+        register_job("GSEA", "restored plot recreation", "render", 15),
+        error = function(e) { debug_log(paste("GSEA plot settlement registration failed:", e$message), 1); NULL }
+      ) else NULL
       session$onFlushed(once = TRUE, function() {
-        selected_enrichment(saved$custom_Enrich_select)
-        plot_inputs <- get_gsea_plot_input_values(selected_pathways_override = saved$custom_Enrich_select)
-        plot_inputs$plot_type <- saved$plot_type_GSEA %||% plot_inputs$plot_type
-        if (!is.null(saved$plot_height)) plot_inputs$plot_height_val <- saved$plot_height
-        if (!gsea_value_in_choices(saved$custom_Enrich_select, pathway_choices)) {
-          debug_log("GSEA plot recreation skipped: restored pathway choices unavailable", 1)
-          return(invisible(FALSE))
-        }
-        if (isTRUE(do.call(create_gsea_plot_from_current_inputs, plot_inputs))) {
-          debug_log("GSEA plot recreated from restored session UI state", 1)
-        }
+        .run_session_restore_callback(
+          owner = "GSEA", reason = "restored plot recreation",
+          generation = generation, phase = "render",
+          job_metadata = list(job_id = plot_job, resolve_job = resolve_job,
+            current_generation = function() isolate(rv$session_restore_generation %||% NA_integer_)),
+          callback = function() {
+            selected_enrichment(restored_pathways)
+            if (!gsea_value_in_choices(restored_pathways, pathway_choices)) {
+              stop("Restored GSEA pathway choices are unavailable")
+            }
+            if (!isTRUE(do.call(create_gsea_plot_from_current_inputs, plot_inputs))) {
+              stop("GSEA plot creation returned no plot")
+            }
+            debug_log("GSEA plot recreated from restored session UI state", 1)
+          })
+        )
       })
 
       gsea_restore_last_applied_signature(pending$signature)
@@ -1446,10 +1502,9 @@ init_gsea_observers <- function(input, output, session, rv, ns, state,
       gsea_restore_pending(NULL)
       if (exists("pending_session_ui_restore", inherits = TRUE)) pending_session_ui_restore(NULL)
       if (exists("active_restore_signature", inherits = TRUE)) active_restore_signature(NULL)
-      invisible(TRUE)
-    }
+      gsea_restore_observer$destroy()
+    }, label = "GSEA restore readiness poll")
 
-    if (is.function(session$onFlushed)) session$onFlushed(once = TRUE, try_apply) else try_apply()
     invisible(TRUE)
   }
   assign("apply_gsea_restore_state", apply_gsea_restore_state, envir = modEnv)
