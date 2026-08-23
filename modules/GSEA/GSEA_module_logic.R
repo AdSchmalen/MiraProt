@@ -93,7 +93,7 @@ gsea_debug_log <- function(message, level = 1,
 #'   clusterProfiler (the critical dependency) is missing.
 gsea_load_required_libraries <- function(DEBUG_LEVEL = 1) {
   required_libs <- c("clusterProfiler", "parallel", "pracma",
-                     "matrixStats", "enrichplot", "fgsea")
+                     "enrichplot", "fgsea")
   missing_libs <- character()
 
   for (lib in required_libs) {
