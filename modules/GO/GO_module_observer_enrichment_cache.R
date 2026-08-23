@@ -60,7 +60,7 @@ observeEvent(input$createGO_button, {
     tryCatch({
       req(rv$data_mod, rv$data_def)
 
-      incProgress(0.1, detail = "Validating input data")
+      setProgress(value = 0.05, detail = "Validating input data")
 
       loadedData <- rv$data_mod
       metadata   <- rv$data_def
@@ -120,7 +120,7 @@ observeEvent(input$createGO_button, {
 
       debug_log(paste("Using column indices - Gene:", ididx, "Abundance:", fc_idx, "P-value:", pv_idx), 1)
 
-      incProgress(0.2, detail = "Processing gene data")
+      setProgress(value = 0.12, detail = "Processing gene data")
 
       genes  <- as.character(loadedData[, ididx, drop = TRUE])
       fc_raw <- loadedData[, fc_idx, drop = TRUE]
@@ -168,7 +168,7 @@ observeEvent(input$createGO_button, {
 
       go_data_processed(go_data)
 
-      incProgress(0.3, detail = "Loading annotations")
+      setProgress(value = 0.25, detail = "Loading organism annotations")
 
       # Use session-level OrgDb cache when the organism has not changed since the
       # last run.  This avoids a redundant AnnotationHub BiocFileCache lookup on
@@ -202,7 +202,7 @@ observeEvent(input$createGO_button, {
         return(NULL)
       }
 
-      incProgress(0.5, detail = "Preparing GO universe")
+      setProgress(value = 0.38, detail = "Preparing GO universe")
 
       dataset_universe_raw <- as.character(loadedData[, ididx, drop = TRUE])
       dataset_universe_clean <- clean_go_identifiers(dataset_universe_raw)
@@ -266,7 +266,7 @@ observeEvent(input$createGO_button, {
         }
       }
 
-      incProgress(0.55, detail = "Running GO enrichment")
+      setProgress(value = 0.45, detail = "Running GO enrichment")
 
       edo <- perform_go_enrichment(
         genes          = enrichment_inputs$genes,
@@ -295,7 +295,7 @@ observeEvent(input$createGO_button, {
                       tryCatch(length(edo@universe), error = function(e) NA_integer_)), 1)
       debug_log(paste("GO enrichment completed with", nrow(edo@result), "significant terms"), 1)
 
-      incProgress(0.7, detail = "Processing results")
+      setProgress(value = 0.78, detail = "Processing enrichment results")
 
       results_list <- create_go_results_list_direct(
         edo         = edo,
@@ -310,7 +310,7 @@ observeEvent(input$createGO_button, {
       go_initial_selection_applied(FALSE)
       debug_log("Results stored with direct approach", 1)
 
-      incProgress(0.8, detail = "Creating tree structure")
+      setProgress(value = 0.86, detail = "Building GO term tree")
 
       tryCatch({
         tree_structure <- create_go_tree_structure(
@@ -342,7 +342,7 @@ observeEvent(input$createGO_button, {
         debug_log(paste("Tree creation error:", e$message), 1)
       })
 
-      incProgress(0.9, detail = "Creating initial plot")
+      setProgress(value = 0.93, detail = "Creating initial GO plot")
 
       initial_result <- tryCatch({
         debug_log("Creating enhanced initial plot with current UI parameters", 1)
@@ -429,6 +429,8 @@ observeEvent(input$createGO_button, {
         debug_log(paste("Initial plot creation failed:", e$message), 1)
         list(plot = NULL, message = paste("Initial plot creation failed:", e$message), height = 600, width = 800)
       })
+
+      setProgress(value = 0.98, detail = "Finalizing GO analysis")
 
       if (!is.null(initial_result) && !is.null(initial_result$plot)) {
         debug_log("Updating reactive values with initial plot", 1)

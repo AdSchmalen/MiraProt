@@ -1137,9 +1137,11 @@ create_enrichment_map <- function(gsea_results, selected_pathways, colors, theme
 }
 
 #' Create PubMed Citation Plot - Enhanced with custom colors
-create_pubmed_plot <- function(selected_pathways, colors, theme, sizes, legend_position="right") {
+create_pubmed_plot <- function(selected_pathways, colors, theme, sizes, legend_position="right",
+                               progress_fn = NULL) {
   require(enrichplot); require(patchwork); require(ggplot2)
   if (!length(selected_pathways)) return(list(plot=NULL,message="Select pathways for PubMed analysis"))
+  if (is.function(progress_fn)) progress_fn(0.05, "Preparing GSEA PubMed citation query")
   last_year <- as.numeric(format(Sys.Date(), "%Y")) - 1
   yrs <- (last_year - 5):last_year
   pal <- colorRampPalette(colors)(length(selected_pathways))
@@ -1151,16 +1153,23 @@ create_pubmed_plot <- function(selected_pathways, colors, theme, sizes, legend_p
           legend.title=element_text(size=sizes$legendTitle),
           legend.text =element_text(size=sizes$legendText))
 
-  p1 <- enrichplot::pmcplot(selected_pathways, yrs) +
+  if (is.function(progress_fn)) progress_fn(0.15, "Querying PubMed/PMC for citation proportions")
+  p1 <- enrichplot::pmcplot(selected_pathways, yrs)
+  if (is.function(progress_fn)) progress_fn(0.55, "Querying PubMed/PMC for citation counts")
+  p2 <- enrichplot::pmcplot(selected_pathways, yrs, proportion=FALSE)
+
+  if (is.function(progress_fn)) progress_fn(0.85, "Assembling GSEA PubMed citation plot")
+  p1 <- p1 +
     scale_color_manual(values = pal, name = "Gene Set") +
     labs(x="Year", y="Proportion") +
     base_theme + theme(legend.position="none")
-  p2 <- enrichplot::pmcplot(selected_pathways, yrs, proportion=FALSE) +
+  p2 <- p2 +
     scale_color_manual(values = pal, name = "Gene Set") +
     labs(x="Year", y="Count") +
     base_theme + theme(legend.position="none")
 
   layout <- (p1 / p2) + plot_layout(guides="collect", heights=c(1,1))
+  if (is.function(progress_fn)) progress_fn(0.97, "Applying GSEA PubMed plot styling")
   final <- layout & theme(
     legend.position  = legend_position,
     legend.direction = if (legend_position %in% c("top","bottom")) "horizontal" else "vertical",
