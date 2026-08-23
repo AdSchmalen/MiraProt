@@ -50,7 +50,14 @@ resolve_optional_module_api <- function(module_out, api_name, context = "module_
     return(NULL)
   }
 
-  candidate <- tryCatch(module_out[[api_name]], error = function(e) NULL)
+  candidate <- tryCatch(module_out[[api_name]], error = function(e) {
+    if (identical(datawizard_condition_class(e), "reactive_context_violation")) {
+      debug_log(paste("Reactive-context violation resolving optional API", api_name,
+                      "for", context, ":", conditionMessage(e)), level = 1)
+      stop(e)
+    }
+    NULL
+  })
   if (!is.function(candidate)) {
     debug_log(paste("Optional API", api_name, "not available in", context), level = 2)
     return(NULL)
@@ -76,6 +83,7 @@ call_optional_module_api <- function(module_out, api_name, default_return = NULL
     api_func(...),
     error = function(e) {
       debug_log(paste("Error in optional API", api_name, "for", context, ":", e$message), level = 1)
+      if (identical(datawizard_condition_class(e), "reactive_context_violation")) stop(e)
       default_return
     }
   )
@@ -158,13 +166,21 @@ initialize_submodules <- function(session, loader_out, core_values, ui_config_va
   empty_primary_data_debug_logged <- FALSE
   last_data_source_log <- new.env(parent = emptyenv())
 
+  # Imperative snapshot API. Safe for event handlers and restore setters.
   has_primary_or_processed_data <- function() {
-    processed <- tryCatch(!is.null(rv) && !is.null(rv$data_mod), error = function(e) FALSE)
-    filtered <- tryCatch(isTRUE(core_values$filter_applied()) && !is.null(core_values$filtered_data()), error = function(e) FALSE)
-    raw <- tryCatch(!is.null(core_values$primary_data_raw()), error = function(e) FALSE)
-    processed || filtered || raw
+    snapshot <- shiny::isolate(list(
+      processed = if (!is.null(rv)) rv$data_mod else NULL,
+      filter_applied = core_values$filter_applied(),
+      filtered = core_values$filtered_data(),
+      raw = core_values$primary_data_raw()
+    ))
+    !is.null(snapshot$processed) ||
+      (isTRUE(snapshot$filter_applied) && !is.null(snapshot$filtered)) ||
+      !is.null(snapshot$raw)
   }
 
+  # Imperative snapshot API. Reactive consumers are supplied by callers with
+  # reactive({...}); this function itself deliberately takes one frozen view.
   get_primary_or_processed_data <- function(context = "DATA WIZARD", log_empty = TRUE) {
     log_data_source_once <- function(source_key, message) {
       previous_source_key <- last_data_source_log[[context]]
@@ -174,7 +190,16 @@ initialize_submodules <- function(session, loader_out, core_values, ui_config_va
       }
     }
 
-    if (!has_primary_or_processed_data()) {
+    snapshot <- shiny::isolate(list(
+      processed = if (!is.null(rv)) rv$data_mod else NULL,
+      filter_applied = core_values$filter_applied(),
+      filtered = core_values$filtered_data(),
+      raw = core_values$primary_data_raw()
+    ))
+    has_data <- !is.null(snapshot$processed) ||
+      (isTRUE(snapshot$filter_applied) && !is.null(snapshot$filtered)) ||
+      !is.null(snapshot$raw)
+    if (!has_data) {
       log_data_source_once(
         "none",
         paste0(context, ": get_data found no primary/processed data")
@@ -186,31 +211,37 @@ initialize_submodules <- function(session, loader_out, core_values, ui_config_va
       return(NULL)
     }
 
-    if (!is.null(rv) && !is.null(rv$data_mod)) {
+    if (!is.null(snapshot$processed)) {
       log_data_source_once(
         "rv$data_mod",
         paste0(context, ": get_data using rv$data_mod (processed data)")
       )
-      return(rv$data_mod)
-    } else if (core_values$filter_applied() && !is.null(core_values$filtered_data())) {
+      return(snapshot$processed)
+    } else if (isTRUE(snapshot$filter_applied) && !is.null(snapshot$filtered)) {
       log_data_source_once(
         "filtered_data",
         paste0(context, ": get_data using filtered data")
       )
-      return(core_values$filtered_data())
+      return(snapshot$filtered)
     }
 
     log_data_source_once(
       "raw_data",
       paste0(context, ": get_data using raw data (fallback)")
     )
-    core_values$primary_data_raw()
+    snapshot$raw
   }
 
+  # Imperative snapshot API used by restore dispatch and submodule setters.
   datawizard_restore_phase_active <- function(phases = NULL) {
     if (is.null(rv)) return(FALSE)
-    phase <- rv$session_restore_phase %||% rv$restore_phase %||% NULL
-    isTRUE(rv$session_restoring) ||
+    snapshot <- shiny::isolate(list(
+      session_restore_phase = rv$session_restore_phase,
+      restore_phase = rv$restore_phase,
+      session_restoring = rv$session_restoring
+    ))
+    phase <- snapshot$session_restore_phase %||% snapshot$restore_phase %||% NULL
+    isTRUE(snapshot$session_restoring) ||
       (!is.null(phase) && !identical(phase, "complete") &&
          (is.null(phases) || phase %in% phases))
   }
@@ -219,14 +250,20 @@ initialize_submodules <- function(session, loader_out, core_values, ui_config_va
   # A restore generation plus an active restore/replay phase proves provenance;
   # ordinary callbacks are forwarded to the canonical adapter unchanged.
   publish_primary_data <- function(new_data, operation, metadata = NULL) {
-    restore_generation <- if (!is.null(rv)) {
-      tryCatch(shiny::isolate(rv$session_restore_generation), error = function(e) NULL)
-    } else {
-      NULL
-    }
+    # Keep every restore decision in this one snapshot. In particular, do not
+    # call datawizard_restore_phase_active(): that transitive read used to
+    # escape the isolate when publication came from an imperative setter.
+    restore_snapshot <- shiny::isolate(list(
+      generation = if (!is.null(rv)) rv$session_restore_generation else NULL,
+      restoring = if (!is.null(rv)) rv$session_restoring else FALSE,
+      session_phase = if (!is.null(rv)) rv$session_restore_phase else NULL,
+      legacy_phase = if (!is.null(rv)) rv$restore_phase else NULL
+    ))
+    restore_generation <- restore_snapshot$generation
+    restore_phase <- restore_snapshot$session_phase %||% restore_snapshot$legacy_phase %||% NULL
     restore_replay <- !is.null(restore_generation) &&
-      (isTRUE(tryCatch(shiny::isolate(rv$session_restoring), error = function(e) FALSE)) ||
-         datawizard_restore_phase_active())
+      (isTRUE(restore_snapshot$restoring) ||
+         (!is.null(restore_phase) && !identical(restore_phase, "complete")))
 
     if (isTRUE(restore_replay)) {
       incoming_dimensions <- if (is.data.frame(new_data) || is.matrix(new_data)) {
@@ -247,11 +284,21 @@ initialize_submodules <- function(session, loader_out, core_values, ui_config_va
   }
 
   sync_enhanced_metadata_for_current_data <- function(new_data, operation_label) {
-    if (is.null(core_values$handson_metadata()) || datawizard_restore_phase_active()) {
+    # Imperative snapshot API used by submodule setters and metadata sync.
+    snapshot <- shiny::isolate(list(
+      metadata = core_values$handson_metadata(),
+      session_restore_phase = if (!is.null(rv)) rv$session_restore_phase else NULL,
+      restore_phase = if (!is.null(rv)) rv$restore_phase else NULL,
+      session_restoring = if (!is.null(rv)) rv$session_restoring else FALSE
+    ))
+    phase <- snapshot$session_restore_phase %||% snapshot$restore_phase %||% NULL
+    restoring <- isTRUE(snapshot$session_restoring) ||
+      (!is.null(phase) && !identical(phase, "complete"))
+    if (is.null(snapshot$metadata) || restoring) {
       return(FALSE)
     }
 
-    enhanced_metadata <- core_values$handson_metadata()
+    enhanced_metadata <- snapshot$metadata
     if (!metadata_aligned_with_data(enhanced_metadata, new_data, operation_label)) {
       debug_log(
         paste(operation_label, ": Skipping rv$data_def sync so the lifecycle observer can rebuild aligned metadata if needed"),
@@ -1409,6 +1456,8 @@ setup_filter_integration <- function(filter_module, core_values, modification_fu
     return()
   }
 
+  # Observer-only helper: every call below is inside the filter apply observer;
+  # imperative restore/setter code uses the isolated publication API instead.
   datawizard_restore_phase_active <- function(phases = NULL) {
     if (is.null(rv)) return(FALSE)
     phase <- rv$session_restore_phase %||% rv$restore_phase %||% NULL
