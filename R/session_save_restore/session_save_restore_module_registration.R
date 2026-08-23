@@ -1916,40 +1916,25 @@ register_module_session_participants <- function(session_registry, module_output
           # restore_fn returning. Falls back to synchronous calls when
           # session$onFlushed is unavailable (e.g. testing harness).
           restore_job_api <- if (!is.null(session)) session$userData$restore_jobs else NULL
+          scheduled_restore_generation <- restore_generation
+          scheduled_restore_phase <- "datawizard_ui"
+          current_restore_generation <- function() {
+            if (is.null(rv)) return(scheduled_restore_generation)
+            tryCatch(isolate(rv$session_restore_generation %||% NA_integer_),
+                     error = function(e) NA_integer_)
+          }
           dispatch_job <- if (is.list(restore_job_api) &&
                               is.function(restore_job_api$register_restore_job)) {
             restore_job_api$register_restore_job(
-              "datawizard", "deferred submodule UI dispatch", "datawizard_ui", timeout = 15
+              "datawizard", "top_level_ui_dispatch", scheduled_restore_phase, timeout = 15
             )
           } else NULL
           guard_job <- if (!is.null(dispatch_job)) {
             restore_job_api$register_restore_job(
-              "datawizard", "restore guard release", "finalizer", timeout = 15
+              "datawizard", "guard_release", "finalizer", timeout = 15
             )
           } else NULL
           dispatch_now <- function() {
-            if (!restore_generation_current()) {
-              debug_log("Data Wizard restore: skipped stale deferred UI dispatch", 2)
-              if (!is.null(dispatch_job)) {
-                restore_job_api$resolve_restore_job(dispatch_job, "skipped")
-                restore_job_api$resolve_restore_job(guard_job, "skipped")
-              }
-              return(invisible(NULL))
-            }
-            dispatch_error <- NULL
-            on.exit({
-              if (!is.null(dispatch_job)) {
-                restore_job_api$resolve_restore_job(
-                  dispatch_job,
-                  if (is.null(dispatch_error)) "completed" else "error",
-                  dispatch_error
-                )
-              }
-              if (!is.null(dispatch_error) && !is.null(guard_job)) {
-                restore_job_api$resolve_restore_job(guard_job, "skipped", dispatch_error)
-              }
-            }, add = TRUE)
-            tryCatch({
             extract_submodule_state_payload <- function(st) {
               if (!is.list(st)) return(NULL)
               candidates <- list(
@@ -2113,36 +2098,73 @@ register_module_session_participants <- function(session_registry, module_output
               }
               if (!is.null(session) && is.function(session$onFlushed)) {
                 session$onFlushed(once = TRUE, function() {
-                  finalize_restore_guard()
-                  if (!is.null(guard_job)) {
-                    restore_job_api$resolve_restore_job(guard_job, "completed")
-                  }
+                  .run_session_restore_callback(
+                    owner = "datawizard",
+                    reason = "guard_release",
+                    generation = scheduled_restore_generation,
+                    phase = scheduled_restore_phase,
+                    callback = finalize_restore_guard,
+                    job = guard_job,
+                    job_metadata = list(
+                      job_id = guard_job,
+                      current_generation = current_restore_generation,
+                      resolve_job = restore_job_api$resolve_restore_job
+                    )
+                  )
                 })
               } else {
-                finalize_restore_guard()
-                if (!is.null(guard_job)) {
-                  restore_job_api$resolve_restore_job(guard_job, "completed")
-                }
+                .run_session_restore_callback(
+                  owner = "datawizard",
+                  reason = "guard_release",
+                  generation = scheduled_restore_generation,
+                  phase = scheduled_restore_phase,
+                  callback = finalize_restore_guard,
+                  job = guard_job,
+                  job_metadata = list(
+                    job_id = guard_job,
+                    current_generation = current_restore_generation,
+                    resolve_job = restore_job_api$resolve_restore_job
+                  )
+                )
               }
               debug_log("Data Wizard restore: completed UI replay phase, bumped restore trigger, and deferred guard release until replay consumers flushed", 1)
             }
-            }, error = function(e) {
-              dispatch_error <<- conditionMessage(e)
-              debug_log(paste("Data Wizard deferred UI dispatch failed:", dispatch_error), 1)
-            })
+          }
+
+          run_dispatch_now <- function() {
+            dispatch_resolver <- if (!is.null(dispatch_job)) function(job_id, outcome, error = NULL) {
+              resolved <- restore_job_api$resolve_restore_job(job_id, outcome, error)
+              if (!identical(outcome, "success") && !is.null(guard_job)) {
+                restore_job_api$resolve_restore_job(guard_job, "skipped", error %||% outcome)
+              }
+              resolved
+            } else NULL
+            .run_session_restore_callback(
+              owner = "datawizard",
+              reason = "top_level_ui_dispatch",
+              generation = scheduled_restore_generation,
+              phase = scheduled_restore_phase,
+              callback = dispatch_now,
+              job = dispatch_job,
+              job_metadata = list(
+                job_id = dispatch_job,
+                current_generation = current_restore_generation,
+                resolve_job = dispatch_resolver
+              )
+            )
           }
 
           if (!is.null(session) && is.function(session$onFlushed)) {
             tryCatch({
-              session$onFlushed(once = TRUE, dispatch_now)
+              session$onFlushed(once = TRUE, run_dispatch_now)
             }, error = function(e) {
-              dispatch_now()
+              run_dispatch_now()
               debug_log(paste(
                 "Data Wizard: dispatch onFlushed unavailable, ran synchronously:",
                 e$message), 1)
             })
           } else {
-            dispatch_now()
+            run_dispatch_now()
           }
 
           debug_log(paste("Data Wizard session state restored; fields:",
