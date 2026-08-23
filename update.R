@@ -129,7 +129,6 @@ install_annotationhub_reliably <- function(lib = NULL, update = TRUE) {
 ## 2) Bioconductor packages -------------------------------------------------
 
 bioc_packages <- c(
-  "InteractiveComplexHeatmap",
   "AnnotationHub",
   "clusterProfiler",
   "enrichplot",
@@ -137,14 +136,8 @@ bioc_packages <- c(
   "DEqMS",
   "BiocFileCache",
   "sva",            # ComBat batch correction
-  "RUVSeq",         # RUV batch correction
-  "ProteoMM",       # EigenMS batch correction
-  "preprocessCore", # Quantile normalization for batch correction
-  "matrixStats",    # vectorized statistics, e.g. rowRanks()
   "GO.db",          # GO term hierarchy (e.g. for dropdowns)
-  "mixOmics",       # PCA and multivariate methods
   "AnnotationDbi",  # generic annotation infrastructure
-  "Biostrings",     # sequence and string-based annotation
   "biomaRt"         # annotation via Ensembl
   # "ensembldb"     # optional: additional annotation via Ensembl databases
 )
@@ -197,8 +190,6 @@ cran_packages <- c(
   "ggplot2",        # base plotting system
   "ggrepel",        # non-overlapping text labels
   "viridis",        # colorblind-friendly color scales
-  "FactoMineR",     # multivariate analysis (e.g. PCA)
-  "factoextra",     # visualization for multivariate analysis
   "stringr",        # string handling
   "gridExtra",      # arrange multiple plots
   "doParallel",     # parallel backend for foreach
@@ -207,17 +198,14 @@ cran_packages <- c(
   "igraph",         # static network plots
   "visNetwork",     # interactive network visualizations
   "dplyr",          # data manipulation
-  "dbplyr",         # dplyr backend for databases
   "RColorBrewer",   # additional color palettes
   "ComplexUpset",   # complex UpSet plots
   "VennDiagram",    # Venn diagrams
   "circlize",       # circular plots and color mapping
   "missForest",     # random forest-based imputation
   "mice",           # multiple imputation by chained equations
-  "coin",           # permutation tests (e.g. for small n)
   "pracma",         # numerical methods and utilities
   "colourpicker",   # color picker input for Shiny
-  "rstudioapi",     # interact with RStudio (e.g. set working directory)
   "scales",         # axis breaks and label helpers
   "shinyalert",     # alert dialogs in Shiny
   "svglite",        # SVG graphics device
@@ -226,17 +214,8 @@ cran_packages <- c(
   "openxlsx",       # advanced Excel file creation
   "ggupset",        # UpSet-style plotting for sets
   "ggridges",       # ridge plots (e.g. for distributions/GSEA)
-  "europepmc",      # literature queries (e.g. PubMed/Europe PMC)
-  "shinybrowser",   # detect browser size in Shiny
-  "ggtangle",       # modify cnet (cluster network) plots
-  "ggpubr",         # publication-ready ggplot2 helpers
-  "shinyBS",        # Bootstrap components (e.g. collapsible panels)
-  "callr",          # run R processes in the background
-  "processx",       # manage system processes (used by callr)
   "umap",           # UMAP dimensionality reduction
   # "rlang",          # tidy evaluation / programming utilities
-  "webshot",        # capture web pages (e.g. widget snapshots)
-  "webshot2",       # alternative/updated webshot backend
   "sortable",       # drag-and-drop UI components
   "png",            # read/write PNG images
   "rsvg",           # render SVG into other formats
