@@ -59,6 +59,7 @@ create_tables_observer_context <- function(input, output, session, ns, state,
   # Every additional mutable/reactive container is instantiated exactly once.
   context$suppress_metadata_edit_echo <- reactiveVal(FALSE)
   context$programmatic_metadata_update_active <- reactiveVal(FALSE)
+  context$metadata_sync_guard_token <- reactiveVal(0L)
   context$suppress_next_final_metadata_sync <- reactiveVal(FALSE)
   context$metadata_sync_pending <- reactiveVal(FALSE)
   context$metadata_sync_last_error <- reactiveVal("")

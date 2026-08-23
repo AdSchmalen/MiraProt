@@ -31,6 +31,17 @@
 # Hydration is registered before general rendering, while editing is registered
 # after table mutation observers, preserving the established observer phases.
 
+.clear_datawizard_metadata_sync_guard <- function(
+  scheduled_token, scheduled_generation, current_token, current_generation,
+  clear_guards) {
+  if (!identical(current_token(), scheduled_token) ||
+      !identical(current_generation(), scheduled_generation)) {
+    return(invisible(FALSE))
+  }
+  clear_guards()
+  invisible(TRUE)
+}
+
 register_tables_metadata_hydration <- function(context) {
   with(context, {
   current_handson_metadata <- context$current_handson_metadata
@@ -40,6 +51,7 @@ register_tables_metadata_hydration <- function(context) {
   programmatic_metadata_update_active <- context$programmatic_metadata_update_active
   suppress_next_final_metadata_sync <- context$suppress_next_final_metadata_sync
   metadata_sync_pending <- context$metadata_sync_pending
+  metadata_sync_guard_token <- context$metadata_sync_guard_token
 
   set_metadata_sync_state <- function(paused = isTRUE(input$pause_metadata_sync),
                                       pending = isTRUE(metadata_sync_pending())) {
@@ -58,12 +70,58 @@ register_tables_metadata_hydration <- function(context) {
     # active across the flush that sends the redraw and the following flush that
     # receives any load/render echo from the browser. Manual edits should only
     # be processed after this update cycle has fully settled.
+    restore_snapshot <- shiny::isolate(list(
+      generation = if (!is.null(rv)) rv$session_restore_generation else NULL,
+      restoring = if (!is.null(rv)) isTRUE(rv$session_restoring) else FALSE,
+      session_phase = if (!is.null(rv)) rv$session_restore_phase else NULL,
+      legacy_phase = if (!is.null(rv)) rv$restore_phase else NULL
+    ))
+    restore_phase <- restore_snapshot$session_phase %||% restore_snapshot$legacy_phase
+    invoked_during_restore <- !is.null(restore_snapshot$generation) &&
+      (isTRUE(restore_snapshot$restoring) ||
+         (!is.null(restore_phase) && !identical(restore_phase, "complete")))
+    scheduled_generation <- restore_snapshot$generation
+    scheduled_token <- shiny::isolate(metadata_sync_guard_token()) + 1L
+
+    metadata_sync_guard_token(scheduled_token)
     suppress_metadata_edit_echo(TRUE)
     programmatic_metadata_update_active(TRUE)
+
+    current_generation <- function() shiny::isolate(
+      if (!is.null(rv)) rv$session_restore_generation else NULL
+    )
+    release_guards <- function() {
+      .clear_datawizard_metadata_sync_guard(
+        scheduled_token = scheduled_token,
+        scheduled_generation = scheduled_generation,
+        current_token = function() metadata_sync_guard_token(),
+        current_generation = current_generation,
+        clear_guards = function() {
+          suppress_metadata_edit_echo(FALSE)
+          programmatic_metadata_update_active(FALSE)
+        }
+      )
+    }
     session$onFlushed(function() {
       later::later(function() {
-        suppress_metadata_edit_echo(FALSE)
-        programmatic_metadata_update_active(FALSE)
+        if (isTRUE(invoked_during_restore)) {
+          .run_session_restore_callback(
+            owner = "Data Wizard tables",
+            reason = "release programmatic metadata guard",
+            generation = scheduled_generation,
+            phase = restore_phase %||% "metadata",
+            job_metadata = list(current_generation = current_generation),
+            callback = release_guards
+          )
+        } else {
+          tryCatch(
+            shiny::isolate(release_guards()),
+            error = function(e) debug_log(paste0(
+              "[Data Wizard tables] metadata guard release failed: ",
+              conditionMessage(e)
+            ), 1L)
+          )
+        }
       }, delay = 0.25)
     }, once = TRUE)
   }
