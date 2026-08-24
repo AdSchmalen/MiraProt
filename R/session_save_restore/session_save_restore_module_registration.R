@@ -2575,9 +2575,16 @@ register_module_session_participants <- function(session_registry, module_output
         restore_fn = function(state, phase = NULL) {
           if (is.null(state)) return()
           if (is.list(state$module_state) && !isTRUE(state$module_state$plot_ready)) {
-            # Do not promote stale cache metadata in a configuration-only save.
-            state$module_state <- dotplot_preprocess_restore_cache(
-              state$module_state, list())
+            # Orchestration normally supplies this already-normalized state.
+            # Keep direct callback invocation defensive without depending on a
+            # Dotplot-owned helper or disturbing saved UI/settings fields.
+            state$module_state$restore_plot_data_cache <- NULL
+            state$module_state$restore_plot_data_cache_by_title <- NULL
+            state$module_state$restore_cache_resolved <- FALSE
+            state$module_state$restore_cache_degraded <- FALSE
+            state$module_state$restore_cache_degraded_reason <- NULL
+            state$module_state$restore_cache_dependency <- "none"
+            state$module_state$restore_cache_resolution_mode <- "none"
           }
           start_time <- proc.time()[["elapsed"]]
           plot_recreated <- FALSE
