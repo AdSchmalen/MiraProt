@@ -789,6 +789,19 @@ register_sampleids_observers <- function(input, output, session, ns,
 
   observeEvent(rv$session_restore_trigger, {
     captured <- isolate(state$pending_ui_inputs())
+    had_plot <- isTRUE(isolate(state$had_plot_on_save()))
+    if (!had_plot) {
+      apply_sampleids_restored_inputs(captured)
+      restore_poll_active(FALSE)
+      restore_poll_attempt(0L)
+      restore_poll_captured(NULL)
+      restore_poll_generation(NULL)
+      state$pending_ui_inputs(NULL)
+      state$had_plot_on_save(FALSE)
+      state$restore_plot_data_cache(NULL)
+      state$plot_from_restore_cache(FALSE)
+      return()
+    }
     generation <- isolate(rv$session_restore_generation %||% NA_integer_)
     register_job <- session$userData$register_restore_job
     job_id <- if (is.function(register_job)) tryCatch(
