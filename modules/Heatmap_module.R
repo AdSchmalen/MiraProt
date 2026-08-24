@@ -676,6 +676,14 @@ modHeatmapServer <- function(id, rv, res_GSEA = NULL, GO_res = NULL, module_outp
         # empty so the rebuild path produces a fresh object.
         legacy <- !is.null(state$version) && !identical(state$version, "2.0")
 
+        # Preserve the historical restore-intent contract before staging any
+        # reconstruction data. Older snapshots may not carry had_heatmap, but
+        # did carry the expression matrix either at the top level or in the
+        # schema-2 matrix payload.
+        had_heatmap <- isTRUE(state$had_heatmap) ||
+          isTRUE(!is.null(state$heatmap_expression_matrix)) ||
+          isTRUE(!is.null(state$matrix_payload$expression_matrix))
+
         # Raise guard BEFORE any reactive writes so observers that react to
         # dynamic-choices repopulation (which fires when heatmap_data is set)
         # skip work while the restore cascade is mid-flight.
@@ -684,22 +692,20 @@ modHeatmapServer <- function(id, rv, res_GSEA = NULL, GO_res = NULL, module_outp
         heatmap_state$restore_callbacks_pending <- 0L
         heatmap_state$restore_job_settled <- FALSE
         register_restore_job <- session$userData$register_restore_job
-        heatmap_state$restore_job_id <- if (is.function(register_restore_job)) tryCatch(
+        heatmap_state$restore_job_id <- if (isTRUE(had_heatmap) && is.function(register_restore_job)) tryCatch(
           register_restore_job("Heatmap", "replay and render restored heatmap", "render", 45),
           error = function(e) {
             heatmap_debug_log(paste("[Heatmap] restore job registration failed:", e$message), 1)
             NULL
           }
         ) else NULL
-        heatmap_state$pending_matrix_payload <- if (is.list(state$matrix_payload)) state$matrix_payload else NULL
-        heatmap_state$pending_plot_data_cache_ref <- state$plot_data_cache_ref %||% NULL
-        heatmap_state$pending_plot_data_cache_fingerprint <- state$plot_data_cache_fingerprint %||% NULL
-        heatmap_state$pending_data_mod_revision_id <- state$data_mod_revision_id %||% NULL
-        heatmap_state$pending_data_def_revision_id <- state$data_def_revision_id %||% NULL
+        heatmap_state$pending_matrix_payload <- if (isTRUE(had_heatmap) && is.list(state$matrix_payload)) state$matrix_payload else NULL
+        heatmap_state$pending_plot_data_cache_ref <- if (isTRUE(had_heatmap)) state$plot_data_cache_ref %||% NULL else NULL
+        heatmap_state$pending_plot_data_cache_fingerprint <- if (isTRUE(had_heatmap)) state$plot_data_cache_fingerprint %||% NULL else NULL
+        heatmap_state$pending_data_mod_revision_id <- if (isTRUE(had_heatmap)) state$data_mod_revision_id %||% NULL else NULL
+        heatmap_state$pending_data_def_revision_id <- if (isTRUE(had_heatmap)) state$data_def_revision_id %||% NULL else NULL
         heatmap_state$pending_annotation_state <- if (is.list(state$annotation_state)) state$annotation_state else NULL
-        heatmap_state$pending_had_heatmap <- isTRUE(state$had_heatmap) ||
-          isTRUE(!is.null(state$heatmap_expression_matrix)) ||
-          isTRUE(!is.null(state$matrix_payload$expression_matrix))
+        heatmap_state$pending_had_heatmap <- had_heatmap
         if (is.list(state$plot_request)) {
           heatmap_last_plot_request(state$plot_request)
         }
@@ -707,7 +713,7 @@ modHeatmapServer <- function(id, rv, res_GSEA = NULL, GO_res = NULL, module_outp
         # Restore matrix-native payloads only when present. Schema 2.0 prefers
         # plot_data_cache_ref + staged UI inputs so the restore observer can
         # rebuild from Data Wizard data/metadata without duplicating frames.
-        payload <- heatmap_state$pending_matrix_payload
+        payload <- if (isTRUE(had_heatmap)) heatmap_state$pending_matrix_payload else NULL
         if (is.list(payload)) {
           if (!is.null(payload$expression_matrix))          heatmap_expression_matrix(payload$expression_matrix)
           if (!is.null(payload$protein_cor_matrix))         heatmap_protein_cor_matrix(payload$protein_cor_matrix)
@@ -728,25 +734,28 @@ modHeatmapServer <- function(id, rv, res_GSEA = NULL, GO_res = NULL, module_outp
         # Restore data/cache.  When matrix payloads are omitted, orchestration
         # resolves plot_data_cache_ref into state$restore_plot_data_cache; publish
         # it to rv because Heatmap_observers.R resolves rebuild data from rv.
-        if (is.list(state$restore_plot_data_cache) &&
+        if (isTRUE(had_heatmap) &&
+            is.list(state$restore_plot_data_cache) &&
             inherits(state$restore_plot_data_cache$data_mod, "data.frame") &&
             inherits(state$restore_plot_data_cache$data_def, "data.frame")) {
           tryCatch({ rv$restore_plot_data_cache <- state$restore_plot_data_cache }, error = function(e) NULL)
         }
         # Restore data
-        if (!is.null(state$heatmap_data))                       heatmap_data(state$heatmap_data)
-        if (!is.null(state$heatmap_expression_matrix))          heatmap_expression_matrix(state$heatmap_expression_matrix)
-        if (!is.null(state$heatmap_protein_cor_matrix))         heatmap_protein_cor_matrix(state$heatmap_protein_cor_matrix)
-        if (!is.null(state$heatmap_sample_cor_matrix))          heatmap_sample_cor_matrix(state$heatmap_sample_cor_matrix)
-        if (!is.null(state$heatmap_pure_expression))            heatmap_pure_expression(state$heatmap_pure_expression)
-        if (!is.null(state$heatmap_cluster_info))               heatmap_cluster_info(state$heatmap_cluster_info)
-        # Restore ordering
-        if (!is.null(state$heatmap_shared_row_order))           heatmap_shared_row_order(state$heatmap_shared_row_order)
-        if (!is.null(state$heatmap_shared_col_order))           heatmap_shared_col_order(state$heatmap_shared_col_order)
-        if (!is.null(state$heatmap_shared_sample_cor_col_order)) heatmap_shared_sample_cor_col_order(state$heatmap_shared_sample_cor_col_order)
-        # Restore extension data
-        if (!is.null(state$heatmap_basemean_values))            heatmap_basemean_values(state$heatmap_basemean_values)
-        if (!is.null(state$heatmap_abundance_ratio_values))     heatmap_abundance_ratio_values(state$heatmap_abundance_ratio_values)
+        if (isTRUE(had_heatmap)) {
+          if (!is.null(state$heatmap_data))                       heatmap_data(state$heatmap_data)
+          if (!is.null(state$heatmap_expression_matrix))          heatmap_expression_matrix(state$heatmap_expression_matrix)
+          if (!is.null(state$heatmap_protein_cor_matrix))         heatmap_protein_cor_matrix(state$heatmap_protein_cor_matrix)
+          if (!is.null(state$heatmap_sample_cor_matrix))          heatmap_sample_cor_matrix(state$heatmap_sample_cor_matrix)
+          if (!is.null(state$heatmap_pure_expression))            heatmap_pure_expression(state$heatmap_pure_expression)
+          if (!is.null(state$heatmap_cluster_info))               heatmap_cluster_info(state$heatmap_cluster_info)
+          # Restore ordering
+          if (!is.null(state$heatmap_shared_row_order))           heatmap_shared_row_order(state$heatmap_shared_row_order)
+          if (!is.null(state$heatmap_shared_col_order))           heatmap_shared_col_order(state$heatmap_shared_col_order)
+          if (!is.null(state$heatmap_shared_sample_cor_col_order)) heatmap_shared_sample_cor_col_order(state$heatmap_shared_sample_cor_col_order)
+          # Restore extension data
+          if (!is.null(state$heatmap_basemean_values))            heatmap_basemean_values(state$heatmap_basemean_values)
+          if (!is.null(state$heatmap_abundance_ratio_values))     heatmap_abundance_ratio_values(state$heatmap_abundance_ratio_values)
+        }
         # Restore protein selection
         if (!is.null(state$selected_data_Heatmap))              selected_data_Heatmap(state$selected_data_Heatmap)
         if (!is.null(state$selected_protein_vector_Heatmap))    selected_protein_vector_Heatmap(state$selected_protein_vector_Heatmap)
@@ -835,15 +844,17 @@ modHeatmapServer <- function(id, rv, res_GSEA = NULL, GO_res = NULL, module_outp
           heatmap_state$pending_dynamic_ui_inputs <- list()
         }
 
-        skip_log_restored <- isTRUE(state$ui_inputs$skip_log_transform_heatmap)
-        heatmap_debug_log(
-          sprintf(
-            "Heatmap session restore staged | Skip log2 before Z-score: %s | Basemean scale: %s",
-            skip_log_restored,
-            if (skip_log_restored) "raw" else "log2"
-          ),
-          level = 0
-        )
+        if (isTRUE(had_heatmap)) {
+          skip_log_restored <- isTRUE(state$ui_inputs$skip_log_transform_heatmap)
+          heatmap_debug_log(
+            sprintf(
+              "Heatmap session restore staged | Skip log2 before Z-score: %s | Basemean scale: %s",
+              skip_log_restored,
+              if (skip_log_restored) "raw" else "log2"
+            ),
+            level = 0
+          )
+        }
 
         if (isTRUE(legacy)) {
           heatmap_debug_log(paste("[Heatmap] legacy session snapshot (version=",
