@@ -6,6 +6,8 @@ if (!file.exists(core_session_file)) {
 }
 
 test_that("deferred submodule restore callbacks isolate reactive reads", {
+  old_option <- options(miraprot.restore.compact_diagnostics = TRUE)
+  on.exit(options(old_option), add = TRUE)
   test_env <- new.env(parent = globalenv())
   test_env$messages <- character(0)
   test_env$debug_log <- function(message, level) {
@@ -23,7 +25,7 @@ test_that("deferred submodule restore callbacks isolate reactive reads", {
   ))
   expect_identical(shiny::isolate(restored()), "pending:applied")
   expect_true(any(grepl(
-    "[RestoreCallback:done] module=AutoAssign reason=restore_trigger:nested",
+    "[RestoreCallback:done] generation=0 phase=SUBMODULE_REPLAY module=AutoAssign reason=restore_trigger:nested job_id=none",
     test_env$messages, fixed = TRUE
   )))
   expect_false(any(grepl(
@@ -35,8 +37,10 @@ test_that("deferred submodule restore callbacks isolate reactive reads", {
 test_that("deferred submodule restore callback errors are named and nonfatal", {
   test_env <- new.env(parent = globalenv())
   test_env$messages <- character(0)
+  test_env$levels <- integer(0)
   test_env$debug_log <- function(message, level) {
     test_env$messages <- c(test_env$messages, message)
+    test_env$levels <- c(test_env$levels, level)
   }
   sys.source(core_session_file, envir = test_env)
 
@@ -45,10 +49,25 @@ test_that("deferred submodule restore callback errors are named and nonfatal", {
     "Ratios", "post_stabilization_retry"
   ))
   expect_true(any(grepl(
-    paste0("[RestoreCallback:error] module=Ratios ",
-           "reason=post_stabilization_retry error=deliberate UI replay failure"),
+    paste0("[RestoreCallback:error] generation=0 phase=SUBMODULE_REPLAY module=Ratios ",
+           "reason=post_stabilization_retry job_id=none code=CALLBACK_ERROR error=deliberate UI replay failure"),
     test_env$messages, fixed = TRUE
   )))
+  expect_identical(test_env$levels, 0L)
+})
+
+test_that("successful callback diagnostics are opt-in", {
+  test_env <- new.env(parent = globalenv())
+  test_env$messages <- character(0)
+  test_env$debug_log <- function(message, level) {
+    test_env$messages <- c(test_env$messages, message)
+  }
+  sys.source(core_session_file, envir = test_env)
+
+  expect_true(test_env$.run_submodule_restore_callback(
+    function() NULL, "Tables", "quiet replay"
+  ))
+  expect_empty(test_env$messages)
 })
 
 test_that("imperative readiness keeps absence separate from reactive-context conditions", {

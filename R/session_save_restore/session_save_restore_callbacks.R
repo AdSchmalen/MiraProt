@@ -41,14 +41,19 @@
   metadata <- if (is.list(job_metadata)) job_metadata else list()
   resolver <- metadata$resolve_job %||% metadata$resolve_restore_job %||% NULL
   job_id <- metadata$job_id %||% metadata$id %||% NULL
+  generation <- metadata$generation %||% metadata$restore_generation %||% NA_integer_
+  phase <- metadata$phase %||% "READINESS"
+  reason <- metadata$reason %||% "readiness predicate"
   outcome <- metadata$condition_outcome %||%
     if (identical(code, "REACTIVE_CONTEXT_VIOLATION")) "failure" else "degraded"
   if (!is.null(job_id) && is.function(resolver)) {
     tryCatch(resolver(job_id, outcome, paste0(code, ": ", conditionMessage(condition))),
              error = function(e) FALSE)
   }
-  debug_log(paste0("[RestoreReadiness:error] owner=", owner, " code=", code,
-                   " error=", conditionMessage(condition)), 1L)
+  debug_log(paste0("[RestoreReadiness:error] generation=", generation,
+                   " phase=", phase, " owner=", owner, " reason=", reason,
+                   " job_id=", job_id %||% "none", " code=", code,
+                   " error=", conditionMessage(condition)), 0L)
   list(ready = FALSE,
        # Caught conditions are not absence. In particular, polling cannot fix a
        # missing Shiny consumer, so terminate/degrade the named job now.
@@ -69,19 +74,22 @@
   include_calls <- isTRUE(metadata$include_calls) || isTRUE(metadata$capture_calls)
   owner_field <- metadata$diagnostic_owner_field %||% "owner"
 
+  compact_diagnostics <- isTRUE(metadata$compact_diagnostics) ||
+    isTRUE(getOption("miraprot.restore.compact_diagnostics", FALSE))
+  major_boundary <- isTRUE(metadata$major_boundary)
   log_event <- function(event, detail = NULL, level = 2L) {
-    context <- if (isTRUE(metadata$legacy_diagnostics)) "" else
-      paste0(" generation=", generation, " phase=", phase)
-    debug_log(paste0("[RestoreCallback:", event, "] ", owner_field, "=", owner,
-                     " reason=", reason, context, detail %||% ""), level = level)
+    debug_log(paste0("[RestoreCallback:", event, "] generation=", generation,
+                     " phase=", phase, " ", owner_field, "=", owner,
+                     " reason=", reason, " job_id=", job_id %||% "none",
+                     detail %||% ""), level = level)
   }
   resolve <- function(outcome, error = NULL) {
     if (is.null(job_id) || !is.function(resolver)) return(TRUE)
     ok <- tryCatch(isTRUE(resolver(job_id, outcome, error)), error = function(e) {
-      log_event("error", paste0(" code=SETTLEMENT_FAILURE error=", conditionMessage(e)), 1L)
+      log_event("error", paste0(" code=SETTLEMENT_FAILURE error=", conditionMessage(e)), 0L)
       FALSE
     })
-    if (!ok) log_event("error", " code=SETTLEMENT_REJECTED error=job resolution rejected", 1L)
+    if (!ok) log_event("error", " code=SETTLEMENT_REJECTED error=job resolution rejected", 0L)
     ok
   }
 
@@ -89,7 +97,7 @@
     tryCatch(current_generation_fn(), error = function(e) NA_integer_)
   } else metadata$current_generation %||% generation
   if (!identical(as.integer(current_generation)[1L], as.integer(generation)[1L])) {
-    log_event("error", " code=STALE_GENERATION error=callback skipped", 1L)
+    log_event("error", " code=STALE_GENERATION error=callback skipped", 0L)
     resolve("skipped", "STALE_GENERATION")
     return(invisible(FALSE))
   }
@@ -98,12 +106,12 @@
   timed_out <- isTRUE(metadata$timed_out) ||
     (!is.null(deadline) && isTRUE(Sys.time() >= as.POSIXct(deadline)))
   if (timed_out) {
-    log_event("error", " code=TIMEOUT error=callback deadline elapsed", 1L)
+    log_event("error", " code=TIMEOUT error=callback deadline elapsed", 0L)
     resolve("timeout", "TIMEOUT")
     return(invisible(FALSE))
   }
 
-  log_event("start")
+  if (major_boundary || compact_diagnostics) log_event("start", level = 1L)
   error_record <- NULL
   ok <- tryCatch({
     shiny::isolate(callback())
@@ -116,13 +124,13 @@
   })
   if (ok) {
     settled <- resolve("success")
-    if (settled) log_event("done")
+    if (settled && (major_boundary || compact_diagnostics)) log_event("done", level = 1L)
     return(invisible(settled))
   }
   if (is.function(condition_recorder)) {
     recorded <- tryCatch({ condition_recorder(error_record); TRUE }, error = function(e) {
       log_event("error", paste0(" code=CONDITION_RECORD_FAILURE error=",
-                                conditionMessage(e)), 1L)
+                                conditionMessage(e)), 0L)
       FALSE
     })
     if (!recorded) error_record$message <- paste0(error_record$message,
@@ -131,7 +139,7 @@
   detail <- paste0(" code=", error_record$code, " error=", error_record$message,
                    " classes=", paste(error_record$classes, collapse = ","))
   if (!is.null(error_record$calls)) detail <- paste0(detail, " calls=", error_record$calls)
-  log_event("error", detail, 1L)
+  log_event("error", detail, 0L)
   resolve("failure", error_record$message)
   invisible(FALSE)
 }

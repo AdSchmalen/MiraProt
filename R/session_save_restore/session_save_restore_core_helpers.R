@@ -29,6 +29,26 @@
   state$generations <- new.env(parent = emptyenv())
   state$sequence <- 0L
 
+  essential_log <- function(event, job = NULL, generation = NA_integer_,
+                            phase = "SETTLEMENT", owner = "registry",
+                            reason = "restore settlement", job_id = "all",
+                            detail = "") {
+    logger <- get0("debug_log", mode = "function", inherits = TRUE,
+                   ifnotfound = NULL)
+    if (!is.function(logger)) return(invisible(FALSE))
+    if (!is.null(job)) {
+      generation <- job$generation
+      phase <- job$phase
+      owner <- job$owner
+      reason <- job$reason
+      job_id <- job$id
+    }
+    logger(paste0("[RestoreRegistry:", event, "] generation=", generation,
+                  " phase=", phase, " owner=", owner, " reason=", reason,
+                  " job_id=", job_id, detail), 0L)
+    invisible(TRUE)
+  }
+
   generation_record <- function(generation, create = FALSE) {
     key <- as.character(as.integer(generation))
     if (!exists(key, state$generations, inherits = FALSE) && create) {
@@ -58,6 +78,17 @@
     record$phase <- if (any(failed)) "FAILED" else if (any(degraded) || length(errors)) "DEGRADED" else "SETTLED"
     record$reported <- TRUE
     put_generation(record)
+    if (!identical(record$phase, "SETTLED")) {
+      essential_log("final", generation = record$generation,
+                    detail = paste0(" status=", record$phase))
+      problematic <- jobs[outcomes %in% c("timeout", "error", "failed", "failure",
+                                          "skipped", "degraded")]
+      for (job in problematic) {
+        essential_log("outstanding", job = job,
+                      detail = paste0(" outcome=", job$outcome %||% "unknown",
+                                      " error=", job$error %||% "none"))
+      }
+    }
     settled_callback(list(
       generation = record$generation, state = record$phase, jobs = jobs,
       errors = errors, skipped = sum(outcomes == "skipped"),
@@ -92,6 +123,11 @@
     if (is.finite(job$timeout) && job$timeout > 0) {
       schedule_timeout(function() {
         # resolve_restore_job performs both the generation and exactly-once checks.
+        current <- get0(id, state$jobs, inherits = FALSE, ifnotfound = NULL)
+        if (!is.null(current) && is.null(current$resolved_at)) {
+          essential_log("timeout", job = current,
+                        detail = paste0(" error=timed out after ", job$timeout, "s"))
+        }
         resolve_restore_job(id, "timeout", sprintf("timed out after %ss", job$timeout))
       }, job$timeout)
     }

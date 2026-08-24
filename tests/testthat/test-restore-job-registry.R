@@ -4,6 +4,10 @@ if (!file.exists(core_helpers_file)) core_helpers_file <- file.path("..", "..", 
 test_that("restore jobs resolve exactly once and are generation scoped", {
   env <- new.env(parent = globalenv())
   env$`%||%` <- function(x, y) if (is.null(x)) y else x
+  env$logs <- list()
+  env$debug_log <- function(message, level) {
+    env$logs[[length(env$logs) + 1L]] <- list(message = message, level = level)
+  }
   sys.source(core_helpers_file, envir = env)
   generation <- 1L
   timers <- list()
@@ -33,4 +37,13 @@ test_that("restore jobs resolve exactly once and are generation scoped", {
   expect_identical(reports[[2L]]$state, "DEGRADED")
   expect_identical(reports[[2L]]$timeouts, 1L)
   expect_false(registry$resolve_restore_job(second, "completed"))
+  expect_true(all(vapply(env$logs, `[[`, integer(1), "level") == 0L))
+  messages <- vapply(env$logs, `[[`, character(1), "message")
+  required_context <- paste0("generation=2 phase=replay owner=ui reason=replay job_id=", second)
+  expect_true(any(grepl(paste0("[RestoreRegistry:timeout] ", required_context),
+                        messages, fixed = TRUE)))
+  expect_true(any(grepl("[RestoreRegistry:final] generation=2 phase=SETTLEMENT owner=registry reason=restore settlement job_id=all status=DEGRADED",
+                        messages, fixed = TRUE)))
+  expect_true(any(grepl(paste0("[RestoreRegistry:outstanding] ", required_context,
+                               " outcome=timeout"), messages, fixed = TRUE)))
 })

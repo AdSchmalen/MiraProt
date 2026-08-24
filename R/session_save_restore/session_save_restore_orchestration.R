@@ -2433,15 +2433,14 @@ setup_session_save_restore <- function(input, output, session, rv,
                               " module(s) restored. Modules will re-process the data."),
                        type = "message", duration = 8)
     } else {
-      outstanding_names <- vapply(report$outstanding, function(job) paste(job$owner, job$reason, sep = ":"), character(1))
-      debug_log(paste("Session restore settlement", report$state, "outstanding jobs:",
-                      paste(outstanding_names, collapse = ", ")), 1)
       showNotification(paste0("Session restored ", tolower(report$state), ": ",
                               paste(warning_parts, collapse = "; "), "."),
                        type = if (identical(report$state, "FAILED")) "error" else "warning", duration = 10)
     }
-    debug_log(paste("Session restoration completed.", n_modules, "module(s) restored, state", report$state,
-                    "outcomes:", paste(names(report$outcomes), report$outcomes, sep = "=", collapse = ", ")), 1)
+    if (identical(report$state, "SETTLED")) {
+      debug_log(paste("Session restoration completed.", n_modules,
+                      "module(s) restored, state", report$state), 1)
+    }
     invisible(TRUE)
   }
   restore_jobs <- .create_restore_job_registry(
