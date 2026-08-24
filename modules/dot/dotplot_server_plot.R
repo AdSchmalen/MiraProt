@@ -1576,6 +1576,15 @@ observeEvent(plot_update_trigger(), {
       # factory values until this sync runs.
       sync_dotplot_ui_from_state()
 
+      # The module setter is authoritative for whether the saved session had a
+      # plot. UI restoration is harmless, but everything below creates plot
+      # state or deferred render work.
+      if (!isTRUE(isolate(dotplot_state$restore_rebuild_requested))) {
+        dotplot_debug_log(
+          "[Dotplot] session restore: UI synchronized; no plot rebuild requested", 1)
+        return(invisible(NULL))
+      }
+
       # Immediate fallback: if the deserialized ggplot is NULL, regenerate
       # now so the first render has something to show.  The remap guard in
       # dotplot_server_regions.R keeps region_configs intact even at this
