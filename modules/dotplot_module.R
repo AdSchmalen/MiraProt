@@ -195,15 +195,15 @@ modDotPlotServer <- function(id, rv, res_GSEA = NULL, res_GO = NULL, module_outp
       get_session_state = function() {
         current_inputs <- tryCatch(dotplot_capture_ui_inputs(input, dotplot_ui_input_ids), error = function(e) list())
         plot_request <- tryCatch(dotplot_extract_plot_parameters(input), error = function(e) list())
-        plot_title <- current_inputs$plot_title %||% plot_request$plot_title
-        canonical_key <- dotplot_build_cache_key(plot_title)
-        cached_pair <- tryCatch({
+        plot_ready <- isTRUE(isolate(dotplot_state$plot_ready))
+        canonical_key <- if (plot_ready) dotplot_build_cache_key() else NULL
+        cached_pair <- if (plot_ready) tryCatch({
           if (is.list(dotplot_state$plot_creation_cache) &&
               inherits(dotplot_state$plot_creation_cache$data_mod, "data.frame") &&
               inherits(dotplot_state$plot_creation_cache$data_def, "data.frame")) {
             dotplot_state$plot_creation_cache
           } else NULL
-        }, error = function(e) NULL)
+        }, error = function(e) NULL) else NULL
         cache_key <- tryCatch({
           if (is.list(cached_pair)) {
             .build_plot_data_cache_id(data_mod = cached_pair$data_mod, data_def = cached_pair$data_def)
@@ -274,18 +274,27 @@ modDotPlotServer <- function(id, rv, res_GSEA = NULL, res_GO = NULL, module_outp
         state$plot_request$color_rules <- isolate(dotplot_state$color_rules)
         state$plot_request$region_configs <- tryCatch(isolate(region_configs()), error = function(e) list())
         state$plot_request$selected_region <- tryCatch(isolate(selected_region()), error = function(e) NULL)
-        state$plot_data_cache_ref <- cache_key
-        cache_contract <- .plot_data_cache_ref_contract(
-          data_mod_revision_id = rv$data_mod_revision_id,
-          data_def_revision_id = rv$data_def_revision_id,
-          data_mod = cached_pair$data_mod %||% NULL,
-          data_def = cached_pair$data_def %||% NULL,
-          plot_data_cache_ref = cache_key
-        )
-        state$data_mod_revision_id <- cache_contract$data_mod_revision_id
-        state$data_def_revision_id <- cache_contract$data_def_revision_id
-        state$plot_data_cache_fingerprint <- cache_contract$plot_data_cache_fingerprint
-        state$plot_data_cache_payload <- cached_pair
+        if (plot_ready) {
+          state$plot_data_cache_ref <- cache_key
+          cache_contract <- .plot_data_cache_ref_contract(
+            data_mod_revision_id = rv$data_mod_revision_id,
+            data_def_revision_id = rv$data_def_revision_id,
+            data_mod = cached_pair$data_mod %||% NULL,
+            data_def = cached_pair$data_def %||% NULL,
+            plot_data_cache_ref = cache_key
+          )
+          state$data_mod_revision_id <- cache_contract$data_mod_revision_id
+          state$data_def_revision_id <- cache_contract$data_def_revision_id
+          state$plot_data_cache_fingerprint <- cache_contract$plot_data_cache_fingerprint
+          state$plot_data_cache_payload <- cached_pair
+        } else {
+          state$restore_cache_dependency <- "none"
+          state$plot_data_cache_ref <- NULL
+          state$data_mod_revision_id <- NULL
+          state$data_def_revision_id <- NULL
+          state$plot_data_cache_fingerprint <- NULL
+          state$plot_data_cache_payload <- NULL
+        }
         state$plot_ui_cache <- ui_cache
         state$labels <- list(
           manual_labels = tryCatch(isolate(dot_protein_labels()), error = function(e) list()),
@@ -296,15 +305,7 @@ modDotPlotServer <- function(id, rv, res_GSEA = NULL, res_GO = NULL, module_outp
         )
         state$selected_points <- isolate(dotplot_state$selected_points)
         state$highlighted_points <- tryCatch(isolate(selected_points_interactive_dot()), error = function(e) NULL)
-        state$plot_ready <- isolate(dotplot_state$plot_ready)
-
-        # UI state alone is not plot restore intent.  Do not publish dangling
-        # cache references for a Dotplot that has never been rendered.
-        if (!isTRUE(state$plot_ready)) {
-          state$restore_cache_dependency <- "none"
-          state$plot_data_cache_ref <- NULL
-          state$plot_data_cache_payload <- NULL
-        }
+        state$plot_ready <- plot_ready
 
         # Compatibility fields used by the existing restore orchestration and
         # cache hydration. These are scalar/list metadata only: do not persist
@@ -383,17 +384,25 @@ modDotPlotServer <- function(id, rv, res_GSEA = NULL, res_GO = NULL, module_outp
         if (is.null(state$selected_points_interactive_dot)) state$selected_points_interactive_dot <- state$highlighted_points
 
         had_plot_on_save <- isTRUE(state$plot_ready)
-        logical_plot_id <- state$plot_ui_inputs$plot_title
         canonical_key <- NULL
+        former_title_key <- NULL
         cache_key <- NA_character_
         malformed_cache_key <- FALSE
         if (isTRUE(had_plot_on_save)) {
           canonical_key <- tryCatch(
-            dotplot_build_cache_key(logical_plot_id),
+            dotplot_build_cache_key(),
             error = function(e) {
               dotplot_debug_log(paste("[Dotplot] malformed-cache-key:", e$message), 1)
               NULL
             }
+          )
+          former_title_key <- tryCatch(
+            .build_canonical_plot_cache_key(
+              module = "dotplot",
+              logical_plot_id = state$plot_ui_inputs$plot_title,
+              variant = "main"
+            ),
+            error = function(e) NULL
           )
           cache_key <- as.character(state$plot_data_cache_ref %||% NA_character_)[1]
           malformed_cache_key <- is.null(canonical_key) || is.na(cache_key) ||
@@ -419,6 +428,7 @@ modDotPlotServer <- function(id, rv, res_GSEA = NULL, res_GO = NULL, module_outp
           cache_hit <- TRUE; cache_source <- "module_ref"
         } else if (isTRUE(had_plot_on_save) && !isTRUE(malformed_cache_key) && is.list(state$restore_plot_data_cache_by_title)) {
           cand <- state$restore_plot_data_cache_by_title[[canonical_key]]
+          if (!is.list(cand) && !is.null(former_title_key)) cand <- state$restore_plot_data_cache_by_title[[former_title_key]]
           if (!is.list(cand)) cand <- state$restore_plot_data_cache_by_title[[legacy_plot_key(state$plot_ui_inputs$plot_title)]]
           if (is.list(cand) &&
               is.data.frame(cand$data_mod) &&
