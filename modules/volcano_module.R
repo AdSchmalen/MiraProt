@@ -459,7 +459,9 @@ modVolcanoServer <- function(id, rv, res_GSEA = NULL, GO_res = NULL, module_outp
         state$plot_cache_ref_by_title <- tryCatch({
           if (length(current_titles) > 0L && valid_cache_ref(cache_ref)) {
             refs_by_title <- vector("list", length(current_titles))
-            names(refs_by_title) <- current_titles
+            names(refs_by_title) <- vapply(current_titles, function(title) {
+              .build_canonical_plot_cache_key("volcano", title, "main")
+            }, character(1L))
             for (i in seq_along(refs_by_title)) {
               refs_by_title[[i]] <- cache_ref
             }
