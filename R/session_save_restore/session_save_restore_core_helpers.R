@@ -54,7 +54,8 @@
     if (!exists(key, state$generations, inherits = FALSE) && create) {
       assign(key, list(generation = as.integer(generation), phase = "HYDRATED",
                        sealed = FALSE, reported = FALSE,
-                       barrier_owner = NULL), state$generations)
+                       barrier_owner = NULL, settlement_metadata = list()),
+             state$generations)
     }
     get0(key, state$generations, inherits = FALSE, ifnotfound = NULL)
   }
@@ -94,7 +95,9 @@
       generation = record$generation, state = record$phase, jobs = jobs,
       errors = errors, skipped = sum(outcomes == "skipped"),
       timeouts = sum(outcomes == "timeout"), outcomes = outcomes,
-      outstanding = jobs[outcomes %in% c("timeout", "error", "failed", "skipped", "degraded")]
+      outstanding = jobs[outcomes %in% c("timeout", "error", "failed", "failure",
+                                         "skipped", "degraded")],
+      metadata = record$settlement_metadata %||% list()
     ))
     TRUE
   }
@@ -167,6 +170,21 @@
     if (is.null(record)) return(NULL)
     record
   }
+  set_settlement_metadata <- function(generation, metadata) {
+    generation <- as.integer(generation)
+    if (!identical(as.integer(generation_fn()), generation) || !is.list(metadata)) {
+      return(FALSE)
+    }
+    record <- generation_record(generation)
+    if (is.null(record) || isTRUE(record$sealed) || isTRUE(record$reported)) {
+      return(FALSE)
+    }
+    record$settlement_metadata <- utils::modifyList(
+      record$settlement_metadata %||% list(), metadata
+    )
+    put_generation(record)
+    TRUE
+  }
   seal_generation <- function(generation) {
     generation <- as.integer(generation)
     # A callback retained by generation N must never close generation N+1.
@@ -185,6 +203,7 @@
        outstanding_restore_jobs = outstanding_restore_jobs,
        claim_registration_barrier = claim_registration_barrier,
        generation_status = generation_status,
+       set_settlement_metadata = set_settlement_metadata,
        seal_generation = seal_generation)
 }
 
