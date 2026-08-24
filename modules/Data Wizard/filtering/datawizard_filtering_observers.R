@@ -407,10 +407,11 @@ register_filtering_observers <- function(input, output, session, ns,
   }, ignoreInit = TRUE)
 
   observeEvent(list(data_revision_signature(), input$filter_category_dw), {
+    snapshot <- filtering_refresh_snapshot()
+    if (length(snapshot$columns) == 0) return()
+
     tryCatch({
-      snapshot <- filtering_refresh_snapshot()
       all_cols <- snapshot$columns
-      req(length(all_cols) > 0)
       sel_category <- tryCatch({ input$filter_category_dw }, error = function(e) NULL)
       sel_category_chr <- if (is.null(sel_category)) "" else as.character(sel_category)
 
@@ -482,7 +483,7 @@ register_filtering_observers <- function(input, output, session, ns,
       )
 
     }, error = function(e) {
-      debug_log(paste("Error updating filter column choices:", e$message), 1)
+      debug_log(paste("Error updating filter column choices:", conditionMessage(e)), 1)
       freezeReactiveValue(input, "filter_column_dw")
       updateSelectizeInput(session, "filter_column_dw", choices = character(0), selected = character(0))
       # Reset local caches on error
@@ -495,7 +496,7 @@ register_filtering_observers <- function(input, output, session, ns,
   observeEvent(data_revision_signature(), {
     tryCatch({
       current_data <- tryCatch({ isolate(data()) }, error = function(e) NULL)
-      req(is.data.frame(current_data))
+      if (!is.data.frame(current_data)) return()
       current_metadata <- tryCatch({ isolate(metadata_def()) }, error = function(e) NULL)
       metadata_status <- tryCatch({ metadata_ready() }, error = function(e) FALSE)
 
