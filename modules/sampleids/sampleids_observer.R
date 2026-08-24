@@ -60,6 +60,7 @@ register_sampleids_observers <- function(input, output, session, ns,
   restore_poll_captured <- reactiveVal(NULL)
   restore_poll_generation <- reactiveVal(NULL)
   restore_poll_job <- reactiveVal(NULL)
+  restore_poll_started_at <- reactiveVal(NULL)
 
   restore_context_active <- function() {
     isTRUE(rv$session_restoring) ||
@@ -69,6 +70,7 @@ register_sampleids_observers <- function(input, output, session, ns,
 
   release_cached_restore_plot <- function() {
     restore_poll_active(FALSE)
+    restore_poll_started_at(NULL)
     restore_poll_captured(NULL)
     state$pending_ui_inputs(NULL)
     state$had_plot_on_save(FALSE)
@@ -77,6 +79,7 @@ register_sampleids_observers <- function(input, output, session, ns,
   }
 
   settle_restore_poll <- function(outcome, error = NULL) {
+    restore_poll_started_at(NULL)
     job_id <- isolate(restore_poll_job())
     resolver <- session$userData$resolve_restore_job
     restore_poll_job(NULL)
@@ -90,6 +93,24 @@ register_sampleids_observers <- function(input, output, session, ns,
     is.list(cache) &&
       inherits(cache$data_mod, "data.frame") &&
       inherits(cache$data_def, "data.frame")
+  }
+
+  effective_sampleids_data_pair <- function() {
+    restore_cache <- state$restore_plot_data_cache()
+    if (isTRUE(restore_context_active()) &&
+        has_valid_restore_plot_data_cache(restore_cache)) {
+      return(list(data_mod = restore_cache$data_mod,
+                  data_def = restore_cache$data_def))
+    }
+
+    plot_cache <- state$plot_creation_cache()
+    if (isTRUE(state$plot_from_restore_cache()) &&
+        has_valid_restore_plot_data_cache(plot_cache)) {
+      return(list(data_mod = plot_cache$data_mod,
+                  data_def = plot_cache$data_def))
+    }
+
+    list(data_mod = rv$data_mod, data_def = rv$data_def)
   }
 
   data_pair_signature <- function(data_mod, data_def) {
@@ -429,9 +450,9 @@ register_sampleids_observers <- function(input, output, session, ns,
 
   is_sampleids_restore_ready <- function(captured) {
     if (is.null(captured) || !is.list(captured)) return(FALSE)
-    cache <- state$restore_plot_data_cache()
-    data_mod_active <- if (is.list(cache) && inherits(cache$data_mod, "data.frame")) cache$data_mod else rv$data_mod
-    data_def_active <- if (is.list(cache) && inherits(cache$data_def, "data.frame")) cache$data_def else rv$data_def
+    pair <- effective_sampleids_data_pair()
+    data_mod_active <- pair$data_mod
+    data_def_active <- pair$data_def
     if (is.null(data_mod_active) || is.null(data_def_active)) return(FALSE)
 
     same_single <- function(input_id) {
@@ -468,8 +489,9 @@ register_sampleids_observers <- function(input, output, session, ns,
   # --------------------------------------------------------------------------
 
   observe({
-    data_mod_active <- rv$data_mod
-    data_def_active <- rv$data_def
+    pair <- effective_sampleids_data_pair()
+    data_mod_active <- pair$data_mod
+    data_def_active <- pair$data_def
     req(data_mod_active, data_def_active)
 
     data     <- data_mod_active
@@ -537,16 +559,16 @@ register_sampleids_observers <- function(input, output, session, ns,
   #    exceeded.
   # --------------------------------------------------------------------------
 
-  observeEvent(list(input$FileSample_SampleIDTab, input$data_SampleIDTab, rv$data_mod, rv$data_def), {
-    data_mod_active <- rv$data_mod
-    data_def_active <- rv$data_def
+  observe({
+    selected_file_sample <- input$FileSample_SampleIDTab
+    selected_data_type   <- input$data_SampleIDTab
+    pair <- effective_sampleids_data_pair()
+    data_mod_active <- pair$data_mod
+    data_def_active <- pair$data_def
     req(data_mod_active, data_def_active)
 
     data     <- data_mod_active
     data_def <- data_def_active
-
-    selected_file_sample <- input$FileSample_SampleIDTab
-    selected_data_type   <- input$data_SampleIDTab
 
     found_in_sample_idx <- which(grepl("^Found in Sample$", data_def$Content))
     found_in_file_idx   <- which(grepl("^Found in File$",   data_def$Content))
@@ -796,6 +818,7 @@ register_sampleids_observers <- function(input, output, session, ns,
       restore_poll_attempt(0L)
       restore_poll_captured(NULL)
       restore_poll_generation(NULL)
+      restore_poll_started_at(NULL)
       state$pending_ui_inputs(NULL)
       state$had_plot_on_save(FALSE)
       state$restore_plot_data_cache(NULL)
@@ -805,7 +828,7 @@ register_sampleids_observers <- function(input, output, session, ns,
     generation <- isolate(rv$session_restore_generation %||% NA_integer_)
     register_job <- session$userData$register_restore_job
     job_id <- if (is.function(register_job)) tryCatch(
-      register_job("SampleIDs", "poll and plot rebuild", "render", 2),
+      register_job("SampleIDs", "poll and plot rebuild", "render", 30),
       error = function(e) NULL
     ) else NULL
     restore_poll_job(job_id)
@@ -828,6 +851,7 @@ register_sampleids_observers <- function(input, output, session, ns,
         callback = function() {
           restore_poll_captured(captured)
           restore_poll_attempt(0L)
+          restore_poll_started_at(Sys.time())
           restore_poll_active(TRUE)
           debug_log("[SampleIDs] session restore: UI input sync initiated", 1)
         }
@@ -860,7 +884,13 @@ register_sampleids_observers <- function(input, output, session, ns,
     attempt <- isolate(restore_poll_attempt()) + 1L
     restore_poll_attempt(attempt)
     if (attempt == 1L) apply_sampleids_restored_inputs(captured)
-    if (attempt > 20L) {
+    started_at <- isolate(restore_poll_started_at())
+    elapsed_seconds <- if (inherits(started_at, "POSIXt")) {
+      as.numeric(difftime(Sys.time(), started_at, units = "secs"))
+    } else {
+      Inf
+    }
+    if (elapsed_seconds >= 15) {
       debug_log("[SampleIDs] restore timed out waiting for UI/data synchronization", 1)
       restore_poll_active(FALSE)
       state$pending_ui_inputs(NULL)
@@ -878,9 +908,11 @@ register_sampleids_observers <- function(input, output, session, ns,
     }
 
     if (isTRUE(is_sampleids_restore_ready(captured))) {
+      used_restore_cache <- FALSE
       rebuild_ok <- tryCatch({
         cache <- isolate(state$restore_plot_data_cache())
-        if (has_valid_restore_plot_data_cache(cache)) {
+        used_restore_cache <- has_valid_restore_plot_data_cache(cache)
+        if (isTRUE(used_restore_cache)) {
           ui_snapshot <- isolate(state$plot_ui_cache())
           if (!is.list(ui_snapshot)) ui_snapshot <- captured
           rebuild_ok <- regenerate_sampleids_plot(ui_override = ui_snapshot, force_cached = TRUE)
@@ -898,7 +930,7 @@ register_sampleids_observers <- function(input, output, session, ns,
       })
       restore_poll_active(FALSE)
       state$pending_ui_inputs(NULL)
-      state$plot_from_restore_cache(has_valid_restore_plot_data_cache(isolate(state$restore_plot_data_cache())))
+      state$plot_from_restore_cache(isTRUE(rebuild_ok) && isTRUE(used_restore_cache))
       settle_restore_poll(if (isTRUE(rebuild_ok)) "completed" else "error",
                           if (isTRUE(rebuild_ok)) NULL else "SAMPLEIDS_REBUILD_FAILED")
       return()
