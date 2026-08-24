@@ -60,6 +60,14 @@ heatmap_create_expression_heatmap <- function(
     plot_request = NULL,
     silent_restore = FALSE
   ) {
+  require_feature_dependency(
+    "ComplexHeatmap",
+    if (isTRUE(silent_restore)) {
+      "Heatmap restore requires the 'ComplexHeatmap' package, but it is not installed."
+    } else {
+      "Heatmap creation requires the 'ComplexHeatmap' package, but it is not installed."
+    }
+  )
   tryCatch({
     heatmap_debug_log("Creating expression heatmap with selected samples only", 2)
     effective_input <- plot_request %||% input_values %||% input

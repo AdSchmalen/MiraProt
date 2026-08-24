@@ -1139,8 +1139,9 @@ create_enrichment_map <- function(gsea_results, selected_pathways, colors, theme
 #' Create PubMed Citation Plot - Enhanced with custom colors
 create_pubmed_plot <- function(selected_pathways, colors, theme, sizes, legend_position="right",
                                progress_fn = NULL) {
-  require(enrichplot); require(patchwork); require(ggplot2)
   if (!length(selected_pathways)) return(list(plot=NULL,message="Select pathways for PubMed analysis"))
+  require_pubmed_plot_dependency()
+  require(enrichplot); require(patchwork); require(ggplot2)
   if (is.function(progress_fn)) progress_fn(0.05, "Preparing GSEA PubMed citation query")
   last_year <- as.numeric(format(Sys.Date(), "%Y")) - 1
   yrs <- (last_year - 5):last_year
