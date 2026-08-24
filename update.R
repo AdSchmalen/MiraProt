@@ -138,6 +138,7 @@ bioc_packages <- c(
   "limma",          # Data Wizard statistical and batch operations
   "fgsea",          # selected GSEA engine
   "BiocParallel",   # GSEA execution parallelization
+  "ComplexHeatmap", # Heatmap construction and Full Session reconstruction
   "sva",            # ComBat batch correction
   "GO.db",          # GO term hierarchy (e.g. for dropdowns)
   "AnnotationDbi",  # generic annotation infrastructure
@@ -230,6 +231,7 @@ cran_packages <- c(
   "promises",       # Dependency
   "Rcpp",           # Dependency
   "rlang",          # Dependency
+  "europepmc",      # GO/GSEA PubMed citation plots (enrichplot Suggests)
   "qs2"             # Session serialization
 )
 

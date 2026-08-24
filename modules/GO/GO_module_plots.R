@@ -662,14 +662,14 @@ create_go_enrichment_map_fixed <- function(results_list, selected_terms, colors,
 #' @param progress_fn optional function accepting an absolute value and current-task detail
 create_go_pubmed_plot <- function(selected_terms, colors, sizes, theme, legend_position = "right",
                                   debug_log = function(message, level = 1) {}, progress_fn = NULL) {
+  if (length(selected_terms) == 0) {
+    return(list(plot = NULL, height = 600, width = 800, message = "Select GO terms for PubMed analysis"))
+  }
+  require_pubmed_plot_dependency()
   require(enrichplot)
   require(ggplot2)
 
   debug_log("Creating GO PubMed citation plot with custom color gradient", 1)
-
-  if (length(selected_terms) == 0) {
-    return(list(plot = NULL, height = 600, width = 800, message = "Select GO terms for PubMed analysis"))
-  }
 
   tryCatch({
     if (is.function(progress_fn)) progress_fn(0.05, "Preparing GO PubMed citation query")

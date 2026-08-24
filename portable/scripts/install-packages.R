@@ -191,6 +191,7 @@ bioc_packages <- c(
   "limma",          # Data Wizard statistical and batch operations
   "fgsea",          # selected GSEA engine
   "BiocParallel",   # GSEA execution parallelization
+  "ComplexHeatmap", # Heatmap construction and Full Session reconstruction
   "sva",
   "GO.db",
   "AnnotationDbi",
@@ -279,6 +280,7 @@ cran_packages <- c(
   "promises",
   "Rcpp",
   "rlang",
+  "europepmc",      # GO/GSEA PubMed citation plots (enrichplot Suggests)
   "qs2"
 )
 
