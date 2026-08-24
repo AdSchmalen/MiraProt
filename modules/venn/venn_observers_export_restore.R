@@ -194,7 +194,12 @@ register_venn_export_restore_observers <- function(observer_env) {
       if (!isTRUE(isolate(restore_poll_job_settled()))) {
         settle_restore_poll("skipped", "STALE_GENERATION")
       }
+      # Do not let the token or captured poll state from the settled generation
+      # masquerade as the no-intent generation's work.
+      restore_poll_job(NULL)
+      restore_poll_generation(NA_integer_)
       restore_poll_active(FALSE)
+      restore_poll_captured(NULL)
       replay_restored_ui_without_plot(captured)
       state$pending_ui_inputs(NULL)
       state$had_plot_on_save(FALSE)
