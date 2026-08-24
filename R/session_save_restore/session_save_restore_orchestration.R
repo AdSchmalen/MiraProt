@@ -3210,9 +3210,14 @@ setup_session_save_restore <- function(input, output, session, rv,
           level = 0
         )
 
-        datawizard_restore_controls_finalization <- is.list(module_snapshots) &&
-          is.list(module_snapshots$datawizard) &&
-          datawizard_restore_phase_active(rv)
+        barrier_status <- restore_jobs$generation_status(restore_generation)
+        datawizard_restore_controls_finalization <-
+          identical(barrier_status$barrier_owner, "datawizard")
+        session_controls_registration_barrier <-
+          !isTRUE(datawizard_restore_controls_finalization) &&
+          isTRUE(restore_jobs$claim_registration_barrier(
+            restore_generation, "session"
+          ))
 
         # Clear guard flag and fire trigger.
         # Defer both the flag flip and the restore-trigger bump until AFTER
@@ -3241,8 +3246,19 @@ setup_session_save_restore <- function(input, output, session, rv,
               } else {
                 debug_log("Session restore: skipped stale finalization callback", 2)
               }
-              restore_jobs$resolve_restore_job(finalization_job, "completed")
             })
+            if (isTRUE(session_controls_registration_barrier)) {
+              # The trigger written above schedules restore observers for the
+              # next deterministic Shiny flush. Keep registration open until
+              # that flush has completed; this callback is the sole session
+              # owner allowed to close it when Data Wizard did not claim it.
+              session$onFlushed(once = TRUE, function() {
+                restore_jobs$resolve_restore_job(finalization_job, "completed")
+                restore_jobs$seal_generation(restore_generation)
+              })
+            } else {
+              restore_jobs$resolve_restore_job(finalization_job, "completed")
+            }
           })
         } else {
           if (restore_generation_current(restore_generation)) {
@@ -3256,6 +3272,9 @@ setup_session_save_restore <- function(input, output, session, rv,
               )
             }
             restore_jobs$resolve_restore_job(finalization_job, "completed")
+            if (isTRUE(session_controls_registration_barrier)) {
+              restore_jobs$seal_generation(restore_generation)
+            }
           }
         }
 
@@ -3265,7 +3284,6 @@ setup_session_save_restore <- function(input, output, session, rv,
         rv$.restore_failed_modules <- failed_modules
         rv$.restore_module_count <- length(module_snapshots)
         n_modules_restored <- length(module_snapshots) - length(failed_modules)
-        restore_jobs$seal_generation(restore_generation)
         imported_file_name <- if (!is.null(file_info$name) &&
                                   is.character(file_info$name) &&
                                   nzchar(file_info$name)) {

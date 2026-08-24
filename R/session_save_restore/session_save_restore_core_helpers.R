@@ -53,7 +53,8 @@
     key <- as.character(as.integer(generation))
     if (!exists(key, state$generations, inherits = FALSE) && create) {
       assign(key, list(generation = as.integer(generation), phase = "HYDRATED",
-                       sealed = FALSE, reported = FALSE), state$generations)
+                       sealed = FALSE, reported = FALSE,
+                       barrier_owner = NULL), state$generations)
     }
     get0(key, state$generations, inherits = FALSE, ifnotfound = NULL)
   }
@@ -104,6 +105,9 @@
   set_phase <- function(generation, phase) {
     stopifnot(phase %in% c("HYDRATED", "REPLAYING"))
     record <- generation_record(generation, create = TRUE)
+    if (isTRUE(record$sealed) || isTRUE(record$reported)) {
+      stop("A closed restore generation cannot re-enter replay")
+    }
     record$phase <- phase
     put_generation(record)
     invisible(phase)
@@ -147,17 +151,40 @@
   outstanding_restore_jobs <- function(generation = generation_fn()) {
     Filter(function(job) is.null(job$resolved_at), jobs_for(as.integer(generation)))
   }
+  claim_registration_barrier <- function(generation, owner) {
+    generation <- as.integer(generation)
+    if (!identical(as.integer(generation_fn()), generation)) return(FALSE)
+    record <- generation_record(generation)
+    if (is.null(record) || isTRUE(record$sealed) ||
+        !identical(record$phase, "REPLAYING")) return(FALSE)
+    if (!is.null(record$barrier_owner)) return(FALSE)
+    record$barrier_owner <- as.character(owner)[1L]
+    put_generation(record)
+    TRUE
+  }
+  generation_status <- function(generation = generation_fn()) {
+    record <- generation_record(as.integer(generation))
+    if (is.null(record)) return(NULL)
+    record
+  }
   seal_generation <- function(generation) {
-    record <- generation_record(generation, create = TRUE)
+    generation <- as.integer(generation)
+    # A callback retained by generation N must never close generation N+1.
+    if (!identical(as.integer(generation_fn()), generation)) return(FALSE)
+    record <- generation_record(generation)
+    if (is.null(record) || isTRUE(record$sealed)) return(FALSE)
     record$sealed <- TRUE
+    record$phase <- "REGISTRATION_CLOSED"
     put_generation(record)
     report_if_ready(generation)
-    invisible(record$phase)
+    TRUE
   }
   list(start_generation = start_generation, set_phase = set_phase,
        register_restore_job = register_restore_job,
        resolve_restore_job = resolve_restore_job,
        outstanding_restore_jobs = outstanding_restore_jobs,
+       claim_registration_barrier = claim_registration_barrier,
+       generation_status = generation_status,
        seal_generation = seal_generation)
 }
 
