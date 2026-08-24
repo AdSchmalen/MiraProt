@@ -680,6 +680,17 @@ modHeatmapServer <- function(id, rv, res_GSEA = NULL, GO_res = NULL, module_outp
         # dynamic-choices repopulation (which fires when heatmap_data is set)
         # skip work while the restore cascade is mid-flight.
         heatmap_state$restore_in_progress <- TRUE
+        heatmap_state$restore_generation <- isolate(rv$session_restore_generation %||% NA_integer_)
+        heatmap_state$restore_callbacks_pending <- 0L
+        heatmap_state$restore_job_settled <- FALSE
+        register_restore_job <- session$userData$register_restore_job
+        heatmap_state$restore_job_id <- if (is.function(register_restore_job)) tryCatch(
+          register_restore_job("Heatmap", "replay and render restored heatmap", "render", 45),
+          error = function(e) {
+            heatmap_debug_log(paste("[Heatmap] restore job registration failed:", e$message), 1)
+            NULL
+          }
+        ) else NULL
         heatmap_state$pending_matrix_payload <- if (is.list(state$matrix_payload)) state$matrix_payload else NULL
         heatmap_state$pending_plot_data_cache_ref <- state$plot_data_cache_ref %||% NULL
         heatmap_state$pending_plot_data_cache_fingerprint <- state$plot_data_cache_fingerprint %||% NULL

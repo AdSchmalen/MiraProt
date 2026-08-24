@@ -52,7 +52,7 @@
 
     build_heatmap_restore_context <- function(input_values = NULL) {
       restore_pair <- resolve_heatmap_restore_data_pair()
-      pending_ui_inputs <- tryCatch(isolate(heatmap_state$pending_ui_inputs), error = function(e) NULL)
+      pending_ui_inputs <- heatmap_state$pending_ui_inputs
       plot_request <- tryCatch(isolate(heatmap_last_plot_request()), error = function(e) NULL)
       live_input_values <- if (is.list(input_values)) {
         input_values
@@ -65,7 +65,7 @@
         data_def = if (is.list(restore_pair)) restore_pair$data_def else tryCatch(isolate(rv$data_def), error = function(e) NULL),
         data_pair = restore_pair,
         plot_request = plot_request,
-        matrix_payload = tryCatch(isolate(heatmap_state$pending_matrix_payload), error = function(e) NULL),
+        matrix_payload = heatmap_state$pending_matrix_payload,
         pending_ui_inputs = pending_ui_inputs,
         input_values = live_input_values,
         expression_matrix = tryCatch(isolate(heatmap_expression_matrix()), error = function(e) NULL),
@@ -430,7 +430,29 @@
       captured
     }
 
+    # `heatmap_state` is a plain lexical environment, not a Shiny reactive
+    # container. Its reads and writes are intentionally direct; only reactiveVal(),
+    # reactive(), `rv`, and `input` reads at imperative boundaries need isolation.
+    heatmap_settle_restore_job <- function(outcome = "success", error = NULL) {
+      if (isTRUE(heatmap_state$restore_job_settled) ||
+          is.null(heatmap_state$restore_job_id)) return(invisible(FALSE))
+      resolver <- session$userData$resolve_restore_job
+      if (!is.function(resolver)) return(invisible(FALSE))
+      settled <- tryCatch(
+        isTRUE(resolver(heatmap_state$restore_job_id, outcome, error)),
+        error = function(e) {
+          heatmap_debug_log(paste("[Heatmap] restore job settlement failed:", e$message), 1)
+          FALSE
+        }
+      )
+      if (settled) heatmap_state$restore_job_settled <- TRUE
+      invisible(settled)
+    }
+
     heatmap_clear_restore_state <- function() {
+      if (identical(heatmap_state$restore_callbacks_pending %||% 0L, 0L)) {
+        heatmap_settle_restore_job("success")
+      }
       heatmap_state$restore_in_progress <- FALSE
       heatmap_state$pending_ui_inputs   <- NULL
       heatmap_state$pending_dynamic_ui_inputs <- NULL
@@ -450,7 +472,7 @@
         saved_request <- tryCatch(isolate(heatmap_last_plot_request()), error = function(e) NULL)
       }
       if (is.null(saved_request) || !is.list(saved_request)) {
-        saved_request <- tryCatch(isolate(heatmap_state$pending_ui_inputs), error = function(e) NULL)
+        saved_request <- heatmap_state$pending_ui_inputs
       }
       present_ids <- character(0)
       if (is.list(saved_request)) {
@@ -475,7 +497,7 @@
         saved_request <- tryCatch(isolate(heatmap_last_plot_request()), error = function(e) NULL)
       }
       if (is.null(saved_request) || !is.list(saved_request)) {
-        saved_request <- tryCatch(isolate(heatmap_state$pending_ui_inputs), error = function(e) NULL)
+        saved_request <- heatmap_state$pending_ui_inputs
       }
       present_ids <- character(0)
       if (is.list(saved_request)) {
@@ -492,17 +514,36 @@
     }
 
     heatmap_safe_on_flushed <- function(label, fn) {
+      generation <- heatmap_state$restore_generation
+      heatmap_state$restore_callbacks_pending <-
+        as.integer(heatmap_state$restore_callbacks_pending %||% 0L) + 1L
+
+      # The raw Shiny callback invokes only the common restore runner. The
+      # runner supplies the reactive isolate, generation check, diagnostics,
+      # and error settlement for every transitively invoked Heatmap helper.
       session$onFlushed(function() {
-        tryCatch(fn(), error = function(e) {
-          heatmap_debug_log(paste(
-            "[Heatmap] safe onFlushed callback error",
-            "| label=", label,
-            "| error=", conditionMessage(e),
-            "| restore_in_progress=", isTRUE(heatmap_state$restore_in_progress),
-            "| request_fields=", heatmap_restore_request_presence_summary(),
-            sep = " "
-          ), 1)
-        })
+        .run_session_restore_callback(
+          owner = "Heatmap", reason = label, generation = generation,
+          phase = "render",
+          job_metadata = list(
+            current_generation = function() isolate(rv$session_restore_generation %||% NA_integer_),
+            job_id = heatmap_state$restore_job_id,
+            resolve_job = function(job_id, outcome, error = NULL) {
+              if (!identical(outcome, "success")) {
+                heatmap_state$restore_callbacks_pending <- 0L
+                return(heatmap_settle_restore_job(outcome, error))
+              }
+              heatmap_state$restore_callbacks_pending <- max(
+                0L, as.integer(heatmap_state$restore_callbacks_pending %||% 1L) - 1L
+              )
+              if (identical(heatmap_state$restore_callbacks_pending, 0L)) {
+                return(heatmap_settle_restore_job("success"))
+              }
+              TRUE
+            }
+          ),
+          callback = fn
+        )
       }, once = TRUE)
     }
 
@@ -541,7 +582,7 @@
         heatmap_log_restore_request_fields_present(captured)
       }
 
-      pending_dynamic <- tryCatch(isolate(heatmap_state$pending_dynamic_ui_inputs), error = function(e) NULL)
+      pending_dynamic <- heatmap_state$pending_dynamic_ui_inputs
       if (is.null(pending_dynamic) || !is.list(pending_dynamic)) {
         pending_dynamic <- captured[intersect(names(captured), heatmap_restore_dynamic_input_ids)]
         heatmap_state$pending_dynamic_ui_inputs <- pending_dynamic
@@ -776,12 +817,12 @@
     # (triggered by heatmap_data) completes first.
     restore_heatmap_plot_from_request <- function() {
       tryCatch({
-        if (!isTRUE(isolate(heatmap_state$pending_had_heatmap))) {
+        if (!isTRUE(heatmap_state$pending_had_heatmap)) {
           heatmap_debug_log("[Heatmap] session restore skipped: no heatmap was saved", 1)
           heatmap_clear_restore_state()
           return(invisible(FALSE))
         }
-        restore_pending_ui_inputs <- tryCatch(isolate(heatmap_state$pending_ui_inputs), error = function(e) NULL)
+        restore_pending_ui_inputs <- heatmap_state$pending_ui_inputs
         restore_plot_request <- tryCatch(isolate(heatmap_last_plot_request()), error = function(e) NULL)
         restore_defaults <- heatmap_restore_default_input_values()
         build_restore_context_snapshot <- function(input_values = restore_defaults, pending_ui_inputs = restore_pending_ui_inputs) {
