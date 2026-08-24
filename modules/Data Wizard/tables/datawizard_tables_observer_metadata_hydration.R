@@ -57,6 +57,21 @@
   ))
 }
 
+.datawizard_tables_restore_convergence_payload <- function(
+  local_metadata, canonical_metadata, canonical_data) {
+  if (!is.data.frame(canonical_data) ||
+      !is.data.frame(canonical_metadata) ||
+      !metadata_matches_dataset(canonical_metadata, canonical_data)) {
+    return(NULL)
+  }
+  if (is.data.frame(local_metadata) && isTRUE(all.equal(
+    local_metadata, canonical_metadata, check.attributes = FALSE
+  ))) {
+    return(NULL)
+  }
+  canonical_metadata
+}
+
 register_tables_metadata_hydration <- function(context) {
   with(context, {
   current_handson_metadata <- context$current_handson_metadata
@@ -297,6 +312,42 @@ register_tables_metadata_hydration <- function(context) {
     }, error = function(e) NULL)
     if (!is.null(ref_df)) return(ref_df)
     tryCatch(primary_data(), error = function(e) NULL)
+  }
+
+  # Revisions may be consumed while a restore transaction is still publishing.
+  # Its existing completion trigger is the deterministic point at which the
+  # valid canonical pair may replace stale table-local presentation state.
+  if (!is.null(rv)) {
+    observeEvent(rv$session_restore_trigger, {
+      trigger <- isolate(rv$session_restore_trigger)
+      generation <- isolate(rv$session_restore_generation)
+      canonical_data <- isolate(tryCatch(rv$data_mod, error = function(e) NULL))
+      canonical_metadata <- isolate(tryCatch(metadata_skeleton(), error = function(e) NULL))
+      local_metadata <- isolate(tryCatch(current_handson_metadata(), error = function(e) NULL))
+      replacement <- .datawizard_tables_restore_convergence_payload(
+        local_metadata, canonical_metadata, canonical_data
+      )
+
+      # No deferred work is scheduled. Recheck both existing restore identities
+      # before mutation so generation N cannot overwrite generation N+1.
+      if (is.null(replacement) ||
+          !identical(isolate(rv$session_restore_generation), generation) ||
+          !identical(isolate(rv$session_restore_trigger), trigger)) {
+        return()
+      }
+
+      debug_log(sprintf(
+        "[TablesMetadata] generation=%s source=restore-convergence canonical_data_cols=%d canonical_metadata_rows=%d local_metadata_rows=%d action=hydrate_local",
+        as.character(generation %||% NA_integer_), ncol(canonical_data),
+        nrow(canonical_metadata), if (is.data.frame(local_metadata)) nrow(local_metadata) else 0L
+      ), 1)
+      mark_programmatic_metadata_sync()
+      current_handson_metadata(replacement)
+      metadata_sync_pending(FALSE)
+      set_metadata_sync_state(paused = FALSE, pending = FALSE)
+      freezeReactiveValue(input, "metadata_table")
+      metadata_options_refresh(isolate(metadata_options_refresh()) + 1L)
+    }, ignoreInit = TRUE, priority = -10)
   }
   # --------------------------------------------------------------------------
   # a. Metadata skeleton initialization observer

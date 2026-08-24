@@ -25,6 +25,12 @@
 #   context per module session, source-DAG acyclicity, and existing timing guards.
 # ============================================================================
 
+.datawizard_tables_browser_payload_aligned <- function(table_data, primary_data) {
+  is.data.frame(primary_data) &&
+    is.data.frame(table_data) &&
+    metadata_matches_dataset(table_data, primary_data)
+}
+
 register_tables_metadata_editing <- function(context, request_primary_preview_rerender = NULL) {
   with(context, {
   current_handson_metadata <- context$current_handson_metadata
@@ -791,6 +797,22 @@ register_tables_metadata_editing <- function(context, request_primary_preview_re
       # Identifier rows: force Options = Column value
       id_rows <- !is.na(table_data$Content) & table_data$Content == "Identifier"
       table_data$Options[id_rows] <- table_data$Column[id_rows]
+
+      # A hidden/replaced Handsontable can echo its old browser value after a
+      # restore installed a new canonical dataset. Reject it before mutation.
+      # Genuine edits preserve the current dataset's exact Column identity.
+      current_primary <- tryCatch(metadata_reference_df(), error = function(e) NULL)
+      if (!.datawizard_tables_browser_payload_aligned(table_data, current_primary)) {
+        debug_log(sprintf(
+          "[TablesMetadata] stale table payload ignored metadata_rows=%d current_data_cols=%d",
+          if (is.data.frame(table_data)) nrow(table_data) else 0L,
+          if (is.data.frame(current_primary)) ncol(current_primary) else 0L
+        ), 1)
+        mark_programmatic_metadata_sync()
+        freezeReactiveValue(input, "metadata_table")
+        metadata_options_refresh(isolate(metadata_options_refresh()) + 1L)
+        return()
+      }
 
       existing_table <- tryCatch(current_handson_metadata(), error = function(e) NULL)
       if (!is.null(existing_table) &&
