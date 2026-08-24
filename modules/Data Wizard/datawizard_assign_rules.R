@@ -1057,6 +1057,52 @@ modAssignRulesServer <- function(id, rule_files = reactive(character(0)),
       }
     )
     pending_dynamic_text_restore <- reactiveVal(NULL)
+    assign_rules_replay_jobs <- new.env(parent = emptyenv())
+
+    capture_assign_rules_restore_generation <- function() {
+      if (is.null(rv)) return(0L)
+      isolate(rv$session_restore_generation %||% 0L)
+    }
+
+    assign_rules_restore_generation <- function(fallback) {
+      if (is.null(rv)) return(fallback)
+      isolate(rv$session_restore_generation %||% 0L)
+    }
+
+    acquire_assign_rules_replay_job <- function(family, generation) {
+      key <- paste(family, as.integer(generation)[1L], sep = "::")
+      existing <- get0(key, assign_rules_replay_jobs, inherits = FALSE, ifnotfound = NULL)
+      if (!is.null(existing) && !isTRUE(existing$settled)) return(existing)
+
+      api <- session$userData$restore_jobs %||% NULL
+      registry_id <- NULL
+      if (is.list(api) && is.function(api$register_restore_job)) {
+        registry_id <- api$register_restore_job(
+          "Assign Rules", paste(family, "dynamic text replay"), "REPLAYING", 15
+        )
+      }
+      job <- new.env(parent = emptyenv())
+      job$key <- key
+      job$registry_id <- registry_id
+      # A local ID keeps the common runner's resolver active when the optional
+      # transaction registry is unavailable.
+      job$id <- registry_id %||% paste0("assign-rules-local::", key)
+      job$api <- api
+      job$settled <- FALSE
+      job$retry_needed <- FALSE
+      assign(key, job, assign_rules_replay_jobs)
+      job
+    }
+
+    resolve_assign_rules_replay_job <- function(job, outcome, error = NULL) {
+      if (isTRUE(job$settled)) return(TRUE)
+      job$settled <- TRUE
+      if (!is.null(job$registry_id) && is.list(job$api) &&
+          is.function(job$api$resolve_restore_job)) {
+        return(isTRUE(job$api$resolve_restore_job(job$registry_id, outcome, error)))
+      }
+      TRUE
+    }
 
     get_session_state_fn <- function() {
       base <- assign_rules_session_state_base$get_session_state()
@@ -1238,15 +1284,11 @@ modAssignRulesServer <- function(id, rule_files = reactive(character(0)),
         # the text-input-specific updater.
         if (length(dynamic_text_inputs) > 0L) {
           pending_dynamic_text_restore(dynamic_text_inputs)
+          replay_generation <- capture_assign_rules_restore_generation()
+          replay_job <- acquire_assign_rules_replay_job("primary", replay_generation)
           apply_dynamic_text_inputs <- function(pass = "primary") {
-            max_textin <- tryCatch(
-              max(as.integer(isolate(counter_condition())), 0L),
-              error = function(e) 0L
-            )
-            bound_input_ids <- tryCatch(
-              isolate(names(input)),
-              error = function(e) character(0)
-            )
+            max_textin <- max(as.integer(counter_condition()), 0L)
+            bound_input_ids <- names(input)
             unresolved_ids <- character(0)
 
             for (id in names(dynamic_text_inputs)) {
@@ -1270,12 +1312,38 @@ modAssignRulesServer <- function(id, rule_files = reactive(character(0)),
           }
 
           session$onFlushed(once = TRUE, function() {
-            unresolved_ids <- apply_dynamic_text_inputs("primary")
-            if (length(unresolved_ids) > 0L) {
-              session$onFlushed(once = TRUE, function() {
-                apply_dynamic_text_inputs("retry")
-              })
-            }
+            .run_session_restore_callback(
+              owner = "Assign Rules", reason = "dynamic text primary replay",
+              generation = replay_generation, phase = "ui-replay",
+              job_metadata = list(
+                current_generation = function() assign_rules_restore_generation(replay_generation),
+                job_id = replay_job$id,
+                resolve_job = function(job_id, outcome, error = NULL) {
+                  if (identical(outcome, "success") && isTRUE(replay_job$retry_needed)) return(TRUE)
+                  resolve_assign_rules_replay_job(replay_job, outcome, error)
+                }
+              ),
+              callback = function() {
+                unresolved_ids <- apply_dynamic_text_inputs("primary")
+                replay_job$retry_needed <- length(unresolved_ids) > 0L
+                if (isTRUE(replay_job$retry_needed)) {
+                  session$onFlushed(once = TRUE, function() {
+                    .run_session_restore_callback(
+                      owner = "Assign Rules", reason = "dynamic text binding retry",
+                      generation = replay_generation, phase = "ui-replay",
+                      job_metadata = list(
+                        current_generation = function() assign_rules_restore_generation(replay_generation),
+                        job_id = replay_job$id,
+                        resolve_job = function(job_id, outcome, error = NULL) {
+                          resolve_assign_rules_replay_job(replay_job, outcome, error)
+                        }
+                      ),
+                      callback = function() apply_dynamic_text_inputs("retry")
+                    )
+                  })
+                }
+              }
+            )
           })
         }
 
@@ -1296,18 +1364,17 @@ modAssignRulesServer <- function(id, rule_files = reactive(character(0)),
       observeEvent(rv$session_restore_trigger, {
         pending <- pending_dynamic_text_restore()
         if (!is.list(pending) || length(pending) == 0L) return(NULL)
+        replay_generation <- capture_assign_rules_restore_generation()
+        replay_job <- acquire_assign_rules_replay_job("restore-trigger", replay_generation)
 
         apply_pending_dynamic_restore <- function(pass = "restore_trigger") {
           current_pending <- pending_dynamic_text_restore()
           if (!is.list(current_pending) || length(current_pending) == 0L) return(invisible(NULL))
-          max_textin <- tryCatch(
-            max(as.integer(isolate(counter_condition())), 0L),
-            error = function(e) 0L
-          )
-          bound_input_ids <- tryCatch(
-            isolate(names(input)),
-            error = function(e) character(0)
-          )
+          if (!identical(current_pending, pending)) {
+            stop("STALE_ASSIGN_RULES_PENDING_RESTORE", call. = FALSE)
+          }
+          max_textin <- max(as.integer(counter_condition()), 0L)
+          bound_input_ids <- names(input)
           unresolved_ids <- character(0)
           for (id in names(current_pending)) {
             idx <- suppressWarnings(as.integer(sub("^textin", "", id)))
@@ -1317,7 +1384,9 @@ modAssignRulesServer <- function(id, rule_files = reactive(character(0)),
             }
           }
           if (length(unresolved_ids) == 0L) {
-            pending_dynamic_text_restore(NULL)
+            if (identical(pending_dynamic_text_restore(), pending)) {
+              pending_dynamic_text_restore(NULL)
+            }
           } else if (identical(pass, "retry")) {
             debug_log(paste(
               "AssignRules restore: dynamic text inputs still unbound after restore-trigger retry:",
@@ -1328,12 +1397,38 @@ modAssignRulesServer <- function(id, rule_files = reactive(character(0)),
         }
 
         session$onFlushed(once = TRUE, function() {
-          unresolved_ids <- apply_pending_dynamic_restore("restore_trigger")
-          if (length(unresolved_ids) > 0L) {
-            session$onFlushed(once = TRUE, function() {
-              apply_pending_dynamic_restore("retry")
-            })
-          }
+          .run_session_restore_callback(
+            owner = "Assign Rules", reason = "restore-trigger dynamic text replay",
+            generation = replay_generation, phase = "ui-replay",
+            job_metadata = list(
+              current_generation = function() assign_rules_restore_generation(replay_generation),
+              job_id = replay_job$id,
+              resolve_job = function(job_id, outcome, error = NULL) {
+                if (identical(outcome, "success") && isTRUE(replay_job$retry_needed)) return(TRUE)
+                resolve_assign_rules_replay_job(replay_job, outcome, error)
+              }
+            ),
+            callback = function() {
+              unresolved_ids <- apply_pending_dynamic_restore("restore_trigger")
+              replay_job$retry_needed <- length(unresolved_ids) > 0L
+              if (isTRUE(replay_job$retry_needed)) {
+                session$onFlushed(once = TRUE, function() {
+                  .run_session_restore_callback(
+                    owner = "Assign Rules", reason = "restore-trigger unresolved-input retry",
+                    generation = replay_generation, phase = "ui-replay",
+                    job_metadata = list(
+                      current_generation = function() assign_rules_restore_generation(replay_generation),
+                      job_id = replay_job$id,
+                      resolve_job = function(job_id, outcome, error = NULL) {
+                        resolve_assign_rules_replay_job(replay_job, outcome, error)
+                      }
+                    ),
+                    callback = function() apply_pending_dynamic_restore("retry")
+                  )
+                })
+              }
+            }
+          )
         })
       }, ignoreInit = TRUE, ignoreNULL = TRUE)
     }
