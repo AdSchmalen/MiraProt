@@ -74,15 +74,12 @@ for (f in list.files("R", pattern = "\\.R$", full.names = TRUE, ignore.case = TR
   }
 }
 
-# Load all documentation files
-for (f in list.files("Documentation", pattern = "\\.R$", full.names = TRUE)) {
-  tryCatch({
-    sys.source(f, envir = modEnv)
-    debug_log(paste("Loaded:", basename(f)), 2)
-  }, error = function(e) {
-    debug_log(paste("Error loading", basename(f), ":", e$message), 1)
-  })
-}
+# Load documentation through its dependency-aware loader. MiraProt content
+# renderers are sourced and validated before its UI/server router is registered.
+get("load_documentation_files", envir = modEnv, inherits = TRUE)(
+  envir = modEnv,
+  logger = debug_log
+)
 
 
 # Load GSEA export functions at the top of app.R with other source statements
