@@ -636,7 +636,7 @@
     live_heatmap_no_prior_log_state$time <- as.POSIXct(NA)
     live_heatmap_no_prior_log_timeout_secs <- 10
 
-    should_log_no_prior_heatmap_skip <- function(reason, create_count) {
+    should_log_no_prior_heatmap_skip <- function(reason, create_count, diagnostic = "no_prior_heatmap") {
       # Once the user has explicitly requested a heatmap, stop throttling this
       # diagnostic so failed/cleared creations remain visible during debugging.
       if (!is.null(create_count) && create_count >= 1) {
@@ -647,12 +647,13 @@
 
       now <- Sys.time()
       previous_time <- live_heatmap_no_prior_log_state$time
-      should_log <- !identical(live_heatmap_no_prior_log_state$reason, reason) ||
+      diagnostic_reason <- paste(diagnostic, reason, sep = "|")
+      should_log <- !identical(live_heatmap_no_prior_log_state$reason, diagnostic_reason) ||
         is.na(previous_time) ||
         difftime(now, previous_time, units = "secs") > live_heatmap_no_prior_log_timeout_secs
 
       if (isTRUE(should_log)) {
-        live_heatmap_no_prior_log_state$reason <- reason
+        live_heatmap_no_prior_log_state$reason <- diagnostic_reason
         live_heatmap_no_prior_log_state$time <- now
       }
 
@@ -669,9 +670,18 @@
         return(invisible(FALSE))
       }
       create_count <- input$create_heatmap_btn
-      if (is.null(heatmap_plots()$expr) || is.null(create_count) || create_count < 1) {
+      if (is.null(heatmap_plots()$expr)) {
         if (should_log_no_prior_heatmap_skip(reason, create_count)) {
           heatmap_debug_log(paste("Live update skipped (no prior heatmap):", reason), 2)
+        }
+        return(invisible(FALSE))
+      }
+      if (is.null(create_count) || create_count < 1) {
+        if (should_log_no_prior_heatmap_skip(reason, create_count, "manual_create_required")) {
+          heatmap_debug_log(paste(
+            "Live update skipped (restored heatmap preserved; live updates require manual Create/Refresh):",
+            reason
+          ), 2)
         }
         return(invisible(FALSE))
       }
