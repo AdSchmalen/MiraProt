@@ -53,8 +53,9 @@ create_venn_state <- function() {
     # Canonical data pair used to create the current compact/rendered result.
     # Unlike restore_plot_data_cache this survives successful reconstruction.
     plot_creation_cache       = reactiveVal(NULL),
-    # Indicates whether a plot existed in the saved session.
-    # Used to decide whether restore should trigger plot regeneration.
+    # Canonical plot intent staged by set_session_state(). The restore-trigger
+    # observer must read this before registering its plot-rebuild job: FALSE
+    # restores only list/UI state, while TRUE enters the armed polling flow.
     had_plot_on_save          = reactiveVal(FALSE),
     # Staging area for captured UI inputs during session restore.
     # Written by set_session_state(), consumed by session_restore_trigger observer.

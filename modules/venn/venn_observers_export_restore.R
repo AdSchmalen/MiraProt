@@ -119,8 +119,89 @@ register_venn_export_restore_observers <- function(observer_env) {
   # ==========================================================================
   # Session restore: replay UI and regenerate plot from restored inputs
   # ==========================================================================
+  replay_restored_ui_without_plot <- function(captured) {
+    list_count <- isolate(state$list_count_Venn())
+    if (!is.null(list_count) && list_count >= 1L) {
+      for (i in seq_len(list_count)) {
+        if (i <= length(state$list_data_Venn$names) &&
+            !is.null(state$list_data_Venn$names[[i]])) {
+          updateTextInput(session, paste0("name", i),
+                          value = state$list_data_Venn$names[[i]])
+        }
+        if (i <= length(state$list_data_Venn$lists) &&
+            !is.null(state$list_data_Venn$lists[[i]])) {
+          updateTextAreaInput(session, paste0("list", i),
+                              value = state$list_data_Venn$lists[[i]])
+        }
+        if (i <= length(state$list_data_Venn$colors) &&
+            !is.null(state$list_data_Venn$colors[[i]]) &&
+            requireNamespace("colourpicker", quietly = TRUE)) {
+          tryCatch(
+            colourpicker::updateColourInput(
+              session, paste0("color", i),
+              value = state$list_data_Venn$colors[[i]]
+            ),
+            error = function(e) NULL
+          )
+        }
+      }
+    }
+
+    if (!is.list(captured)) return(invisible(TRUE))
+    numeric_ids <- c(
+      "overlapNumberSize_Venn", "listTitleSize_Venn",
+      "listTitleDistance_Venn", "axis_title_size_Venn",
+      "axis_text_size_Venn", "label_text_size_Venn",
+      "width_plot_Venn", "height_plot_Venn", "ppi_plot_Venn"
+    )
+    checkbox_ids <- c(
+      "showPercentages_Venn", "showListTitles_Venn", "showDotsInBoxplot_Venn"
+    )
+    select_ids <- c(
+      "diagramType_Venn", "ReferenceValues_Venn", "GeneIdentifierColumn_Venn",
+      "catFont_Venn", "cat_FontStyle_Venn", "font_family_Venn",
+      "fontStyle_Venn", "ThemeSelect_Upset", "format_file_Venn"
+    )
+    selectize_ids <- c(
+      "data_abundance_Mean_Venn", "data_abundance_ratio_num_Venn",
+      "data_abundance_ratio_denom_Venn"
+    )
+    for (id in intersect(names(captured), c(numeric_ids, checkbox_ids, select_ids, selectize_ids))) {
+      value <- captured[[id]]
+      if (is.null(value)) next
+      if (id %in% checkbox_ids) {
+        updateCheckboxInput(session, id, value = isTRUE(value))
+      } else if (id %in% numeric_ids) {
+        updateNumericInput(session, id, value = suppressWarnings(as.numeric(value)[1]))
+      } else if (id %in% selectize_ids) {
+        updateSelectizeInput(session, id, selected = value, server = TRUE)
+      } else {
+        updateSelectInput(session, id, selected = value)
+      }
+    }
+    invisible(TRUE)
+  }
+
   observeEvent(rv$session_restore_trigger, {
     restore_generation <- isolate(rv$session_restore_generation %||% NA_integer_)
+    captured <- isolate(state$pending_ui_inputs())
+    had_plot <- isTRUE(isolate(state$had_plot_on_save()))
+
+    # had_plot_on_save() is the canonical intent staged by set_session_state().
+    # A list/UI-only restore must stop here, before creating any render job or
+    # crossing the shared post-flush arm boundary used by plot reconstruction.
+    if (!had_plot) {
+      if (!isTRUE(isolate(restore_poll_job_settled()))) {
+        settle_restore_poll("skipped", "STALE_GENERATION")
+      }
+      restore_poll_active(FALSE)
+      replay_restored_ui_without_plot(captured)
+      state$pending_ui_inputs(NULL)
+      state$had_plot_on_save(FALSE)
+      finalize_restore_report("restore_skipped", reason = "had_plot_on_save_false")
+      return()
+    }
+
     register_restore_job <- session$userData$register_restore_job
     replay_job <- if (is.function(register_restore_job)) tryCatch(
       register_restore_job("Venn", "poll and plot rebuild", "render", 31),
@@ -131,7 +212,6 @@ register_venn_export_restore_observers <- function(observer_env) {
     ) else NULL
 
     tryCatch({
-      captured <- isolate(state$pending_ui_inputs())
       # A newer trigger supersedes an armed poll. Attempt its settlement before
       # replacing the job token; the registry itself rejects late generations.
       if (!isTRUE(isolate(restore_poll_job_settled()))) {
