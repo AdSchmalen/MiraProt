@@ -2990,7 +2990,12 @@ setup_session_save_restore <- function(input, output, session, rv,
               (is.list(st$plot_data_cache_payload) &&
                  inherits(st$plot_data_cache_payload$data_mod, "data.frame") &&
                  inherits(st$plot_data_cache_payload$data_def, "data.frame"))
-            if (isTRUE(has_embedded_plot_cache) || isTRUE(.uses_shared_plot_data_cache(st))) {
+            if (identical(mid, "dotplot")) {
+              # Dotplot intent precedes identity validation: saved UI without a
+              # rendered plot has no cache miss to diagnose.
+              snapshot$module_snapshots[[mid]]$module_state <-
+                dotplot_preprocess_restore_cache(st, plot_data_cache_pool)
+            } else if (isTRUE(has_embedded_plot_cache) || isTRUE(.uses_shared_plot_data_cache(st))) {
               snapshot$module_snapshots[[mid]]$module_state <-
                 .resolve_plot_data_cache_for_module(st, plot_data_cache_pool)
             } else if (identical(mid, "heatmap") && .heatmap_has_matrix_payload(st)) {

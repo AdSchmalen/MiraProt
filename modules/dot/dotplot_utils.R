@@ -48,6 +48,25 @@ dotplot_build_cache_key <- function(plot_title = NULL) {
   )
 }
 
+# Normalize cache preprocessing around saved plot intent. A configuration-only
+# snapshot has no cache identity to validate, so stale cache fields represent
+# "none", rather than a miss or malformed identity.
+dotplot_preprocess_restore_cache <- function(module_state, plot_data_cache_pool = list()) {
+  if (!is.list(module_state)) return(module_state)
+  if (!isTRUE(module_state$plot_ready)) {
+    module_state$restore_plot_data_cache <- NULL
+    module_state$restore_plot_data_cache_by_title <- NULL
+    module_state$restore_cache_resolved <- FALSE
+    module_state$restore_cache_degraded <- FALSE
+    module_state$restore_cache_degraded_reason <- NULL
+    module_state$restore_cache_resolution_mode <- "none"
+    return(module_state)
+  }
+
+  # True intent retains strict shared cache-key and by-title validation.
+  .resolve_plot_data_cache_for_module(module_state, plot_data_cache_pool)
+}
+
 dotplot_capture_ui_inputs <- function(input, input_ids) {
   vals <- lapply(input_ids, function(id) isolate(input[[id]]))
   names(vals) <- input_ids

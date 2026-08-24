@@ -384,18 +384,25 @@ modDotPlotServer <- function(id, rv, res_GSEA = NULL, res_GO = NULL, module_outp
 
         had_plot_on_save <- isTRUE(state$plot_ready)
         logical_plot_id <- state$plot_ui_inputs$plot_title
-        canonical_key <- tryCatch(
-          dotplot_build_cache_key(logical_plot_id),
-          error = function(e) {
-            dotplot_debug_log(paste("[Dotplot] malformed-cache-key:", e$message), 1)
-            NULL
-          }
-        )
-        cache_key <- as.character(state$plot_data_cache_ref %||% NA_character_)[1]
-        malformed_cache_key <- is.null(canonical_key) || is.na(cache_key) || !nzchar(trimws(cache_key))
+        canonical_key <- NULL
+        cache_key <- NA_character_
+        malformed_cache_key <- FALSE
+        if (isTRUE(had_plot_on_save)) {
+          canonical_key <- tryCatch(
+            dotplot_build_cache_key(logical_plot_id),
+            error = function(e) {
+              dotplot_debug_log(paste("[Dotplot] malformed-cache-key:", e$message), 1)
+              NULL
+            }
+          )
+          cache_key <- as.character(state$plot_data_cache_ref %||% NA_character_)[1]
+          malformed_cache_key <- is.null(canonical_key) || is.na(cache_key) ||
+            !nzchar(trimws(cache_key))
+        }
         cache_hit <- FALSE
         cache_source <- NULL
-        cache_intended_restore <- !isTRUE(malformed_cache_key) && isTRUE(.module_restore_has_cache_intent(state))
+        cache_intended_restore <- isTRUE(had_plot_on_save) &&
+          !isTRUE(malformed_cache_key) && isTRUE(.module_restore_has_cache_intent(state))
         restore_cache_resolved <- isTRUE(state$restore_cache_resolved)
         restore_cache_mode <- as.character(state$restore_cache_resolution_mode %||% "none")[1]
 
@@ -404,13 +411,13 @@ modDotPlotServer <- function(id, rv, res_GSEA = NULL, res_GO = NULL, module_outp
         if (!is.list(state$restore_plot_data_cache) && is.list(state$plot_data_cache_payload)) {
           state$restore_plot_data_cache <- state$plot_data_cache_payload
         }
-        module_cache_valid <- !isTRUE(malformed_cache_key) && is.list(state$restore_plot_data_cache) &&
+        module_cache_valid <- isTRUE(had_plot_on_save) && !isTRUE(malformed_cache_key) && is.list(state$restore_plot_data_cache) &&
           is.data.frame(state$restore_plot_data_cache$data_mod) &&
           is.data.frame(state$restore_plot_data_cache$data_def)
         dotplot_state$restore_plot_data_cache <- if (isTRUE(module_cache_valid)) state$restore_plot_data_cache else NULL
         if (is.list(dotplot_state$restore_plot_data_cache)) {
           cache_hit <- TRUE; cache_source <- "module_ref"
-        } else if (!isTRUE(malformed_cache_key) && is.list(state$restore_plot_data_cache_by_title)) {
+        } else if (isTRUE(had_plot_on_save) && !isTRUE(malformed_cache_key) && is.list(state$restore_plot_data_cache_by_title)) {
           cand <- state$restore_plot_data_cache_by_title[[canonical_key]]
           if (!is.list(cand)) cand <- state$restore_plot_data_cache_by_title[[legacy_plot_key(state$plot_ui_inputs$plot_title)]]
           if (is.list(cand) &&
@@ -420,12 +427,12 @@ modDotPlotServer <- function(id, rv, res_GSEA = NULL, res_GO = NULL, module_outp
             cache_hit <- TRUE; cache_source <- "by_title"
           }
         }
-        degraded_cache_restore <- isTRUE(malformed_cache_key) ||
+        degraded_cache_restore <- isTRUE(had_plot_on_save) && (isTRUE(malformed_cache_key) ||
           (isTRUE(cache_intended_restore) && !isTRUE(cache_hit) &&
-             !isTRUE(.module_restore_live_contract_compatible(state, rv)))
+             !isTRUE(.module_restore_live_contract_compatible(state, rv))))
         # Live data is never a generic cache-miss fallback. It is eligible only
         # when the saved identity/revisions/fingerprint match the canonical pair.
-        live_fallback_available <- !isTRUE(malformed_cache_key) && !isTRUE(cache_hit) &&
+        live_fallback_available <- isTRUE(had_plot_on_save) && !isTRUE(malformed_cache_key) && !isTRUE(cache_hit) &&
           isTRUE(.module_restore_live_contract_compatible(state, rv))
         dotplot_state$restore_cache_resolved <- isTRUE(cache_hit)
         dotplot_state$restore_live_fallback_available <- isTRUE(live_fallback_available)
@@ -457,7 +464,7 @@ modDotPlotServer <- function(id, rv, res_GSEA = NULL, res_GO = NULL, module_outp
           )
         }
         if (is.list(state$plot_request)) dotplot_state$plot_request <- state$plot_request
-        dotplot_state$plot_cache_ref_by_title <- if (is.list(state$plot_cache_ref_by_title)) state$plot_cache_ref_by_title else if (!isTRUE(malformed_cache_key)) stats::setNames(list(""), canonical_key) else NULL
+        dotplot_state$plot_cache_ref_by_title <- if (!isTRUE(had_plot_on_save)) NULL else if (is.list(state$plot_cache_ref_by_title)) state$plot_cache_ref_by_title else if (!isTRUE(malformed_cache_key)) stats::setNames(list(""), canonical_key) else NULL
         if (!is.null(state$axis_config))    dotplot_state$axis_config <- state$axis_config
         if (is.list(dotplot_state$axis_config) && is.list(state$plot_ui_inputs)) {
           dotplot_state$axis_config$x_col <- dotplot_state$axis_config$x_col %||% state$plot_ui_inputs$x_axis_column
@@ -493,7 +500,9 @@ modDotPlotServer <- function(id, rv, res_GSEA = NULL, res_GO = NULL, module_outp
           cache_key = cache_key,
           cache_hit = isTRUE(cache_hit),
           data_source = if (isTRUE(cache_hit)) "cache" else if (isTRUE(live_fallback_available)) "live" else "none",
-          reason = if (isTRUE(malformed_cache_key)) {
+          reason = if (!isTRUE(had_plot_on_save)) {
+            "none"
+          } else if (isTRUE(malformed_cache_key)) {
             "malformed-cache-key"
           } else if (isTRUE(cache_hit)) {
             if (identical(cache_source, "module_ref")) "cache_restored_module_ref" else "cache_restored_by_title"
