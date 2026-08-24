@@ -1494,7 +1494,6 @@ init_gsea_observers <- function(input, output, session, rv, ns, state,
             }
             debug_log("GSEA plot recreated from restored session UI state", 1)
           })
-        )
       })
 
       gsea_restore_last_applied_signature(pending$signature)
