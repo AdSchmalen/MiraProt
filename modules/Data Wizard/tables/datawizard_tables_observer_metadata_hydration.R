@@ -42,6 +42,21 @@
   invisible(TRUE)
 }
 
+.consume_datawizard_metadata_write_back_guard <- function(
+  guard, incoming_metadata, local_metadata) {
+  if (!isTRUE(guard$active)) return(FALSE)
+
+  # The guard is one-shot, but only the payload written by Tables is its echo.
+  # A distinct canonical payload (notably one published by session restore)
+  # must continue through normal canonical-to-Tables hydration.
+  guard$active <- FALSE
+  isTRUE(all.equal(
+    incoming_metadata,
+    local_metadata,
+    check.attributes = FALSE
+  ))
+}
+
 register_tables_metadata_hydration <- function(context) {
   with(context, {
   current_handson_metadata <- context$current_handson_metadata
@@ -300,11 +315,18 @@ register_tables_metadata_hydration <- function(context) {
     current_local_meta <- tryCatch(current_handson_metadata(), error = function(e) NULL)
     incoming_has_rows <- is.data.frame(incoming_skeleton) && nrow(incoming_skeleton) > 0
 
-    # Guard: skip if this change was triggered by our own write-back
-    if (isTRUE(metadata_write_back_guard$active)) {
-      debug_log("Skeleton observer: skipping overwrite (write-back in progress)", 2)
-      metadata_write_back_guard$active <- FALSE
+    # Suppress only the canonical echo of the exact local payload we wrote.
+    # A restore may publish a different payload while this one-shot guard is
+    # still active; that authoritative payload must hydrate the Tables buffer.
+    write_back_guard_was_active <- isTRUE(metadata_write_back_guard$active)
+    if (.consume_datawizard_metadata_write_back_guard(
+      metadata_write_back_guard, incoming_skeleton, current_local_meta
+    )) {
+      debug_log("Skeleton observer: suppressed expected write-back echo", 2)
       return()
+    }
+    if (write_back_guard_was_active) {
+      debug_log("Skeleton observer: stale write-back guard cleared; accepting distinct canonical metadata", 1)
     }
 
     if (!incoming_has_rows) {
@@ -364,15 +386,22 @@ register_tables_metadata_hydration <- function(context) {
       return()
     }
 
-    # Guard: skip if this change was triggered by our own write-back
-    if (isTRUE(metadata_write_back_guard$active)) {
-      debug_log("Metadata final observer: skipping overwrite (write-back in progress)", 2)
-      metadata_write_back_guard$active <- FALSE
+    current <- current_handson_metadata()
+
+    # As above, a pending write-back guard does not own the next unrelated
+    # canonical metadata revision.
+    write_back_guard_was_active <- isTRUE(metadata_write_back_guard$active)
+    if (.consume_datawizard_metadata_write_back_guard(
+      metadata_write_back_guard, final_meta, current
+    )) {
+      debug_log("Metadata final observer: suppressed expected write-back echo", 2)
       return()
+    }
+    if (write_back_guard_was_active) {
+      debug_log("Metadata final observer: stale write-back guard cleared; accepting distinct canonical metadata", 1)
     }
 
     # Only update when the metadata actually differs
-    current <- current_handson_metadata()
     if (!is.null(current) && isTRUE(all.equal(final_meta, current, check.attributes = FALSE))) {
       return()
     }
