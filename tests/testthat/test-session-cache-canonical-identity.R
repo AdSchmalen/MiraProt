@@ -32,6 +32,45 @@ test_that("full-session visualization cache identities round trip byte-identical
   }, logical(1L))))
 })
 
+test_that("canonical cache references preserve compatible saved data and metadata", {
+  saved_data <- data.frame(protein = c("P1", "P2"), S1 = c(10, 20),
+                           check.names = FALSE)
+  saved_metadata <- data.frame(column = c("protein", "S1"),
+                               role = c("identifier", "abundance"))
+  contract <- cache_env$.plot_data_cache_ref_contract(
+    11L, 14L, saved_data, saved_metadata
+  )
+  contract$restore_cache_dependency <- "shared_plot_data_cache_pool"
+  key <- cache_env$.build_canonical_plot_cache_key("PCA", "scores", "main")
+  cache_id <- "plot-data-11-14"
+  snapshot <- list(
+    plot_data_cache_pool = stats::setNames(list(list(
+      data_mod = saved_data, data_def = saved_metadata, contract = contract
+    )), cache_id),
+    module_state = list(
+      plot_cache_ref_by_title = stats::setNames(list(cache_id), key),
+      cache_contract = contract
+    )
+  )
+
+  restored <- unserialize(serialize(snapshot, NULL, version = 3L))
+  restored_key <- names(restored$module_state$plot_cache_ref_by_title)[[1L]]
+  restored_id <- restored$module_state$plot_cache_ref_by_title[[restored_key]]
+  pair <- restored$plot_data_cache_pool[[restored_id]]
+
+  expect_identical(restored_key, key)
+  expect_identical(pair$data_mod, saved_data)
+  expect_identical(pair$data_def, saved_metadata)
+  expect_true(cache_env$.cache_ref_contract_compatible(
+    pair$contract, pair$data_mod, pair$data_def, 11L, 14L,
+    "shared_plot_data_cache_pool"
+  ))
+  expect_false(cache_env$.cache_ref_contract_compatible(
+    pair$contract, pair$data_mod, transform(pair$data_def, role = rev(role)),
+    11L, 14L, "shared_plot_data_cache_pool"
+  ))
+})
+
 test_that("malformed and NA canonical cache identities have distinct rejection outcomes", {
   malformed <- cache_env$.canonical_plot_cache_identity(key = "dotplot::::main")
   missing <- cache_env$.canonical_plot_cache_identity(key = NA_character_)
