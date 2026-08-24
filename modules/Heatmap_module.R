@@ -676,13 +676,15 @@ modHeatmapServer <- function(id, rv, res_GSEA = NULL, GO_res = NULL, module_outp
         # empty so the rebuild path produces a fresh object.
         legacy <- !is.null(state$version) && !identical(state$version, "2.0")
 
-        # Preserve the historical restore-intent contract before staging any
-        # reconstruction data. Older snapshots may not carry had_heatmap, but
-        # did carry the expression matrix either at the top level or in the
-        # schema-2 matrix payload.
-        had_heatmap <- isTRUE(state$had_heatmap) ||
+        # Establish restore intent before staging reconstruction data. An
+        # explicit flag is authoritative; only older snapshots that omitted it
+        # infer intent from their top-level or schema-2 expression matrix.
+        had_heatmap <- if (!is.null(state$had_heatmap)) {
+          isTRUE(state$had_heatmap)
+        } else {
           isTRUE(!is.null(state$heatmap_expression_matrix)) ||
-          isTRUE(!is.null(state$matrix_payload$expression_matrix))
+            isTRUE(!is.null(state$matrix_payload$expression_matrix))
+        }
 
         # Raise guard BEFORE any reactive writes so observers that react to
         # dynamic-choices repopulation (which fires when heatmap_data is set)
