@@ -63,6 +63,7 @@
     ".build_v4_envelope",
     ".write_session_save_envelope",
     ".write_session_envelope_with_inline_fallback",
+    ".make_session_notification_lifecycle",
     ".notify_session_save_result",
     ".write_session_error_stub",
     ".sanitize_session_error_message",
@@ -2213,37 +2214,94 @@
   }
 }
 
-.notify_session_save_result <- function(save_result, n_modules, failed_modules, save_level_label) {
+.make_session_notification_lifecycle <- function(session, current_generation,
+                                                 log_fn = debug_log,
+                                                 notify_fn = showNotification) {
+  restore_id <- "miraprot-session-restore"
+  save_id <- "miraprot-session-save"
+  emitted <- new.env(parent = emptyenv())
+
+  emit <- function(operation, message, type, duration, phase,
+                   generation = NULL, state = NULL) {
+    if (identical(operation, "restore") && !is.null(generation) &&
+        !isTRUE(current_generation(generation))) {
+      return(invisible(FALSE))
+    }
+    event_key <- paste(operation, generation %||% "none", phase, state %||% "", sep = ":")
+    if (identical(operation, "restore") && !is.null(generation)) {
+      if (exists(event_key, envir = emitted, inherits = FALSE)) return(invisible(FALSE))
+      assign(event_key, TRUE, envir = emitted)
+    }
+    notify_fn(
+      message,
+      type = type,
+      duration = duration,
+      id = if (identical(operation, "restore")) restore_id else save_id,
+      session = session
+    )
+    detail <- paste0(
+      "[SessionNotification] operation=", operation,
+      if (!is.null(generation)) paste0(" generation=", generation) else "",
+      " phase=", phase,
+      if (!is.null(state)) paste0(" state=", state) else ""
+    )
+    log_fn(detail, 1)
+    invisible(TRUE)
+  }
+
+  list(
+    restore = function(message, type = "message", duration = NULL, phase,
+                       generation = NULL, state = NULL) {
+      emit("restore", message, type, duration, phase, generation, state)
+    },
+    save = function(message, type = "message", duration = NULL, phase, state = NULL) {
+      emit("save", message, type, duration, phase, NULL, state)
+    },
+    restore_id = restore_id,
+    save_id = save_id
+  )
+}
+
+.notify_session_save_result <- function(save_result, n_modules, failed_modules,
+                                        save_level_label, session,
+                                        notify = NULL) {
   force(save_level_label)
+  if (is.null(notify)) {
+    lifecycle <- .make_session_notification_lifecycle(
+      session = session,
+      current_generation = function(generation) TRUE
+    )
+    notify <- lifecycle$save
+  }
   if (isTRUE(save_result$fallback_used)) {
     if (isTRUE(save_result$modules_removed_entirely)) {
-      showNotification(
+      notify(
         paste0("Session saved without module snapshots (", save_result$error, ")."),
-        type = "warning", duration = 10
+        type = "warning", duration = 10, phase = "result", state = "WARNING"
       )
     } else {
-      showNotification(
+      notify(
         paste0("Session saved without the following module(s) due ",
                "to serialization errors: ",
                paste(save_result$dropped_modules, collapse = ", "),
                " (", save_result$error, ")."),
-        type = "warning", duration = 12
+        type = "warning", duration = 12, phase = "result", state = "WARNING"
       )
     }
     return(invisible(NULL))
   }
 
   if (length(failed_modules) > 0L) {
-    showNotification(
+    notify(
       paste0("Session saved: ", n_modules, " module(s) included. ",
              "Dropped: ", paste(failed_modules, collapse = ", "), "."),
-      type = "warning", duration = 10
+      type = "warning", duration = 10, phase = "result", state = "WARNING"
     )
   } else {
-    showNotification(
+    notify(
       paste0("Session saved successfully (", n_modules,
              " module(s) included)."),
-      type = "message", duration = 5
+      type = "message", duration = 5, phase = "result", state = "SUCCESS"
     )
   }
 
@@ -2435,6 +2493,12 @@ setup_session_save_restore <- function(input, output, session, rv,
     identical(isolate(rv$session_restore_generation %||% NA_integer_), generation)
   }
 
+  notifications <- .make_session_notification_lifecycle(
+    session = session,
+    current_generation = restore_generation_current,
+    log_fn = function(message, level) session_debug_log(message, level)
+  )
+
   restore_settlement <- function(report) {
     if (!restore_generation_current(report$generation)) return(invisible(FALSE))
     jobs <- report$jobs
@@ -2461,17 +2525,22 @@ setup_session_save_restore <- function(input, output, session, rv,
       "none reported"
     }
     if (identical(report$state, "SETTLED")) {
-      showNotification(paste0("Session restored successfully. ", n_modules,
-                              " module(s) restored. Modules will re-process the data."),
-                       type = "message", duration = 8)
+      notifications$restore(
+        paste0("Session restoration complete. ", n_modules, " module(s) restored."),
+        type = "message", duration = 8, phase = "settled",
+        generation = report$generation, state = "SETTLED"
+      )
       session_debug_log(
         sprintf("MiraProt session imported | File: %s | Modules restored: %s",
                 imported_file_name, as.character(n_modules)),
         level = 0
       )
     } else if (identical(report$state, "DEGRADED")) {
-      showNotification(paste0("Session restore degraded: ", problematic_result, "."),
-                       type = "warning", duration = 10)
+      notifications$restore(
+        paste0("Session restored with warnings: ", problematic_result, "."),
+        type = "warning", duration = 10, phase = "settled",
+        generation = report$generation, state = "DEGRADED"
+      )
       session_debug_log(
         sprintf("MiraProt session import degraded | File: %s | Problematic jobs: %s",
                 imported_file_name, problematic_result),
@@ -2479,8 +2548,11 @@ setup_session_save_restore <- function(input, output, session, rv,
       )
     } else {
       failure_detail <- paste(c(warning_parts, problematic_result), collapse = "; ")
-      showNotification(paste0("Session restore failed: ", failure_detail, "."),
-                       type = "error", duration = 10)
+      notifications$restore(
+        paste0("Session restoration failed: ", failure_detail, "."),
+        type = "error", duration = 10, phase = "settled",
+        generation = report$generation, state = "FAILED"
+      )
       session_debug_log(
         sprintf("MiraProt session import failed | File: %s | Problematic jobs: %s",
                 imported_file_name, problematic_result),
@@ -2562,6 +2634,10 @@ setup_session_save_restore <- function(input, output, session, rv,
       progress <- shiny::Progress$new(session, min = 0, max = 1)
       progress$set(value = 0, message = "Preparing session snapshot...")
       on.exit(progress$close(), add = TRUE)
+      notifications$save(
+        "Saving MiraProt session...",
+        type = "message", duration = NULL, phase = "start"
+      )
 
       tryCatch({
         debug_log("Starting session snapshot creation", 1)
@@ -2693,7 +2769,9 @@ setup_session_save_restore <- function(input, output, session, rv,
           save_result = save_result,
           n_modules = n_modules,
           failed_modules = failed_modules,
-          save_level_label = save_level_label
+          save_level_label = save_level_label,
+          session = session,
+          notify = notifications$save
         )
         if (isTRUE(save_result$fallback_used)) {
           return(invisible(NULL))
@@ -2718,11 +2796,13 @@ setup_session_save_restore <- function(input, output, session, rv,
             }, silent = TRUE)
           }
         )
-        showNotification(
+        notifications$save(
           paste("Failed to save session:", original_error,
                 "- downloaded file contains only an error marker."),
           type = "error",
-          duration = 10
+          duration = 10,
+          phase = "result",
+          state = "FAILED"
         )
       })
     },
@@ -2763,7 +2843,10 @@ setup_session_save_restore <- function(input, output, session, rv,
 
     restore_stage_error <- function(user_message, error) {
       restore_validation(list(valid = FALSE, message = user_message))
-      showNotification(user_message, type = "error", duration = 10)
+      notifications$restore(
+        user_message, type = "error", duration = 10,
+        phase = "validation_error", state = "FAILED"
+      )
       return(invisible(NULL))
     }
 
@@ -2776,10 +2859,15 @@ setup_session_save_restore <- function(input, output, session, rv,
     # Check file extension (quick check, no progress needed)
     ext <- tolower(tools::file_ext(file_info$name))
     if (ext != "rds") {
-      restore_validation(list(
+      invalid_result <- list(
         valid = FALSE,
         message = "Only .rds files are accepted. Please select a valid MiraProt session file."
-      ))
+      )
+      restore_validation(invalid_result)
+      notifications$restore(
+        invalid_result$message, type = "error", duration = 10,
+        phase = "validation_error", state = "FAILED"
+      )
       return()
     }
 
@@ -2806,10 +2894,15 @@ setup_session_save_restore <- function(input, output, session, rv,
       )
 
       if (is.null(snapshot)) {
-        restore_validation(list(
+        invalid_result <- list(
           valid = FALSE,
           message = "The file could not be read. It may be corrupted or not a valid RDS file."
-        ))
+        )
+        restore_validation(invalid_result)
+        notifications$restore(
+          invalid_result$message, type = "error", duration = 10,
+          phase = "validation_error", state = "FAILED"
+        )
         return()
       }
 
@@ -2838,6 +2931,10 @@ setup_session_save_restore <- function(input, output, session, rv,
 
       if (!result$valid) {
         restore_validation(result)
+        notifications$restore(
+          result$message, type = "error", duration = 10,
+          phase = "validation_error", state = "FAILED"
+        )
         return()
       }
 
@@ -3140,6 +3237,11 @@ setup_session_save_restore <- function(input, output, session, rv,
         rv$session_restore_generation <- restore_generation
         restore_jobs$start_generation(restore_generation)
         rv$session_restoring <- TRUE
+        notifications$restore(
+          "Restoring MiraProt session...",
+          type = "message", duration = NULL, phase = "start",
+          generation = restore_generation
+        )
         restore_jobs$set_phase(restore_generation, "HYDRATED")
         set_session_restore_phase(rv, "canonical_data")
 
@@ -3295,6 +3397,13 @@ setup_session_save_restore <- function(input, output, session, rv,
         finalization_job <- restore_jobs$register_restore_job(
           "session", "final reactive flush", "finalizer", timeout = 15
         )
+        notifications$restore(
+          paste0("Session state restored. ",
+                 length(module_snapshots) - length(failed_modules),
+                 " module(s) loaded. Plots and outputs are rebuilding."),
+          type = "message", duration = NULL, phase = "state_applied",
+          generation = restore_generation
+        )
         if (is.function(session$onFlushed)) {
           session$onFlushed(once = TRUE, function() {
             isolate({
@@ -3343,7 +3452,8 @@ setup_session_save_restore <- function(input, output, session, rv,
         }
 
         # Seal only after every deferred action required by the synchronous
-        # transaction has registered its job. Settlement owns user-visible success.
+        # transaction has registered its job. Final settlement owns the eventual
+        # diagnostic result; state-applied feedback above does not wait for it.
         # The deferred finalization callback only needs scalar generation and
         # phase flags. Drop materialized snapshot/cache bindings now so its
         # closure environment cannot retain a second copy while rendering
@@ -3367,10 +3477,13 @@ setup_session_save_restore <- function(input, output, session, rv,
           rv$session_restoring <- FALSE
         }
         debug_log(paste("Session restoration failed:", e$message), 1)
-        showNotification(
+        notifications$restore(
           paste("Session restoration failed:", e$message),
           type = "error",
-          duration = 10
+          duration = 10,
+          phase = "exception",
+          generation = if (exists("restore_generation", inherits = FALSE)) restore_generation else NULL,
+          state = "FAILED"
         )
       })
     })
