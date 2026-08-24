@@ -883,11 +883,6 @@ assert_datawizard_data_only_restore_invariants <- function(rv, strict = FALSE) {
 #'   schedule deferred work via \code{session$onFlushed()}.
 register_module_session_participants <- function(session_registry, module_outputs,
                                                  rv = NULL, session = NULL) {
-  SESSION_SAVE_LEVEL_DATA <- modEnv$SESSION_SAVE_LEVEL_DATA
-  SESSION_SAVE_LEVEL_ANALYSIS <- modEnv$SESSION_SAVE_LEVEL_ANALYSIS
-  SESSION_SAVE_LEVEL_FULL <- modEnv$SESSION_SAVE_LEVEL_FULL
-  resolve_data_pair_for_restore <- modEnv$resolve_data_pair_for_restore
-
   full_session_participant_priorities <- c(
     abundances = 40L,
     sampleids = 41L,

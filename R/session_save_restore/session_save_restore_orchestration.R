@@ -24,7 +24,7 @@
 #'   - setup_session_save_restore()
 #'   - register_module_session_participants()
 #'
-#' Internal helpers/constants (module-private in modEnv):
+#' Internal helpers/constants (owned by the private session environment):
 #'   - all SESSION_SAVE_LEVEL_* and MIRAPROT_SESSION_* constants
 #'   - create_session_registry(), validate_session_snapshot(), unwrap_snapshot()
 #'   - resolve_data_pair_for_restore() and all dot-prefixed helpers
@@ -33,7 +33,7 @@
 #'   - none currently exported; obsolete typo-prone aliases are intentionally absent
 #'
 #' The loader reads `.session_save_restore_api` and only re-exports
-#' `public_api` names, while internal helpers remain encapsulated in `modEnv`.
+#' `public_api` names, while internal helpers remain encapsulated.
 .session_save_restore_api <- list(
   public_api = c(
     "setup_session_save_restore",
@@ -53,6 +53,26 @@
     "resolve_data_pair_for_restore",
     "unwrap_snapshot",
     "validate_session_snapshot"
+  ),
+  required_private_runtime = c(
+    ".resolve_session_save_level",
+    ".collect_sanitized_rv_snapshot_for_save",
+    ".build_rv_snapshot_for_save_level",
+    ".collect_sanitized_module_snapshots_for_save",
+    ".build_save_time_plot_data_cache_bundle",
+    ".build_v4_envelope",
+    ".write_session_save_envelope",
+    ".write_session_envelope_with_inline_fallback",
+    ".notify_session_save_result",
+    ".write_session_error_stub",
+    ".sanitize_session_error_message",
+    "MIRAPROT_SESSION_ERROR_MARKER",
+    "MIRAPROT_SESSION_SCHEMA_VERSION",
+    "MIRAPROT_SESSION_COMPATIBLE_VERSIONS",
+    "MIRAPROT_APP_VERSION",
+    "SESSION_SAVE_LEVEL_DATA",
+    "SESSION_SAVE_LEVEL_ANALYSIS",
+    "SESSION_SAVE_LEVEL_FULL"
   ),
   legacy_aliases = character()
 )
@@ -144,14 +164,19 @@
   tryCatch({
     stub <- list(
       miraprot_session = TRUE,
-      session_file_type = modEnv$MIRAPROT_SESSION_ERROR_MARKER,
-      version           = modEnv$MIRAPROT_SESSION_SCHEMA_VERSION,
-      app_version       = modEnv$MIRAPROT_APP_VERSION,
+      session_file_type = MIRAPROT_SESSION_ERROR_MARKER,
+      version           = MIRAPROT_SESSION_SCHEMA_VERSION,
+      app_version       = MIRAPROT_APP_VERSION,
       created_at        = Sys.time(),
-      error             = modEnv$.sanitize_session_error_message(err_msg)
+      error             = .sanitize_session_error_message(err_msg)
     )
     saveRDS(stub, file = file, compress = TRUE)
   }, error = function(e2) {
+    debug_log(paste0(
+      "[SaveStage:error_stub] Could not write RDS error marker for original error '",
+      paste(as.character(err_msg), collapse = " "), "': ", conditionMessage(e2),
+      "; attempting raw binary fallback"
+    ), 1)
     # Last-resort: write an empty file so the download is at least
     # completed as a (tiny) binary, not the HTML error page.
     con <- base::file(file, open = "wb")
@@ -2227,12 +2252,6 @@
 
 setup_session_save_restore <- function(input, output, session, rv,
                                        session_registry = NULL) {
-  SESSION_SAVE_LEVEL_DATA <- modEnv$SESSION_SAVE_LEVEL_DATA
-  SESSION_SAVE_LEVEL_ANALYSIS <- modEnv$SESSION_SAVE_LEVEL_ANALYSIS
-  SESSION_SAVE_LEVEL_FULL <- modEnv$SESSION_SAVE_LEVEL_FULL
-  MIRAPROT_SESSION_SCHEMA_VERSION <- modEnv$MIRAPROT_SESSION_SCHEMA_VERSION
-  MIRAPROT_APP_VERSION <- modEnv$MIRAPROT_APP_VERSION
-
   forbidden_symbols <- c(
     "SESSION_SAVE_LEVEL_DATA",
     "SESSION_SAVE_LEVEL_ANALYSIS",
@@ -2649,10 +2668,27 @@ setup_session_save_restore <- function(input, output, session, rv,
           return(invisible(NULL))
         }
       }, error = function(e) {
-        debug_log(paste0("[SaveStage:fatal] Session snapshot failed: ", conditionMessage(e)), 1)
-        .write_session_error_stub(file, e$message)
+        original_error <- conditionMessage(e)
+        debug_log(paste0("[SaveStage:fatal] Session snapshot failed: ", original_error), 1)
+        tryCatch(
+          .write_session_error_stub(file, original_error),
+          error = function(stub_error) {
+            debug_log(paste0(
+              "[SaveStage:error_stub] Binary error marker failed after original error '",
+              original_error, "': ", conditionMessage(stub_error)
+            ), 1)
+            # Do not rethrow from Shiny's download content callback.  Make one
+            # dependency-free binary response attempt so an HTML error page
+            # cannot mask the original save failure.
+            try({
+              con <- base::file(file, open = "wb")
+              on.exit(base::close(con), add = TRUE)
+              base::writeBin(raw(0L), con)
+            }, silent = TRUE)
+          }
+        )
         showNotification(
-          paste("Failed to save session:", e$message,
+          paste("Failed to save session:", original_error,
                 "- downloaded file contains only an error marker."),
           type = "error",
           duration = 10

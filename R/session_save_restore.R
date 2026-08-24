@@ -7,7 +7,7 @@
 #   composition root
 #
 # Responsibilities:
-#   - Source session save/restore sub-scripts into the active module environment.
+#   - Source session save/restore sub-scripts into one stable private environment.
 #   - Keep the public API surface unchanged for callers (app.R, tests, modules).
 #
 # Non-Responsibilities (Must NOT be here):
@@ -31,11 +31,12 @@
   "session_save_restore_orchestration.R"
 )
 
-.sr_env <- if (exists("modEnv", envir = globalenv(), inherits = FALSE)) {
-  get("modEnv", envir = globalenv(), inherits = FALSE)
-} else {
-  environment()
-}
+# Session closures must never be owned by modEnv: app.R deliberately empties that
+# environment during startup/hot reload.  The loader's environment is a stable
+# support parent (and supplies application helpers); all session implementation
+# objects live in this dedicated child.
+.sr_export_env <- environment()
+.sr_env <- new.env(parent = .sr_export_env)
 
 for (.sr_subscript in .sr_subscripts) {
   .sr_subscript_path <- file.path(.sr_source_dir, .sr_subscript)
@@ -53,6 +54,7 @@ if (!exists(".session_save_restore_api", envir = .sr_env, inherits = FALSE)) {
 .sr_public_symbols <- .sr_api_manifest$public_api
 .sr_legacy_aliases <- .sr_api_manifest$legacy_aliases
 .sr_internal_symbols <- .sr_api_manifest$internal_helpers
+.sr_required_private_runtime <- .sr_api_manifest$required_private_runtime
 
 .sr_required_function_symbols <- c(
   "setup_session_save_restore",
@@ -96,6 +98,38 @@ for (.sr_const_symbol in names(.sr_required_constant_specs)) {
   }
 }
 
+assert_session_save_restore_runtime_integrity <- function(owner = environment(sys.function())) {
+  fail <- function(kind, symbol, detail) {
+    stop(sprintf("Session save/restore integrity check failed [%s]: %s (%s)",
+                 kind, symbol, detail), call. = FALSE)
+  }
+  if (!is.environment(owner)) {
+    fail("invalid-owner", "session private environment", "expected environment")
+  }
+  required_private_runtime <- .session_save_restore_api$required_private_runtime
+  required_functions <- c(
+    "setup_session_save_restore",
+    "create_session_registry",
+    "register_module_session_participants"
+  )
+  for (symbol in required_private_runtime) {
+    if (!exists(symbol, envir = owner, inherits = FALSE)) {
+      fail("missing-private-runtime", symbol, "not present in lexical owner")
+    }
+  }
+  for (symbol in required_functions) {
+    fn <- get(symbol, envir = owner, inherits = FALSE)
+    if (!identical(environment(fn), owner)) {
+      fail("invalid-lexical-owner", symbol, "closure is not owned by private environment")
+    }
+  }
+  invisible(TRUE)
+}
+environment(assert_session_save_restore_runtime_integrity) <- .sr_env
+assign("assert_session_save_restore_runtime_integrity",
+       assert_session_save_restore_runtime_integrity, envir = .sr_env)
+get("assert_session_save_restore_runtime_integrity", envir = .sr_env)()
+
 for (.sr_public_symbol in .sr_public_symbols) {
   if (!exists(.sr_public_symbol, envir = .sr_env, inherits = FALSE)) {
     stop("Missing required public session symbol: ", .sr_public_symbol)
@@ -127,6 +161,8 @@ rm(list = intersect(c(
   ".sr_public_symbols",
   ".sr_legacy_aliases",
   ".sr_internal_symbols",
+  ".sr_required_private_runtime",
+  ".sr_export_env",
   ".sr_required_function_symbols",
   ".sr_required_constant_specs",
   ".sr_allowed_global_symbols",
