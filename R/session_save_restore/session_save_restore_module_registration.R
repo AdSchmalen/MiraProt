@@ -1426,13 +1426,13 @@ register_module_session_participants <- function(session_registry, module_output
               session_registry$registered_ids(),
               error = function(e) character(0)
             )
-            restored_ids <- tryCatch(
+            snapshot_ids <- tryCatch(
               session_registry$current_restore_snapshot_ids(),
               error = function(e) character(0)
             )
             list(
               registered = length(setdiff(registered_ids, "datawizard")),
-              restored = length(setdiff(restored_ids, "datawizard"))
+              snapshot = length(setdiff(snapshot_ids, "datawizard"))
             )
           }
           restore_phase_log <- function(phase, replay_enabled, metadata = NULL) {
@@ -1454,7 +1454,7 @@ register_module_session_participants <- function(session_registry, module_output
               "loader_restore_mode=", restore_loader_mode(state),
               "submodule_ui_payload_count=", restore_submodule_payload_count(state),
               "registered_non_datawizard_module_count=", module_counts$registered,
-              "restored_non_datawizard_module_count=", module_counts$restored,
+              "snapshot_non_datawizard_module_count=", module_counts$snapshot,
               "submodule_replay=", isTRUE(replay_enabled),
               sep = " | "
             ), 1)
