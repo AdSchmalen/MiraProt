@@ -103,3 +103,7 @@ heatmap_state$pending_data_mod_revision_id <- NULL
 heatmap_state$pending_data_def_revision_id <- NULL
 heatmap_state$pending_annotation_state <- NULL
 heatmap_state$pending_had_heatmap <- FALSE
+heatmap_state$restore_job_id <- NULL
+heatmap_state$restore_generation <- NA_integer_
+heatmap_state$restore_callbacks_pending <- 0L
+heatmap_state$restore_job_settled <- TRUE
