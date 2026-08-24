@@ -1473,27 +1473,37 @@ upgrade_session_snapshot_to_current_schema <- function(snapshot) {
 # Validate the per-plot index without conflating its logical keys with cache
 # identifiers. Names identify plots; only scalar string values address the pool.
 .validate_plot_cache_ref_by_title <- function(by_title, pool = list()) {
-  if (is.null(by_title)) return(list(valid = TRUE, resolved = list(), invalid_keys = character()))
+  if (is.null(by_title)) return(list(valid = TRUE, outcome = "absent_cache_requirement",
+                                     resolved = list(), invalid_keys = character(), diagnostics = list()))
   if (!is.list(by_title) || length(by_title) == 0L) {
-    return(list(valid = FALSE, resolved = list(), invalid_keys = "<map>"))
+    return(list(valid = FALSE, outcome = "malformed_reference_map", resolved = list(),
+                invalid_keys = "<map>", diagnostics = list("<map>" = "malformed_reference_map")))
   }
   keys <- names(by_title)
   if (is.null(keys) || length(keys) != length(by_title)) keys <- rep("", length(by_title))
   resolved <- list()
   invalid <- character()
+  diagnostics <- list()
   for (i in seq_along(by_title)) {
     key <- keys[[i]]
     ref <- by_title[[i]]
-    valid_key <- is.character(key) && length(key) == 1L && !is.na(key) && nzchar(key)
+    identity <- .canonical_plot_cache_identity(key = key)
+    valid_key <- isTRUE(identity$valid) && identical(identity$key, key)
     valid_ref <- is.character(ref) && length(ref) == 1L && !is.na(ref) && nzchar(ref)
     pair <- if (valid_ref) .safe_cache_pool_get(pool, ref) else NULL
     if (!valid_key || !valid_ref || !.is_plot_cache_pair(pair)) {
-      invalid <- c(invalid, if (valid_key) key else paste0("<entry:", i, ">"))
+      label <- if (is.character(key) && length(key) == 1L && !is.na(key) && nzchar(key)) key else paste0("<entry:", i, ">")
+      invalid <- c(invalid, label)
+      diagnostics[[label]] <- if (!valid_key) identity$outcome else if (!valid_ref) {
+        if (is.character(ref) && length(ref) == 1L && is.na(ref)) "na_reference" else "empty_reference"
+      } else "unresolved_reference"
     } else {
-      resolved[[key]] <- pair
+      resolved[[identity$key]] <- pair
     }
   }
-  list(valid = length(invalid) == 0L, resolved = resolved, invalid_keys = unique(invalid))
+  list(valid = length(invalid) == 0L,
+       outcome = if (length(invalid) == 0L) "resolved" else "invalid_cache_requirements",
+       resolved = resolved, invalid_keys = unique(invalid), diagnostics = diagnostics)
 }
 
 .safe_cache_pool_put <- function(pool, cache_id, value) {
@@ -1801,6 +1811,8 @@ upgrade_session_snapshot_to_current_schema <- function(snapshot) {
     )),
     data_mod_revision_id = mod_rev,
     data_def_revision_id = def_rev,
+    data_mod_fingerprint = .plot_data_cache_fingerprint(data_mod = data_mod, data_def = NULL),
+    data_def_fingerprint = .plot_data_cache_fingerprint(data_mod = NULL, data_def = data_def),
     plot_data_cache_fingerprint = .session_scalar_chr(
       .plot_data_cache_fingerprint(
         data_mod = data_mod,
@@ -1811,9 +1823,20 @@ upgrade_session_snapshot_to_current_schema <- function(snapshot) {
   )
 }
 
-.cache_ref_contract_compatible <- function(contract, data_mod = NULL, data_def = NULL) {
+.cache_ref_contract_compatible <- function(contract, data_mod = NULL, data_def = NULL,
+                                           data_mod_revision_id = NULL,
+                                           data_def_revision_id = NULL,
+                                           restore_cache_dependency = NULL) {
   if (!is.list(contract)) return(FALSE)
   if (!inherits(data_mod, "data.frame") || !inherits(data_def, "data.frame")) return(FALSE)
+  dependency <- .session_scalar_chr(restore_cache_dependency %||% contract$restore_cache_dependency)
+  if (nzchar(dependency) && !dependency %in% c("shared_plot_data_cache_pool", "none")) return(FALSE)
+  if (!is.null(data_mod_revision_id) &&
+      !identical(.plot_data_cache_revision_int(contract$data_mod_revision_id),
+                 .plot_data_cache_revision_int(data_mod_revision_id))) return(FALSE)
+  if (!is.null(data_def_revision_id) &&
+      !identical(.plot_data_cache_revision_int(contract$data_def_revision_id),
+                 .plot_data_cache_revision_int(data_def_revision_id))) return(FALSE)
   expected <- .build_plot_data_cache_id(
     data_mod_revision_id = contract$data_mod_revision_id,
     data_def_revision_id = contract$data_def_revision_id,
@@ -1825,9 +1848,15 @@ upgrade_session_snapshot_to_current_schema <- function(snapshot) {
   ref_legacy <- sub("\\|fp:.*$", "", ref)
   expected_legacy <- sub("\\|fp:.*$", "", expected)
   expected_fp <- .plot_data_cache_fingerprint(data_mod = data_mod, data_def = data_def)
-  identical(ref, expected) ||
+  data_fp <- .plot_data_cache_fingerprint(data_mod = data_mod, data_def = NULL)
+  metadata_fp <- .plot_data_cache_fingerprint(data_mod = NULL, data_def = data_def)
+  fingerprints_match <- (!nzchar(.session_scalar_chr(contract$data_mod_fingerprint)) ||
+    identical(.session_scalar_chr(contract$data_mod_fingerprint), data_fp)) &&
+    (!nzchar(.session_scalar_chr(contract$data_def_fingerprint)) ||
+      identical(.session_scalar_chr(contract$data_def_fingerprint), metadata_fp))
+  fingerprints_match && (identical(ref, expected) ||
     (nzchar(ref_legacy) && identical(ref_legacy, expected_legacy) &&
-       (!nzchar(fp) || identical(fp, expected_fp)))
+       (!nzchar(fp) || identical(fp, expected_fp))))
 }
 
 .module_cache_ref_contract <- function(module_state) {
@@ -1836,7 +1865,10 @@ upgrade_session_snapshot_to_current_schema <- function(snapshot) {
     plot_data_cache_ref = module_state$plot_data_cache_ref,
     data_mod_revision_id = module_state$data_mod_revision_id,
     data_def_revision_id = module_state$data_def_revision_id,
-    plot_data_cache_fingerprint = module_state$plot_data_cache_fingerprint
+    plot_data_cache_fingerprint = module_state$plot_data_cache_fingerprint,
+    data_mod_fingerprint = module_state$data_mod_fingerprint,
+    data_def_fingerprint = module_state$data_def_fingerprint,
+    restore_cache_dependency = module_state$restore_cache_dependency
   )
 }
 
@@ -1933,8 +1965,17 @@ resolve_data_pair_for_restore <- function(rv,
   has_contract <- is.character(contract$plot_data_cache_ref) &&
     length(contract$plot_data_cache_ref) == 1L &&
     nzchar(contract$plot_data_cache_ref)
+  live_mod_revision <- tryCatch(rv$data_mod_revision_id, error = function(e) NULL)
+  live_def_revision <- tryCatch(rv$data_def_revision_id, error = function(e) NULL)
+  live_revisions_present <- length(live_mod_revision) == 1L && !is.na(live_mod_revision) &&
+    length(live_def_revision) == 1L && !is.na(live_def_revision)
   if (isTRUE(has_contract) &&
-      !.cache_ref_contract_compatible(contract, live_data_mod, live_data_def)) {
+      (!isTRUE(live_revisions_present) || !.cache_ref_contract_compatible(
+        contract, live_data_mod, live_data_def,
+        data_mod_revision_id = live_mod_revision,
+        data_def_revision_id = live_def_revision,
+        restore_cache_dependency = contract$restore_cache_dependency
+      ))) {
     if (is.function(debug_log)) {
       debug_log(sprintf("[%s] data_pair_for_restore degraded: cache ref unresolved and live data revision/fingerprint incompatible", module_label), 1)
     }

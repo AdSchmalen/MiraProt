@@ -657,8 +657,8 @@ modHeatmapServer <- function(id, rv, res_GSEA = NULL, GO_res = NULL, module_outp
 
         if (identical(heatmap_restore_strategy, "shared_cache") &&
             !is.null(heatmap_cache_ref)) {
-          # The key is a logical plot identifier; the value is the data-pair id.
-          state$plot_cache_ref_by_title <- list(heatmap = heatmap_cache_ref)
+          canonical_key <- .build_canonical_plot_cache_key("heatmap", "heatmap", "main")
+          state$plot_cache_ref_by_title <- stats::setNames(list(heatmap_cache_ref), canonical_key)
         }
 
         heatmap_debug_log(sprintf(
