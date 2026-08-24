@@ -30,20 +30,9 @@ dotplot_clamp_pvalues <- function(values) {
 }
 
 dotplot_build_cache_key <- function(plot_title = NULL) {
-  logical_plot_id <- if (is.character(plot_title) && length(plot_title) > 0L) {
-    plot_title[[1L]]
-  } else {
-    NA_character_
-  }
-  if (is.na(logical_plot_id) || !nzchar(trimws(logical_plot_id))) {
-    stop(
-      "malformed-cache-key: dotplot logical plot ID must be a non-NA, non-empty value",
-      call. = FALSE
-    )
-  }
   .build_canonical_plot_cache_key(
     module = "dotplot",
-    logical_plot_id = logical_plot_id,
+    logical_plot_id = "main",
     variant = "main"
   )
 }

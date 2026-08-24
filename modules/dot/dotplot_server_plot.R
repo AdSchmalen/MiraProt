@@ -405,7 +405,7 @@ observeEvent(input$generate_plot, {
         list(dotplot_state$source_data_signature %||% ""),
         as.character(input$plot_title %||% "default")[1]
       )
-      dotplot_state$plot_data_cache_ref <- dotplot_build_cache_key(input$plot_title %||% plot_params$plot_title)
+      dotplot_state$plot_data_cache_ref <- dotplot_build_cache_key()
 
       dotplot_debug_log("Plot generation completed with custom styling", 1)
 
@@ -1139,7 +1139,7 @@ observeEvent(plot_update_trigger(), {
       # Without this, a theme tweak after applySettings_dot would render the
       # stale pre-tweak base with labels on top and visibly "lose" the tweak.
       dotplot_state$base_plot_without_labels <- updated_plot
-      dotplot_state$plot_data_cache_ref <- dotplot_build_cache_key(input$plot_title %||% current_plot_params$plot_title)
+      dotplot_state$plot_data_cache_ref <- dotplot_build_cache_key()
       dotplot_debug_log("Plot successfully updated with current parameters", 1)
     } else {
       dotplot_debug_log("Plot update returned NULL", 1)
@@ -1556,7 +1556,7 @@ observeEvent(plot_update_trigger(), {
         list(dotplot_state$source_data_signature %||% ""),
         as.character(dot_input$plot_title)[1]
       )
-      dotplot_state$plot_data_cache_ref <- dotplot_build_cache_key(dot_input$plot_title %||% plot_params$plot_title)
+      dotplot_state$plot_data_cache_ref <- dotplot_build_cache_key()
       dotplot_state$plot_from_restore_cache <- snapshot$plot_from_restore_cache
       if (isTRUE(snapshot$restore_in_progress)) {
         # The rebuilt plot, plot_creation_cache, UI cache, labels and canonical

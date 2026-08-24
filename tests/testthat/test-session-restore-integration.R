@@ -127,7 +127,11 @@ test_that("Dotplot intent gates cache keys and diagnoses identity outcomes", {
     list(plot_ready = FALSE, plot_data_cache_ref = "stale"), list())
   expect_identical(no_intent$restore_cache_resolution_mode, "none")
   expect_null(no_intent$restore_plot_data_cache)
-  expect_error(restore_env$dotplot_build_cache_key(""), "malformed-cache-key")
+  expect_identical(restore_env$dotplot_build_cache_key(""), "dotplot::main::main")
+  expect_identical(
+    restore_env$dotplot_build_cache_key("A display title"),
+    restore_env$dotplot_build_cache_key("A different title")
+  )
 
   pair <- list(data_mod = data.frame(C = 1),
                data_def = data.frame(Column = "C", Content = "Abundance"))
