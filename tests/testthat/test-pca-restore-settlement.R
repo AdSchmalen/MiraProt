@@ -6,6 +6,10 @@ pca_restore_test_env$debug_log <- function(...) invisible(NULL)
 sys.source(file.path(helpers_dir, "session_save_restore_core_helpers.R"), envir = pca_restore_test_env)
 sys.source(file.path(helpers_dir, "session_save_restore_callbacks.R"), envir = pca_restore_test_env)
 
+pca_state_file <- file.path("modules", "PCA", "pca_module_state.R")
+if (!file.exists(pca_state_file)) pca_state_file <- file.path("..", "..", pca_state_file)
+sys.source(pca_state_file, envir = pca_restore_test_env)
+
 make_pca_registry <- function() {
   generation <- 7L
   scheduled <- list()
@@ -62,4 +66,13 @@ test_that("PCA finalizer errors are contained and reported as failure", {
   ))
   fixture$registry$seal_generation(7L)
   expect_length(fixture$registry$outstanding_restore_jobs(), 0L)
+})
+
+test_that("PCA saved-plot intent is canonical and legacy-compatible", {
+  saved_plot_intent <- pca_restore_test_env$pca_saved_plot_intent
+
+  expect_false(saved_plot_intent(list(had_plot = FALSE, plots_ready = TRUE)))
+  expect_true(saved_plot_intent(list(had_plot = TRUE, plots_ready = FALSE)))
+  expect_true(saved_plot_intent(list(plots_ready = TRUE)))
+  expect_false(saved_plot_intent(list(coordinates = matrix(1, nrow = 1L))))
 })

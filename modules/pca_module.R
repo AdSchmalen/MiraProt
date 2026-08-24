@@ -547,7 +547,7 @@ modPCAServer <- function(id, rv, res_GSEA = NULL, res_GO = NULL, module_outputs 
       ))
 
       finalized <- FALSE
-      finalize_restore <- function(status = "complete") {
+      finalize_restore <- function(status = "complete", request_render = TRUE) {
         if (isTRUE(finalized) || !pca_restore_generation_is_current(
           restore_context$session_restore_generation,
           restore_context$pca_restore_generation
@@ -562,11 +562,18 @@ modPCAServer <- function(id, rv, res_GSEA = NULL, res_GO = NULL, module_outputs 
         ))
         pca_state$restore_in_progress(FALSE)
         debug_log(sprintf("[PCA restore] restore guard released (status=%s)", status), 1)
-        pca_state$render_nonce(isolate(pca_state$render_nonce()) + 1L)
-        debug_log(sprintf(
-          "[PCA restore] render requested (pca_generation=%s)",
-          restore_context$pca_restore_generation
-        ), 1)
+        if (isTRUE(request_render)) {
+          pca_state$render_nonce(isolate(pca_state$render_nonce()) + 1L)
+          debug_log(sprintf(
+            "[PCA restore] render requested (pca_generation=%s)",
+            restore_context$pca_restore_generation
+          ), 1)
+        } else {
+          debug_log(sprintf(
+            "[PCA restore] no-plot restore completed (pca_generation=%s)",
+            restore_context$pca_restore_generation
+          ), 1)
+        }
         pca_finalized_restore_generation <<- generation_key
         pca_claimed_restore_generation <<- NULL
         debug_log(sprintf("[PCA] session restore finalized (%s); rendering re-enabled", status), 1)
@@ -735,9 +742,15 @@ modPCAServer <- function(id, rv, res_GSEA = NULL, res_GO = NULL, module_outputs 
         debug_log(paste("[PCA restore] ordinary PCA UI synchronization failed:", e$message), 1)
       })
 
-      # Exactly one release point; label rows are constructed directly from
-      # selected_items_vector_pca and item_label_settings_pca by renderUI.
-      schedule_finalizer(restore_status)
+      # A snapshot that did not contain a plot still restores its compact
+      # analysis and UI state, but has no render to await. Release its guard
+      # synchronously without registering a plot finalizer or advancing the
+      # render nonce. Plot-bearing snapshots retain the flushed finalizer path.
+      if (isTRUE(isolate(rv$pca_restore_rebuild_expected))) {
+        schedule_finalizer(restore_status)
+      } else {
+        finalize_restore("no_plot", request_render = FALSE)
+      }
     }, ignoreInit = TRUE)
 
     debug_log("PCA module initialized successfully", 1)
@@ -971,14 +984,36 @@ modPCAServer <- function(id, rv, res_GSEA = NULL, res_GO = NULL, module_outputs 
           restored_results <- state$analysis_results %||% state$analysis_result
           coordinates_available <- is.list(restored_results) &&
             !is.null(restored_results$coordinates)
-          had_plot_on_save <- isTRUE(state$had_plot %||% state$plots_ready)
-          rv$pca_restore_rebuild_expected <-
-            isTRUE(had_plot_on_save) && isTRUE(coordinates_available)
+          saved_plot_intent <- pca_saved_plot_intent(state)
+          rv$pca_restore_rebuild_expected <- saved_plot_intent
           restore_context <- isolate(list(
             session_generation = rv$session_restore_generation %||% NA_integer_,
             pca_generation = pca_state$restore_generation()
           ))
           restore_generation <- restore_context$pca_generation
+          if (!isTRUE(saved_plot_intent)) {
+            report <- isolate({
+              reports <- rv$restore_reports
+              if (!is.list(reports)) reports <- list()
+              reports$PCA %||% list()
+            })
+            report$restore_generation <- restore_generation
+            report$session_restore_generation <- restore_context$session_generation
+            report$render_job_id <- NULL
+            report$rebuild_requested <- FALSE
+            report$plot_recreated <- FALSE
+            report$render_completed <- FALSE
+            report$render_failed <- FALSE
+            report$render_timed_out <- FALSE
+            report$render_status <- "no_plot_saved"
+            report$restore_outcome <- "no_plot"
+            record_restore_report("PCA", report)
+            debug_log("[PCA] no saved plot requested; UI and analysis restoration retained", 1)
+            return()
+          }
+          if (!isTRUE(coordinates_available)) {
+            debug_log("[PCA] saved plot rebuild requested without compact coordinates", 1)
+          }
           jobs <- pca_jobs_for(restore_context$session_generation, restore_context$pca_generation, create = TRUE)
           if (is.null(jobs$finalizer)) {
             jobs$finalizer <- pca_register_job("restore finalizer", "finalizer", timeout = 15)
@@ -1094,7 +1129,7 @@ modPCAServer <- function(id, rv, res_GSEA = NULL, res_GO = NULL, module_outputs 
           state$analysis_results <- NULL
         }
         coordinates_available <- is.list(state$analysis_results) && !is.null(state$analysis_results$coordinates)
-        had_plot_on_save <- isTRUE(state$had_plot %||% state$plots_ready)
+        had_plot_on_save <- pca_saved_plot_intent(state)
         restore_cache_resolved <- isTRUE(state$restore_cache_resolved)
         restore_cache_mode <- as.character(state$restore_cache_resolution_mode %||% "none")[1]
         cache_key <- as.character(state$plot_data_cache_ref %||% if (is.list(state$plot_ui_inputs)) canonical_plot_key(state$plot_ui_inputs$comparison_target) else NA_character_)[1]

@@ -42,6 +42,16 @@
 # intentionally excluded and recreated after restore.
 PCA_SESSION_SCHEMA_VERSION <- "2.0"
 
+# `had_plot` is the canonical saved-plot intent in the PCA session envelope.
+# `plots_ready` is retained only for snapshots written before that field became
+# authoritative; importantly, the presence of compact analysis coordinates is
+# not itself a request to recreate a plot.
+pca_saved_plot_intent <- function(state) {
+  if (!is.list(state)) return(FALSE)
+  if (!is.null(state$had_plot)) return(isTRUE(state$had_plot))
+  isTRUE(state$plots_ready)
+}
+
 init_pca_state <- function(input, debug_log) {
   # Analysis results storage (legacy)
   analysis_results <- reactiveVal(NULL)
