@@ -5,6 +5,7 @@ audit_root <- function() {
 audit_patterns <- c(
   onFlushed = "session\\$onFlushed\\s*\\(",
   later = "later::later\\s*\\(",
+  promise = "(?:%[.]{3}[!>]%|promises::(?:then|catch|finally)\\s*\\()",
   invalidateLater = "(?<![A-Za-z0-9_.])invalidateLater\\s*\\(",
   debounce = "(?<![A-Za-z0-9_.:])(?:shiny::)?debounce\\s*\\(",
   throttle = "(?<![A-Za-z0-9_.:])(?:shiny::)?throttle\\s*\\(",
@@ -90,11 +91,40 @@ test_that("restore imperative boundaries have reviewed audit entries", {
   )
   required <- c("boundary_id", "owner", "file", "mechanism", "reviewed_line",
                 "trigger", "reactive_reads", "isolation", "catch_behavior",
-                "generation_guard", "failure_behavior", "category", "routing")
+                "generation_guard", "failure_behavior", "category", "routing",
+                "callback_contract", "reactive_consumer", "restore_specific")
   expect_true(all(required %in% names(manifest)))
   expect_identical(anyDuplicated(manifest$boundary_id), 0L)
   expect_true(all(manifest$category %in% 1:3))
   expect_true(all(vapply(manifest[required], function(x) all(nzchar(x)), logical(1))))
+
+  expect_true(all(manifest$restore_specific %in% c("yes", "no")))
+  category_one <- manifest$category == 1L & manifest$restore_specific == "yes"
+  approved_contracts <- c(
+    "shared restore callback runner",
+    "module wrapper delegating to shared runner",
+    "documented captured-values-only implementation"
+  )
+  expect_true(all(manifest$callback_contract[category_one] %in% approved_contracts),
+    info = paste(
+      "Every Category 1 callback (including promises and custom timers) must",
+      "name its approved imperative boundary; 'reviewed raw boundary' is not approval."
+    ))
+  expect_true(all(manifest$reactive_consumer[category_one] == "no"))
+  captured_only <- category_one & manifest$callback_contract ==
+    "documented captured-values-only implementation"
+  expect_true(all(grepl("captured", manifest$reactive_reads[captured_only], ignore.case = TRUE)))
+  expect_false(any(grepl(
+    "reactiveVal|reactiveValues|(?:^|[^[:alnum:]_])input(?:\\$|\\[)|reactive expression",
+    manifest$reactive_reads[captured_only], perl = TRUE, ignore.case = TRUE
+  )), info = "A captured-values-only callback may not hide a direct or transitive reactive read.")
+
+  reactive_categories <- manifest$category == 2L
+  expect_true(all(manifest$reactive_consumer[reactive_categories] == "yes"))
+  invalidators <- manifest$mechanism == "invalidateLater"
+  expect_true(all(manifest$category[invalidators] == 2L &
+                    manifest$reactive_consumer[invalidators] == "yes"),
+    info = "invalidateLater() is approved only when armed by a genuine reactive consumer.")
 
   scanned <- scan_restore_boundaries(root)
   missing <- setdiff(
@@ -109,6 +139,29 @@ test_that("restore imperative boundaries have reviewed audit entries", {
     "review and update restore_callback_audit_manifest.csv."
   ))
   expect_empty(stale, info = "The manifest contains a boundary no longer in source.")
+})
+
+test_that("restore readiness does not downgrade Shiny context violations", {
+  root <- audit_root()
+  callbacks <- paste(readLines(file.path(
+    root, "R", "session_save_restore", "session_save_restore_callbacks.R"
+  ), warn = FALSE), collapse = "\n")
+  expect_match(callbacks, "\\.evaluate_restore_readiness <- function", perl = TRUE)
+  expect_match(callbacks,
+    "\\.is_shiny_context_error\\(condition\\)[\\s\\S]*REACTIVE_CONTEXT_VIOLATION",
+    perl = TRUE)
+
+  # Readiness helpers which intentionally map ordinary errors to unavailable
+  # must rethrow current-context failures for the shared boundary to classify.
+  gsea <- paste(readLines(file.path(
+    root, "modules", "GSEA", "GSEA_module_observer.R"
+  ), warn = FALSE), collapse = "\n")
+  helper <- regmatches(gsea, regexpr(
+    "gsea_restore_unavailable <- function\\(default\\) \\{[\\s\\S]{0,300}\\n  \\}",
+    gsea, perl = TRUE
+  ))
+  expect_match(helper, "\\.is_shiny_context_error\\(e\\)")
+  expect_match(helper, "stop\\(e\\)")
 })
 
 test_that("the audit explicitly covers every requested restore owner", {
