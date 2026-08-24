@@ -500,7 +500,10 @@ modVolcanoServer <- function(id, rv, res_GSEA = NULL, GO_res = NULL, module_outp
         # boundary after Data Wizard has finished publishing its restored data.
         # Direct callers which omit phase retain the legacy one-call contract.
         if (identical(phase, "full_module_plots")) {
-          volcano_state$restore_rebuild_requested <- isTRUE(state$had_static_plots)
+          # Stage the canonical saved-plot intent outside reactive state so the
+          # restore observer can gate plot work before touching bookkeeping.
+          modEnv$volcano_restore_saved_plot_intent <- isTRUE(state$had_static_plots)
+          volcano_state$restore_rebuild_requested <- modEnv$volcano_restore_saved_plot_intent
           debug_log(sprintf(
             "[Volcano] reconstruction recorded for session restore trigger (requested=%s)",
             as.character(isTRUE(volcano_state$restore_rebuild_requested))
@@ -508,6 +511,10 @@ modVolcanoServer <- function(id, rv, res_GSEA = NULL, GO_res = NULL, module_outp
           return()
         }
         if (!is.null(phase) && !identical(phase, "full_module_state")) return()
+
+        # `state$had_static_plots` is the canonical saved-plot intent. This
+        # plain staged copy can be read without creating a reactive dependency.
+        modEnv$volcano_restore_saved_plot_intent <- isTRUE(state$had_static_plots)
 
         if (!is.list(state$restore_plot_data_cache) && is.list(state$plot_data_cache_payload)) {
           state$restore_plot_data_cache <- state$plot_data_cache_payload
@@ -584,8 +591,8 @@ modVolcanoServer <- function(id, rv, res_GSEA = NULL, GO_res = NULL, module_outp
         volcano_state$plot_data_by_title <- NULL
         volcano_state$plot_requests_by_title <- if (is.list(state$plot_requests_by_title)) state$plot_requests_by_title else NULL
         if (!is.null(state$plot_titles))   volcano_state$plot_titles  <- state$plot_titles
-        volcano_state$had_static_plots_on_save <- isTRUE(state$had_static_plots)
-        volcano_state$restore_rebuild_requested <- is.null(phase) && isTRUE(state$had_static_plots)
+        volcano_state$had_static_plots_on_save <- modEnv$volcano_restore_saved_plot_intent
+        volcano_state$restore_rebuild_requested <- is.null(phase) && modEnv$volcano_restore_saved_plot_intent
         # Retain only the lightweight contract required to decide whether the
         # final, post-preprocessing live pair is a compatible fallback.
         volcano_state$restore_cache_contract <- list(

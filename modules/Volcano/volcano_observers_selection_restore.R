@@ -209,10 +209,13 @@ register_volcano_selection_restore_observers <- function(
   # rebuilds plots from saved plot data or resolved cache data, and then selects
   # the previously active plot. Labels are applied by get_current_display_plot().
   observeEvent(rv$session_restore_trigger, {
+    # Staged from the canonical `had_static_plots` snapshot field. Read this
+    # plain value before registering jobs or consulting plot state.
+    saved_plot_intent <- isTRUE(modEnv$volcano_restore_saved_plot_intent)
     restore_generation <- isolate(rv$session_restore_generation %||% NA_integer_)
     register_restore_job <- session$userData$register_restore_job
     resolve_restore_job <- session$userData$resolve_restore_job
-    finalizer_job <- if (is.function(register_restore_job)) {
+    finalizer_job <- if (isTRUE(saved_plot_intent) && is.function(register_restore_job)) {
       tryCatch(
         register_restore_job("Volcano", "restore finalizer", "finalizer", 15),
         error = function(e) {
@@ -316,19 +319,25 @@ register_volcano_selection_restore_observers <- function(
         }, once = TRUE)
       }
 
+      # Harmless UI, selection, label, and analysis state has now been
+      # restored. With no saved plot, release the guard directly and never
+      # enter cache reconstruction or schedule plot/finalizer callbacks.
+      if (!isTRUE(saved_plot_intent)) {
+        debug_log("[Volcano] session restore: no saved volcano plots, skipping regeneration", 1)
+        volcano_state$preferred_plot_title <- NULL
+        volcano_state$had_static_plots_on_save <- FALSE
+        volcano_state$restore_rebuild_requested <- FALSE
+        volcano_state$restore_in_progress <- FALSE
+        volcano_state$pending_ui_inputs <- NULL
+        return()
+      }
+
       # ------------------------------------------------------------------
       # Phase 2: Restore plot display from schema 2.0 cache/request state.
       # Saved ggplot/plotly/rendered objects and ggplot-derived plot data are
       # intentionally ignored; cached data/metadata plus cached UI are the
       # authoritative Volcano restore contract.
       # ------------------------------------------------------------------
-      if (!isTRUE(volcano_state$had_static_plots_on_save)) {
-        debug_log("[Volcano] session restore: no saved volcano plots, skipping regeneration", 1)
-        volcano_state$preferred_plot_title <- NULL
-        finalize_restore(trigger_render = FALSE)
-        return()
-      }
-
       if (!isTRUE(volcano_state$restore_rebuild_requested)) {
         debug_log("[Volcano] session restore: plot reconstruction was not requested", 2)
         finalize_restore(trigger_render = FALSE)
@@ -405,7 +414,14 @@ register_volcano_selection_restore_observers <- function(
     }, error = function(e) {
       volcano_state$had_static_plots_on_save <- FALSE
       volcano_state$restore_rebuild_requested <- FALSE
-      finalize_restore(trigger_render = FALSE)
+      if (isTRUE(saved_plot_intent)) {
+        finalize_restore(trigger_render = FALSE)
+      } else {
+        # The no-plot path never needs an asynchronous finalizer, including
+        # when restoration of otherwise harmless state fails.
+        volcano_state$restore_in_progress <- FALSE
+        volcano_state$pending_ui_inputs <- NULL
+      }
       debug_log(paste("[Volcano] session restore plot recovery failed:", e$message), 1)
     })
   }, ignoreInit = TRUE)
