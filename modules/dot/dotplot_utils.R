@@ -575,7 +575,7 @@ dotplot_add_thresholds <- function(plot, thresholds) {
           xintercept = threshold$value,
           color = threshold$color,
           linetype = threshold$style,
-          size = line_thickness,
+          linewidth = line_thickness,
           alpha = 0.8
         )
 
@@ -598,7 +598,7 @@ dotplot_add_thresholds <- function(plot, thresholds) {
           yintercept = threshold$value,
           color = threshold$color,
           linetype = threshold$style,
-          size = line_thickness,
+          linewidth = line_thickness,
           alpha = 0.8
         )
 
