@@ -360,6 +360,72 @@ register_tables_metadata_editing <- function(context, request_primary_preview_re
     })
   }
 
+  # Install an already-committed session payload in the editable presentation
+  # buffer. Canonical state is deliberately not written here: the Data Wizard
+  # restore transaction owns that commit and passes this API the same payload.
+  hydrate_restored_metadata <- function(metadata, reference_data,
+                                        generation = NULL,
+                                        source = "restored_metadata") {
+    result <- function(success, action, reason = "") {
+      list(success = success, action = action, reason = reason)
+    }
+    generation_label <- as.character(generation %||% NA_integer_)
+    log_result <- function(action, rows = 0L) {
+      debug_log(sprintf(
+        "[TablesMetadata] session payload hydration: generation=%s rows=%d source=%s action=%s",
+        generation_label, rows, source, action
+      ), 1)
+    }
+
+    if (!is.data.frame(metadata) || !is.data.frame(reference_data)) {
+      log_result("rejected_invalid_input", if (is.data.frame(metadata)) nrow(metadata) else 0L)
+      return(result(FALSE, "rejected_invalid_input",
+                    "metadata and reference_data must be data frames"))
+    }
+    metadata <- datawizard_drop_deprecated_metadata_columns(metadata)
+    if (!isTRUE(metadata_matches_dataset(metadata, reference_data))) {
+      log_result("rejected_unaligned", nrow(metadata))
+      return(result(FALSE, "rejected_unaligned",
+                    "metadata is not aligned with the restored data"))
+    }
+    generation_is_current <- function() {
+      is.null(generation) || is.null(rv) || identical(
+        isolate(rv$session_restore_generation), generation
+      )
+    }
+    if (!generation_is_current()) {
+      log_result("rejected_stale_generation", nrow(metadata))
+      return(result(FALSE, "rejected_stale_generation",
+                    "restore generation is no longer current"))
+    }
+
+    current <- isolate(current_handson_metadata())
+    if (is.data.frame(current) && isTRUE(all.equal(
+      current, metadata, check.attributes = FALSE
+    ))) {
+      metadata_write_back_guard$active <- FALSE
+      metadata_sync_pending(FALSE)
+      set_metadata_sync_state(paused = FALSE, pending = FALSE)
+      log_result("noop_already_equal", nrow(metadata))
+      return(result(TRUE, "noop_already_equal"))
+    }
+    if (!generation_is_current()) {
+      log_result("rejected_stale_generation", nrow(metadata))
+      return(result(FALSE, "rejected_stale_generation",
+                    "restore generation is no longer current"))
+    }
+
+    mark_programmatic_metadata_sync()
+    metadata_write_back_guard$active <- FALSE
+    current_handson_metadata(metadata)
+    metadata_sync_pending(FALSE)
+    set_metadata_sync_state(paused = FALSE, pending = FALSE)
+    freezeReactiveValue(input, "metadata_table")
+    metadata_options_refresh(isolate(metadata_options_refresh()) + 1L)
+    log_result("hydrated", nrow(metadata))
+    result(TRUE, "hydrated")
+  }
+
   observeEvent(input$pause_metadata_sync, {
     set_metadata_sync_state(paused = isTRUE(input$pause_metadata_sync),
                             pending = isTRUE(metadata_sync_pending()))
@@ -927,7 +993,10 @@ register_tables_metadata_editing <- function(context, request_primary_preview_re
     })
   })
 
-  list(set_current_metadata = set_current_metadata)
+  list(
+    set_current_metadata = set_current_metadata,
+    hydrate_restored_metadata = hydrate_restored_metadata
+  )
 
   })
 }

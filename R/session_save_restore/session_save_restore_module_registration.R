@@ -1359,6 +1359,34 @@ register_module_session_participants <- function(session_registry, module_output
                 restore_generation
               )
           }
+          hydrate_restored_metadata_table <- function(metadata, reference_data) {
+            aligned <- is.data.frame(metadata) && is.data.frame(reference_data) &&
+              isTRUE(metadata_matches_dataset(metadata, reference_data))
+            debug_log(sprintf(
+              "[DataWizardRestore] restored metadata payload: rows=%d data_cols=%d aligned=%s",
+              if (is.data.frame(metadata)) nrow(metadata) else 0L,
+              if (is.data.frame(reference_data)) ncol(reference_data) else 0L,
+              if (aligned) "TRUE" else "FALSE"
+            ), 1)
+            if (!aligned || !restore_generation_current() ||
+                !is.list(dw$tables_out) ||
+                !is.function(dw$tables_out$hydrate_restored_metadata)) {
+              return(invisible(FALSE))
+            }
+            outcome <- tryCatch(
+              isolate(dw$tables_out$hydrate_restored_metadata(
+                metadata = metadata,
+                reference_data = reference_data,
+                generation = restore_generation,
+                source = "restored_metadata"
+              )),
+              error = function(e) {
+                debug_log(paste("Data Wizard restore: Tables metadata hydration failed:", e$message), 1)
+                NULL
+              }
+            )
+            invisible(is.list(outcome) && isTRUE(outcome$success))
+          }
           metadata_matches_data <- metadata_matches_dataset
           canonical_pair_valid <- restore_has_valid_canonical_pair(state$data_mod, state$data_def)
           metadata_authoritative <- canonical_pair_valid && is_meaningful_metadata(state$data_def)
@@ -1637,6 +1665,7 @@ register_module_session_participants <- function(session_registry, module_output
             )
             canonical_raw <- canonical_restore$canonical_raw
             restored_metadata <- canonical_restore$restored_metadata
+            hydrate_restored_metadata_table(restored_metadata, state$data_mod)
             .safe_rv_write(dw$central_rule_file, state$central_rule_file)
             .safe_rv_write(dw$central_loaded_rules, state$central_loaded_rules)
 
@@ -1723,6 +1752,7 @@ register_module_session_participants <- function(session_registry, module_output
           )
           canonical_raw <- canonical_restore$canonical_raw
           restored_handson_metadata <- canonical_restore$restored_metadata
+          hydrate_restored_metadata_table(restored_handson_metadata, state$data_mod)
           .safe_rv_write(dw$apply_triggered, state$apply_triggered)
           .safe_rv_write(dw$filter_applied, state$filter_applied)
           .safe_rv_write(dw$filtered_data, state$filtered_data)
