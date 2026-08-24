@@ -1,5 +1,7 @@
 core_helpers_file <- file.path("R", "session_save_restore", "session_save_restore_core_helpers.R")
 if (!file.exists(core_helpers_file)) core_helpers_file <- file.path("..", "..", core_helpers_file)
+orchestration_file <- file.path("R", "session_save_restore", "session_save_restore_orchestration.R")
+if (!file.exists(orchestration_file)) orchestration_file <- file.path("..", "..", orchestration_file)
 
 test_that("restore jobs resolve exactly once and are generation scoped", {
   env <- new.env(parent = globalenv())
@@ -85,4 +87,67 @@ test_that("registration barrier closes once and stale barriers cannot seal", {
   expect_true(registry$resolve_restore_job(pending, "completed"))
   expect_identical(registry$generation_status(11L)$phase, "SETTLED")
   expect_length(reports, 1L)
+})
+
+test_that("restore lifecycle stages cannot independently announce settlement", {
+  env <- new.env(parent = globalenv())
+  env$`%||%` <- function(x, y) if (is.null(x)) y else x
+  env$debug_log <- function(...) invisible(NULL)
+  sys.source(core_helpers_file, envir = env)
+  generation <- 51L
+  reports <- list()
+  registry <- env$.create_restore_job_registry(
+    function() generation,
+    function(callback, delay) invisible(NULL),
+    function(report) reports[[length(reports) + 1L]] <<- report
+  )
+
+  # Synchronous hydration and replay start only advance lifecycle state.
+  registry$start_generation(generation)
+  expect_empty(reports)
+  expect_true(registry$set_settlement_metadata(generation, list(
+    imported_filename = "example.rds", restored_module_count = 4L
+  )))
+  registry$set_phase(generation, "REPLAYING")
+  expect_empty(reports)
+
+  pending <- registry$register_restore_job("PCA", "render completion", "render", 0)
+  # Registration closure also cannot report success while work remains.
+  expect_true(registry$seal_generation(generation))
+  expect_empty(reports)
+  expect_true(registry$resolve_restore_job(pending, "completed"))
+
+  expect_length(reports, 1L)
+  expect_identical(reports[[1L]]$state, "SETTLED")
+  expect_identical(reports[[1L]]$metadata$imported_filename, "example.rds")
+  expect_identical(reports[[1L]]$metadata$restored_module_count, 4L)
+
+  orchestration_source <- readLines(orchestration_file, warn = FALSE)
+  success_log_lines <- grep("MiraProt session imported", orchestration_source, fixed = TRUE)
+  settlement_start <- grep("restore_settlement <- function", orchestration_source, fixed = TRUE)
+  settlement_end <- grep("restore_jobs <- .create_restore_job_registry", orchestration_source,
+                         fixed = TRUE)
+  expect_length(success_log_lines, 1L)
+  expect_true(success_log_lines > settlement_start)
+  expect_true(success_log_lines < settlement_end)
+})
+
+test_that("settlement metadata rejects stale generations", {
+  env <- new.env(parent = globalenv())
+  env$`%||%` <- function(x, y) if (is.null(x)) y else x
+  env$debug_log <- function(...) invisible(NULL)
+  sys.source(core_helpers_file, envir = env)
+  generation <- 60L
+  registry <- env$.create_restore_job_registry(
+    function() generation,
+    function(callback, delay) invisible(NULL)
+  )
+
+  registry$start_generation(60L)
+  generation <- 61L
+  registry$start_generation(61L)
+  expect_false(registry$set_settlement_metadata(
+    60L, list(imported_filename = "stale.rds")
+  ))
+  expect_empty(registry$generation_status(60L)$settlement_metadata)
 })

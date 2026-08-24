@@ -2438,6 +2438,7 @@ setup_session_save_restore <- function(input, output, session, rv,
   restore_settlement <- function(report) {
     if (!restore_generation_current(report$generation)) return(invisible(FALSE))
     jobs <- report$jobs
+    metadata <- report$metadata %||% list()
     failed_fields <- isolate(rv$.restore_failed_fields %||% character())
     failed_modules <- isolate(rv$.restore_failed_modules %||% character())
     warning_parts <- character()
@@ -2446,15 +2447,45 @@ setup_session_save_restore <- function(input, output, session, rv,
     if (report$skipped) warning_parts <- c(warning_parts, paste0(report$skipped, " callback(s) skipped"))
     if (report$timeouts) warning_parts <- c(warning_parts, paste0(report$timeouts, " callback(s) timed out"))
     if (length(report$errors)) warning_parts <- c(warning_parts, paste0(length(report$errors), " callback error(s)"))
-    n_modules <- isolate(rv$.restore_module_count %||% 0L) - length(failed_modules)
-    if (identical(report$state, "SETTLED") && !length(warning_parts)) {
+    n_modules <- as.integer(metadata$restored_module_count %||%
+                              (isolate(rv$.restore_module_count %||% 0L) - length(failed_modules)))
+    imported_file_name <- metadata$imported_filename %||% "unknown"
+    problematic <- report$outstanding %||% list()
+    problematic_result <- if (length(problematic)) {
+      paste(vapply(problematic, function(job) {
+        sprintf("owner=%s reason=%s outcome=%s",
+                job$owner %||% "unknown", job$reason %||% "unknown",
+                job$outcome %||% "unknown")
+      }, character(1L)), collapse = "; ")
+    } else {
+      "none reported"
+    }
+    if (identical(report$state, "SETTLED")) {
       showNotification(paste0("Session restored successfully. ", n_modules,
                               " module(s) restored. Modules will re-process the data."),
                        type = "message", duration = 8)
+      session_debug_log(
+        sprintf("MiraProt session imported | File: %s | Modules restored: %s",
+                imported_file_name, as.character(n_modules)),
+        level = 0
+      )
+    } else if (identical(report$state, "DEGRADED")) {
+      showNotification(paste0("Session restore degraded: ", problematic_result, "."),
+                       type = "warning", duration = 10)
+      session_debug_log(
+        sprintf("MiraProt session import degraded | File: %s | Problematic jobs: %s",
+                imported_file_name, problematic_result),
+        level = 0
+      )
     } else {
-      showNotification(paste0("Session restored ", tolower(report$state), ": ",
-                              paste(warning_parts, collapse = "; "), "."),
-                       type = if (identical(report$state, "FAILED")) "error" else "warning", duration = 10)
+      failure_detail <- paste(c(warning_parts, problematic_result), collapse = "; ")
+      showNotification(paste0("Session restore failed: ", failure_detail, "."),
+                       type = "error", duration = 10)
+      session_debug_log(
+        sprintf("MiraProt session import failed | File: %s | Problematic jobs: %s",
+                imported_file_name, problematic_result),
+        level = 0
+      )
     }
     if (identical(report$state, "SETTLED")) {
       debug_log(paste("Session restoration completed.", n_modules,
@@ -3210,6 +3241,19 @@ setup_session_save_restore <- function(input, output, session, rv,
           level = 0
         )
 
+        # Settlement metadata is attached before replay finalization can close
+        # registration. This is the only source for the eventual import result.
+        rv$.restore_failed_fields <- failed_fields
+        rv$.restore_failed_modules <- failed_modules
+        rv$.restore_module_count <- length(module_snapshots)
+        imported_file_name <- if (!is.null(file_info$name) &&
+                                  is.character(file_info$name) &&
+                                  nzchar(file_info$name)) file_info$name else "unknown"
+        restore_jobs$set_settlement_metadata(restore_generation, list(
+          imported_filename = imported_file_name,
+          restored_module_count = length(module_snapshots) - length(failed_modules)
+        ))
+
         barrier_status <- restore_jobs$generation_status(restore_generation)
         datawizard_restore_controls_finalization <-
           identical(barrier_status$barrier_owner, "datawizard")
@@ -3280,26 +3324,6 @@ setup_session_save_restore <- function(input, output, session, rv,
 
         # Seal only after every deferred action required by the synchronous
         # transaction has registered its job. Settlement owns user-visible success.
-        rv$.restore_failed_fields <- failed_fields
-        rv$.restore_failed_modules <- failed_modules
-        rv$.restore_module_count <- length(module_snapshots)
-        n_modules_restored <- length(module_snapshots) - length(failed_modules)
-        imported_file_name <- if (!is.null(file_info$name) &&
-                                  is.character(file_info$name) &&
-                                  nzchar(file_info$name)) {
-          file_info$name
-        } else {
-          "unknown"
-        }
-        session_debug_log(
-          sprintf(
-            "MiraProt session imported | File: %s | Modules restored: %s",
-            imported_file_name,
-            as.character(n_modules_restored)
-          ),
-          level = 0
-        )
-
         # The deferred finalization callback only needs scalar generation and
         # phase flags. Drop materialized snapshot/cache bindings now so its
         # closure environment cannot retain a second copy while rendering
