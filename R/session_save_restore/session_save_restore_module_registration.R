@@ -1929,6 +1929,11 @@ register_module_session_participants <- function(session_registry, module_output
               "datawizard", "guard_release", "finalizer", timeout = 15
             )
           } else NULL
+          owns_registration_barrier <- !is.null(guard_job) &&
+            is.function(restore_job_api$claim_registration_barrier) &&
+            isTRUE(restore_job_api$claim_registration_barrier(
+              scheduled_restore_generation, "datawizard"
+            ))
           dispatch_now <- function() {
             extract_submodule_state_payload <- function(st) {
               if (!is.list(st)) return(NULL)
@@ -2091,23 +2096,7 @@ register_module_session_participants <- function(session_registry, module_output
                   }
                 })
               }
-              if (!is.null(session) && is.function(session$onFlushed)) {
-                session$onFlushed(once = TRUE, function() {
-                  .run_session_restore_callback(
-                    owner = "datawizard",
-                    reason = "guard_release",
-                    generation = scheduled_restore_generation,
-                    phase = scheduled_restore_phase,
-                    callback = finalize_restore_guard,
-                    job = guard_job,
-                    job_metadata = list(
-                      job_id = guard_job,
-                      current_generation = current_restore_generation,
-                      resolve_job = restore_job_api$resolve_restore_job
-                    )
-                  )
-                })
-              } else {
+              run_registration_barrier <- function() {
                 .run_session_restore_callback(
                   owner = "datawizard",
                   reason = "guard_release",
@@ -2121,6 +2110,17 @@ register_module_session_participants <- function(session_registry, module_output
                     resolve_job = restore_job_api$resolve_restore_job
                   )
                 )
+                # This callback runs at the end of the deterministic flush
+                # caused by session_restore_trigger. All intent-qualified
+                # observers have now had their one opportunity to register.
+                if (isTRUE(owns_registration_barrier)) {
+                  restore_job_api$seal_generation(scheduled_restore_generation)
+                }
+              }
+              if (!is.null(session) && is.function(session$onFlushed)) {
+                session$onFlushed(once = TRUE, run_registration_barrier)
+              } else {
+                run_registration_barrier()
               }
               debug_log("Data Wizard restore: completed UI replay phase, bumped restore trigger, and deferred guard release until replay consumers flushed", 1)
             }
@@ -2131,6 +2131,9 @@ register_module_session_participants <- function(session_registry, module_output
               resolved <- restore_job_api$resolve_restore_job(job_id, outcome, error)
               if (!identical(outcome, "success") && !is.null(guard_job)) {
                 restore_job_api$resolve_restore_job(guard_job, "skipped", error %||% outcome)
+                if (isTRUE(owns_registration_barrier)) {
+                  restore_job_api$seal_generation(scheduled_restore_generation)
+                }
               }
               resolved
             } else NULL
