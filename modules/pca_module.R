@@ -543,6 +543,7 @@ modPCAServer <- function(id, rv, res_GSEA = NULL, res_GO = NULL, module_outputs 
         analysis_results = pca_state$analysis_results(),
         restore_cache = pca_state$restore_plot_data_cache(),
         plots_ready = pca_state$plots_ready(),
+        rebuild_expected = isTRUE(rv$pca_restore_rebuild_expected),
         expected_input_echoes = pca_state$expected_restore_input_echoes() %||% list()
       ))
 
@@ -638,13 +639,47 @@ modPCAServer <- function(id, rv, res_GSEA = NULL, res_GO = NULL, module_outputs 
           length(identifier_choices)
         ), 1)
 
-        if (length(identifier_choices) == 0L) {
+        saved_identifier <- as.character(captured$GeneIdentifierColumn_pca %||%
+                                           restore_context$restored_identifier)[1]
+        saved_plot_rebuild_expected <- isTRUE(restore_context$rebuild_expected)
+        compact_pca_result_available <- is.list(restore_context$analysis_results) &&
+          !is.null(restore_context$analysis_results$coordinates)
+        valid_saved_cache_pair_available <- is.list(restore_context$restore_cache) &&
+          inherits(restore_context$restore_cache$data_mod, "data.frame") &&
+          inherits(restore_context$restore_cache$data_def, "data.frame")
+        meaningful_current_live_metadata_available <- length(identifier_choices) > 0L
+        saved_identifier_present_in_live_choices <-
+          meaningful_current_live_metadata_available &&
+          length(saved_identifier) > 0L && !is.na(saved_identifier) &&
+          saved_identifier %in% identifier_choices
+
+        if (saved_plot_rebuild_expected && compact_pca_result_available &&
+            valid_saved_cache_pair_available &&
+            !meaningful_current_live_metadata_available) {
+          reports <- isolate(rv$restore_reports)
+          if (!is.list(reports)) reports <- list()
+          report <- reports$PCA %||% list()
+          live_ui_note <- paste(
+            "Cached PCA plot was restored; current live metadata cannot populate",
+            "the identifier selector (live UI not applicable)."
+          )
+          report$live_ui_notes <- unique(c(report$live_ui_notes %||% character(0), live_ui_note))
+          report$live_identifier_selector_status <- "not_applicable"
+          reports$PCA <- report
+          rv$restore_reports <- reports
+          if (isTRUE(getOption("miraprot.restore_diagnostics_panel", FALSE))) {
+            rv$restore_diagnostics <- reports
+          }
+          debug_log(paste("[PCA restore] live UI note:", live_ui_note), 1)
+        } else if (meaningful_current_live_metadata_available &&
+                   length(saved_identifier) > 0L && !is.na(saved_identifier) &&
+                   !saved_identifier_present_in_live_choices) {
           reports <- isolate(rv$restore_reports)
           if (!is.list(reports)) reports <- list()
           report <- reports$PCA %||% list()
           warning_message <- paste(
-            "Identifier choices unavailable after Data Wizard trigger;",
-            "rendering saved compact PCA result with restored cache."
+            "Saved PCA identifier is unavailable in current live metadata;",
+            "the live selector uses a compatible fallback without adding the cached identifier."
           )
           report$warnings <- unique(c(report$warnings %||% character(0), warning_message))
           reports$PCA <- report
@@ -656,11 +691,8 @@ modPCAServer <- function(id, rv, res_GSEA = NULL, res_GO = NULL, module_outputs 
           restore_status <- "degraded"
         }
 
-        saved_identifier <- as.character(captured$GeneIdentifierColumn_pca %||%
-                                           restore_context$restored_identifier)[1]
         if (length(identifier_choices) > 0L) {
-          selected_identifier <- if (length(saved_identifier) > 0L && !is.na(saved_identifier) &&
-                                     saved_identifier %in% identifier_choices) {
+          selected_identifier <- if (saved_identifier_present_in_live_choices) {
             saved_identifier
           } else identifier_choices[1]
           selection_source <- if (length(saved_identifier) > 0L && !is.na(saved_identifier) &&
@@ -722,15 +754,10 @@ modPCAServer <- function(id, rv, res_GSEA = NULL, res_GO = NULL, module_outputs 
           ))
         }
 
-        result_available <- is.list(restore_context$analysis_results) &&
-          !is.null(restore_context$analysis_results$coordinates)
-        cache_available <- is.list(restore_context$restore_cache) &&
-          inherits(restore_context$restore_cache$data_mod, "data.frame") &&
-          inherits(restore_context$restore_cache$data_def, "data.frame")
-        if (isTRUE(restore_context$plots_ready) && !result_available) {
+        if (saved_plot_rebuild_expected && !compact_pca_result_available) {
           stop("saved plot has no restored compact analysis result")
         }
-        if (isTRUE(restore_context$plots_ready) && !cache_available) {
+        if (saved_plot_rebuild_expected && !valid_saved_cache_pair_available) {
           debug_log("[PCA] restored cache unavailable; compact result will render in degraded mode", 1)
           restore_status <- "degraded"
         }
