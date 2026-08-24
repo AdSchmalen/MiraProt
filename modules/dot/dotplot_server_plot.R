@@ -401,11 +401,12 @@ observeEvent(input$generate_plot, {
           dotplot_capture_plot_ui_cache(input, dotplot_state, region_configs, region_structure)
         )
       }
+      canonical_plot_key <- dotplot_build_cache_key()
       dotplot_state$plot_cache_ref_by_title <- stats::setNames(
         list(dotplot_state$source_data_signature %||% ""),
-        as.character(input$plot_title %||% "default")[1]
+        canonical_plot_key
       )
-      dotplot_state$plot_data_cache_ref <- dotplot_build_cache_key()
+      dotplot_state$plot_data_cache_ref <- canonical_plot_key
 
       dotplot_debug_log("Plot generation completed with custom styling", 1)
 
