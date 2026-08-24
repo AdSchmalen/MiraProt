@@ -10,6 +10,10 @@ pca_state_file <- file.path("modules", "PCA", "pca_module_state.R")
 if (!file.exists(pca_state_file)) pca_state_file <- file.path("..", "..", pca_state_file)
 sys.source(pca_state_file, envir = pca_restore_test_env)
 
+pca_module_file <- file.path("modules", "pca_module.R")
+if (!file.exists(pca_module_file)) pca_module_file <- file.path("..", "..", pca_module_file)
+pca_module_source <- paste(readLines(pca_module_file, warn = FALSE), collapse = "\n")
+
 make_pca_registry <- function() {
   generation <- 7L
   scheduled <- list()
@@ -75,4 +79,52 @@ test_that("PCA saved-plot intent is canonical and legacy-compatible", {
   expect_true(saved_plot_intent(list(had_plot = TRUE, plots_ready = FALSE)))
   expect_true(saved_plot_intent(list(plots_ready = TRUE)))
   expect_false(saved_plot_intent(list(coordinates = matrix(1, nrow = 1L))))
+})
+
+test_that("valid cached PCA result treats absent live metadata as neutral UI state", {
+  expect_match(pca_module_source,
+               "saved_plot_rebuild_expected && compact_pca_result_available &&", fixed = TRUE)
+  expect_match(pca_module_source,
+               "current live metadata cannot populate", fixed = TRUE)
+  expect_match(pca_module_source,
+               "live_identifier_selector_status <- \"not_applicable\"", fixed = TRUE)
+})
+
+test_that("missing or corrupt required PCA cache keeps the degraded path", {
+  expect_match(pca_module_source,
+               "inherits(restore_context$restore_cache$data_mod, \"data.frame\")", fixed = TRUE)
+  expect_match(pca_module_source,
+               "inherits(restore_context$restore_cache$data_def, \"data.frame\")", fixed = TRUE)
+  expect_match(pca_module_source,
+               "saved_plot_rebuild_expected && !valid_saved_cache_pair_available", fixed = TRUE)
+  expect_match(pca_module_source,
+               "restored cache unavailable; compact result will render in degraded mode", fixed = TRUE)
+})
+
+test_that("missing compact PCA result keeps the saved-plot error path", {
+  expect_match(pca_module_source,
+               "saved_plot_rebuild_expected && !compact_pca_result_available", fixed = TRUE)
+  expect_match(pca_module_source,
+               "saved plot has no restored compact analysis result", fixed = TRUE)
+})
+
+test_that("meaningful live PCA metadata does not receive a missing cached identifier", {
+  expect_match(pca_module_source,
+               "meaningful_current_live_metadata_available &&", fixed = TRUE)
+  expect_match(pca_module_source,
+               "!saved_identifier_present_in_live_choices", fixed = TRUE)
+  expect_match(pca_module_source,
+               "without adding the cached identifier", fixed = TRUE)
+  expect_match(pca_module_source, "else identifier_choices[1]", fixed = TRUE)
+})
+
+test_that("no-saved-plot PCA restoration does not require cached reconstruction", {
+  saved_plot_intent <- pca_restore_test_env$pca_saved_plot_intent
+
+  expect_false(saved_plot_intent(list(
+    had_plot = FALSE, plots_ready = TRUE,
+    analysis_results = list(coordinates = matrix(1, 1L, 1L))
+  )))
+  expect_match(pca_module_source,
+               "finalize_restore(\"no_plot\", request_render = FALSE)", fixed = TRUE)
 })
