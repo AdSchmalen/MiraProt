@@ -2992,9 +2992,24 @@ setup_session_save_restore <- function(input, output, session, rv,
                  inherits(st$plot_data_cache_payload$data_def, "data.frame"))
             if (identical(mid, "dotplot")) {
               # Dotplot intent precedes identity validation: saved UI without a
-              # rendered plot has no cache miss to diagnose.
-              snapshot$module_snapshots[[mid]]$module_state <-
-                dotplot_preprocess_restore_cache(st, plot_data_cache_pool)
+              # rendered plot has no cache miss to diagnose. Normalize only the
+              # generic, transient resolution products here so configuration/UI
+              # fields and durable cache identity fields remain untouched.
+              if (!isTRUE(st$plot_ready)) {
+                st$restore_plot_data_cache <- NULL
+                st$restore_plot_data_cache_by_title <- NULL
+                st$restore_cache_resolved <- FALSE
+                st$restore_cache_degraded <- FALSE
+                st$restore_cache_degraded_reason <- NULL
+                st$restore_cache_dependency <- "none"
+                st$restore_cache_resolution_mode <- "none"
+                snapshot$module_snapshots[[mid]]$module_state <- st
+              } else {
+                # Plot-bearing snapshots retain the generic resolver's strict
+                # cache-key/by-title validation and downstream diagnostics.
+                snapshot$module_snapshots[[mid]]$module_state <-
+                  .resolve_plot_data_cache_for_module(st, plot_data_cache_pool)
+              }
             } else if (isTRUE(has_embedded_plot_cache) || isTRUE(.uses_shared_plot_data_cache(st))) {
               snapshot$module_snapshots[[mid]]$module_state <-
                 .resolve_plot_data_cache_for_module(st, plot_data_cache_pool)
