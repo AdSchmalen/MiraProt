@@ -1572,19 +1572,21 @@ observeEvent(plot_update_trigger(), {
 
   observeEvent(rv$session_restore_trigger, {
     tryCatch({
+      # plot_ready is the saved-plot-intent boundary staged by
+      # set_session_state(). Do not register deferred UI/render work for a
+      # configuration-only restore. The guard still needs its untracked
+      # post-flush release so ordinary plotting can resume.
+      if (!isTRUE(isolate(dotplot_state$restore_rebuild_requested))) {
+        schedule_restore_guard_clear()
+        dotplot_debug_log(
+          "[Dotplot] session restore: no plot rebuild requested", 1)
+        return(invisible(NULL))
+      }
+
       # Always push restored UI values back into the widgets -- the plot
       # may already be restored but the sliders/colour pickers default to
       # factory values until this sync runs.
       sync_dotplot_ui_from_state()
-
-      # The module setter is authoritative for whether the saved session had a
-      # plot. UI restoration is harmless, but everything below creates plot
-      # state or deferred render work.
-      if (!isTRUE(isolate(dotplot_state$restore_rebuild_requested))) {
-        dotplot_debug_log(
-          "[Dotplot] session restore: UI synchronized; no plot rebuild requested", 1)
-        return(invisible(NULL))
-      }
 
       # Immediate fallback: if the deserialized ggplot is NULL, regenerate
       # now so the first render has something to show.  The remap guard in

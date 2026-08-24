@@ -683,8 +683,12 @@ modHeatmapServer <- function(id, rv, res_GSEA = NULL, GO_res = NULL, module_outp
         heatmap_state$restore_generation <- isolate(rv$session_restore_generation %||% NA_integer_)
         heatmap_state$restore_callbacks_pending <- 0L
         heatmap_state$restore_job_settled <- FALSE
+        pending_had_heatmap <- isTRUE(state$had_heatmap) ||
+          isTRUE(!is.null(state$heatmap_expression_matrix)) ||
+          isTRUE(!is.null(state$matrix_payload$expression_matrix))
         register_restore_job <- session$userData$register_restore_job
-        heatmap_state$restore_job_id <- if (is.function(register_restore_job)) tryCatch(
+        heatmap_state$restore_job_id <- if (isTRUE(pending_had_heatmap) &&
+                                                is.function(register_restore_job)) tryCatch(
           register_restore_job("Heatmap", "replay and render restored heatmap", "render", 45),
           error = function(e) {
             heatmap_debug_log(paste("[Heatmap] restore job registration failed:", e$message), 1)
@@ -697,9 +701,7 @@ modHeatmapServer <- function(id, rv, res_GSEA = NULL, GO_res = NULL, module_outp
         heatmap_state$pending_data_mod_revision_id <- state$data_mod_revision_id %||% NULL
         heatmap_state$pending_data_def_revision_id <- state$data_def_revision_id %||% NULL
         heatmap_state$pending_annotation_state <- if (is.list(state$annotation_state)) state$annotation_state else NULL
-        heatmap_state$pending_had_heatmap <- isTRUE(state$had_heatmap) ||
-          isTRUE(!is.null(state$heatmap_expression_matrix)) ||
-          isTRUE(!is.null(state$matrix_payload$expression_matrix))
+        heatmap_state$pending_had_heatmap <- pending_had_heatmap
         if (is.list(state$plot_request)) {
           heatmap_last_plot_request(state$plot_request)
         }
