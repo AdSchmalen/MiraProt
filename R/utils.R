@@ -99,6 +99,9 @@ truncate_text <- function(x, max_chars = 40, ellipsis = " [...]") {
 }
 
 retransform_data_global <- function(df, index, transformation_df) {
+  candidate_df <- df
+  failed_columns <- integer(0)
+
   for (i in seq_along(index)) {
     ci <- index[i]; tr <- transformation_df[i]
     orig <- df[, ci]
@@ -107,14 +110,22 @@ retransform_data_global <- function(df, index, transformation_df) {
                   "-log10"  = 10^(-orig),
                   "log10"   = 10^orig,
                   orig)
-    if (any(is.infinite(new))) {
+
+    # Missing and non-finite input values are not retransformation failures.
+    # In particular, retain ordinary NA rather than allowing it to be confused
+    # with a NaN newly produced from a finite input value.
+    input_na <- is.na(orig) & !is.nan(orig)
+    new[input_na] <- NA
+    newly_non_finite <- is.finite(orig) & (is.infinite(new) | is.nan(new))
+
+    if (any(newly_non_finite)) {
       showNotification(paste("Retransformation produces infinite values in column:", colnames(df)[ci]), type="error", duration=5)
-      df[, ci] <- orig
-    } else {
-      df[, ci] <- new
+      failed_columns <- c(failed_columns, ci)
     }
+    candidate_df[, ci] <- new
   }
-  df
+
+  if (length(failed_columns) > 0) df else candidate_df
 }
 
 #Imputation functions
