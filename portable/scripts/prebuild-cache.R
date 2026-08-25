@@ -2,7 +2,7 @@
 # prebuild-cache.R — Pre-build AnnotationHub + organism cache for portable distribution
 #
 # Usage:
-#   Rscript prebuild-cache.R <output-cache-dir> [<r-library-path>]
+#   Rscript prebuild-cache.R <output-cache-dir> [<r-library-path>] [<source-go-cache>]
 #
 # This downloads the AnnotationHub SQLite index and the default organism
 # database (org.Hs.eg.db) so the portable app starts instantly without
@@ -15,7 +15,7 @@
 
 args <- commandArgs(trailingOnly = TRUE)
 if (length(args) < 1) {
-  stop("Usage: Rscript prebuild-cache.R <output-cache-dir> [<r-library-path>]")
+  stop("Usage: Rscript prebuild-cache.R <output-cache-dir> [<r-library-path>] [<source-go-cache>]")
 }
 
 cache_root <- normalizePath(args[1], mustWork = FALSE)
@@ -24,6 +24,9 @@ if (length(args) >= 2) {
   r_base_lib <- file.path(R.home(), "library")
   .libPaths(c(lib_path, r_base_lib))
 }
+source_go_cache <- if (length(args) >= 3 && dir.exists(args[3])) {
+  normalizePath(args[3], mustWork = TRUE)
+} else NULL
 
 ah_cache <- file.path(cache_root, "annotation_cache")
 go_cache <- file.path(cache_root, "go_cache")
@@ -206,15 +209,41 @@ normalize_organism <- function(org_dir) {
   db
 }
 
+copy_cache_unit <- function(source, destination) {
+  if (!dir.exists(source)) return(FALSE)
+  unlink(destination, recursive = TRUE, force = TRUE)
+  dir.create(dirname(destination), recursive = TRUE, showWarnings = FALSE)
+  isTRUE(file.copy(source, dirname(destination), recursive = TRUE, copy.mode = TRUE,
+                   copy.date = TRUE))
+}
+
 # Convert each copied source cache independently and strictly offline. Nested
 # BiocFileCache directories are opened as units; their indexes are never merged.
 organism_dirs <- list.dirs(go_cache, recursive = FALSE, full.names = TRUE)
 organism_dirs <- organism_dirs[grepl("^org\\.[A-Za-z0-9]+\\.[A-Za-z0-9]+\\.db$", basename(organism_dirs))]
+org_db <- load_cached_orgdb(cached_sqlite)
+# A valid canonical target is already in the preferred format. Do not rewrite
+# its metadata merely because a source candidate also exists.
+if (!is.null(org_db)) organism_dirs <- organism_dirs[basename(organism_dirs) != orgdb_name]
 cat("=== Offline normalization of copied organism caches ===\n")
 invisible(lapply(organism_dirs, normalize_organism))
 
-org_db <- load_cached_orgdb(cached_sqlite)
 go_valid <- !is.null(org_db)
+if (!go_valid && !is.null(source_go_cache)) {
+  source_org_dir <- file.path(source_go_cache, orgdb_name)
+  # Validate/normalize a private copy: source checkout caches remain immutable.
+  candidate_root <- tempfile("miraprot-go-source-")
+  dir.create(candidate_root)
+  on.exit(unlink(candidate_root, recursive = TRUE, force = TRUE), add = TRUE)
+  candidate_org <- file.path(candidate_root, orgdb_name)
+  if (copy_cache_unit(source_org_dir, candidate_org) &&
+      !is.null(normalize_organism(candidate_org)) &&
+      copy_cache_unit(candidate_org, org_cache_dir)) {
+    org_db <- load_cached_orgdb(cached_sqlite)
+    go_valid <- !is.null(org_db)
+    if (go_valid) cat("Seeded GO cache from validated source cache.\n")
+  }
+}
 if (go_valid) {
   cat("Existing org.Hs.eg.db GO cache validated - download skipped.\n")
 } else {
@@ -240,6 +269,27 @@ if (dir.exists(ah_cache) && length(list.files(ah_cache, all.files = TRUE, no.. =
       local_org_db <- tryCatch(local_query[[1]], error = function(e) NULL)
       ah_valid <- !is.null(local_org_db)
     }
+  }
+}
+
+# A source AnnotationHub cache is considered only after the target failed
+# semantic localHub validation. It is copied as one complete BiocFileCache;
+# independent SQLite indexes are never merged.
+if (!ah_valid && !is.null(source_go_cache)) {
+  source_ah <- file.path(source_go_cache, orgdb_name, "ah_cache")
+  source_org_db <- resolve_local_orgdb(source_ah, orgdb_name)
+  if (!is.null(source_org_db) && copy_cache_unit(source_ah, ah_cache)) {
+    local_ah <- tryCatch(suppressMessages(suppressWarnings(
+      AnnotationHub(localHub = TRUE, ask = FALSE, cache = ah_cache)
+    )), error = function(e) NULL)
+    if (!is.null(local_ah) && methods::is(local_ah, "AnnotationHub")) {
+      local_query <- tryCatch(query(local_ah, c(orgdb_name, "OrgDb")), error = function(e) NULL)
+      if (!is.null(local_query) && length(local_query)) {
+        local_org_db <- tryCatch(local_query[[1]], error = function(e) NULL)
+        ah_valid <- !is.null(local_org_db)
+      }
+    }
+    if (ah_valid) cat("Seeded AnnotationHub cache from validated source cache.\n")
   }
 }
 

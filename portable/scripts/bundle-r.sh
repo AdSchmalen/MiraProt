@@ -372,44 +372,23 @@ PROJECT_CACHE="$PROJECT_ROOT/cache"
 mkdir -p "$GO_CACHE"
 
 echo "--- Seeding portable caches from existing MiraProt cache ---"
-if [ -d "$PROJECT_CACHE/GO_Cache" ]; then
-  echo "Reusing source GO cache: cache/GO_Cache"
-  mkdir -p "$GO_CACHE/go_cache"
-  if ! rsync -a "$PROJECT_CACHE/GO_Cache/" "$GO_CACHE/go_cache/"; then
-    echo "WARNING: Could not copy source GO cache; portable prebuild will fill required cache if possible." >&2
-  fi
-else
+if [ ! -d "$PROJECT_CACHE/GO_Cache" ]; then
   echo "No source GO cache found - portable prebuild will fill required cache if possible."
 fi
 
-if [ -d "$PROJECT_CACHE/BioMart_Cache" ]; then
+if [ -d "$PROJECT_CACHE/BioMart_Cache" ] && { [ ! -d "$GO_CACHE/go_cache/BioMart_Cache" ] || [ -z "$(find "$GO_CACHE/go_cache/BioMart_Cache" -mindepth 1 -print -quit 2>/dev/null)" ]; }; then
   echo "Reusing source BioMart cache: cache/BioMart_Cache"
   mkdir -p "$GO_CACHE/go_cache/BioMart_Cache"
   if ! rsync -a "$PROJECT_CACHE/BioMart_Cache/" "$GO_CACHE/go_cache/BioMart_Cache/"; then
     echo "WARNING: Could not copy source BioMart cache; BioMart will remain available on demand." >&2
   fi
 else
-  echo "No source BioMart cache found - BioMart will populate its cache on demand."
-fi
-
-# A per-organism ah_cache is an independent BiocFileCache. Seed only the
-# canonical human cache, as a complete unit, and never merge organism caches.
-SOURCE_AH="$PROJECT_CACHE/GO_Cache/org.Hs.eg.db/ah_cache"
-TARGET_AH="$GO_CACHE/annotation_cache"
-if [ -d "$SOURCE_AH" ] && { [ -f "$SOURCE_AH/annotationhub.sqlite3" ] || [ -f "$SOURCE_AH/annotationhub.index.rds" ]; }; then
-  if [ ! -d "$TARGET_AH" ] || [ -z "$(find "$TARGET_AH" -mindepth 1 -print -quit 2>/dev/null)" ]; then
-    echo "Reusing complete source AnnotationHub cache: cache/GO_Cache/org.Hs.eg.db/ah_cache"
-    rm -rf "$TARGET_AH"
-    if ! rsync -a "$SOURCE_AH/" "$TARGET_AH/"; then
-      echo "WARNING: Could not copy source AnnotationHub cache; portable prebuild will use its fallback." >&2
-      rm -rf "$TARGET_AH"
-    fi
-  fi
+  echo "Existing portable BioMart cache retained, or no source cache is available."
 fi
 
 echo "--- Validating and filling portable AnnotationHub/GO caches ---"
 if ! run_with_clean_r_environment R_LIBS_USER="$R_LIBRARY" \
-  "$R_PORTABLE/bin/Rscript" --vanilla "$SCRIPT_DIR/prebuild-cache.R" "$GO_CACHE" "$R_LIBRARY"; then
+  "$R_PORTABLE/bin/Rscript" --vanilla "$SCRIPT_DIR/prebuild-cache.R" "$GO_CACHE" "$R_LIBRARY" "$PROJECT_CACHE/GO_Cache"; then
   echo "WARNING: Cache pre-build failed - portable app will download on first use" >&2
 fi
 echo ""

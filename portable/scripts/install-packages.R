@@ -195,7 +195,8 @@ bioc_packages <- c(
   "sva",
   "GO.db",
   "AnnotationDbi",
-  "biomaRt"
+  "biomaRt",
+  "org.Hs.eg.db"   # human gene annotation used by GO workflows
 )
 
 bioc_missing <- bioc_packages[!bioc_packages %in% rownames(installed.packages(lib.loc = lib_path))]
