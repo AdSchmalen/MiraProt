@@ -28,16 +28,6 @@ portable_bootstrap_renv <- function(project, work) {
   bootstrap_project <- file.path(work, "bootstrap")
   dir.create(file.path(bootstrap_project, "renv"), recursive = TRUE)
   file.copy(activate, file.path(bootstrap_project, "renv", "activate.R"))
-  old <- Sys.getenv(c("RENV_PROJECT", "RENV_PATHS_ROOT", "RENV_CONFIG_CACHE_ENABLED"),
-                    unset = NA_character_)
-  on.exit({
-    for (name in names(old)) {
-      if (is.na(old[[name]])) Sys.unsetenv(name) else do.call(Sys.setenv, setNames(list(old[[name]]), name))
-    }
-  }, add = TRUE)
-  Sys.setenv(RENV_PROJECT = bootstrap_project,
-             RENV_PATHS_ROOT = file.path(work, "renv-root"),
-             RENV_CONFIG_CACHE_ENABLED = "FALSE")
   sys.source(file.path(bootstrap_project, "renv", "activate.R"), envir = globalenv())
   if (!requireNamespace("renv", quietly = TRUE)) stop("the committed renv bootstrap did not load renv")
   invisible(TRUE)
@@ -45,13 +35,33 @@ portable_bootstrap_renv <- function(project, work) {
 
 portable_restore_missing <- function(lockfile, library, project, bootstrap = portable_bootstrap_renv,
                                      restore = NULL, read_lock = renv::lockfile_read,
-                                     write_lock = renv::lockfile_write) {
+                                     runtime_library = .Library) {
   original_libpaths <- .libPaths()
   on.exit(.libPaths(original_libpaths), add = TRUE)
   before <- portable_installed(library)
   work <- tempfile("miraprot-renv-")
   dir.create(work, recursive = TRUE)
   on.exit(unlink(work, recursive = TRUE, force = TRUE), add = TRUE)
+  stage <- file.path(work, "library")
+  dir.create(stage)
+  bootstrap_project <- file.path(work, "bootstrap")
+  environment_names <- c("RENV_PROJECT", "RENV_PATHS_ROOT", "RENV_CONFIG_CACHE_ENABLED",
+                         "RENV_CONFIG_SYNCHRONIZED_CHECK", "RENV_CONFIG_STARTUP_QUIET",
+                         "R_LIBS_USER")
+  old_environment <- Sys.getenv(environment_names, unset = NA_character_)
+  on.exit({
+    for (name in names(old_environment)) {
+      if (is.na(old_environment[[name]])) Sys.unsetenv(name) else {
+        do.call(Sys.setenv, setNames(list(old_environment[[name]]), name))
+      }
+    }
+  }, add = TRUE)
+  Sys.setenv(RENV_PROJECT = bootstrap_project,
+             RENV_PATHS_ROOT = file.path(work, "renv-root"),
+             RENV_CONFIG_CACHE_ENABLED = "FALSE",
+             RENV_CONFIG_SYNCHRONIZED_CHECK = "FALSE",
+             RENV_CONFIG_STARTUP_QUIET = "TRUE",
+             R_LIBS_USER = stage)
   bootstrap(project, work)
   lock <- read_lock(lockfile)
   if (!is.list(lock$R) || !is.character(lock$R$Version) || length(lock$R$Version) != 1L ||
@@ -62,7 +72,8 @@ portable_restore_missing <- function(lockfile, library, project, bootstrap = por
     stop(sprintf("renv.lock requires R %s but the staged portable runtime is R %s",
                  lock$R$Version, getRversion()))
   }
-  missing <- setdiff(names(lock$Packages), names(before))
+  runtime <- portable_installed(runtime_library)
+  missing <- setdiff(names(lock$Packages), union(names(before), names(runtime)))
   differing <- intersect(names(before), names(lock$Packages))
   differing <- differing[vapply(differing, function(pkg) {
     recorded <- lock$Packages[[pkg]]$Version
@@ -77,25 +88,26 @@ portable_restore_missing <- function(lockfile, library, project, bootstrap = por
         length(before), " existing portable packages.\n", sep = "")
     return(invisible(TRUE))
   }
-  stage <- file.path(work, "library")
-  dir.create(stage)
-  selected <- lock
-  selected$Packages <- lock$Packages[missing]
-  selected_lock <- file.path(work, "renv.lock")
-  write_lock(selected, selected_lock)
-  if (is.null(restore)) restore <- function(stage, missing) {
-    renv::restore(project = work, lockfile = selected_lock, library = stage,
-                  packages = missing, clean = FALSE, prompt = FALSE)
+  restore_libraries <- unique(c(stage, library, runtime_library))
+  if (is.null(restore)) restore <- function(stage, missing, libraries, lockfile) {
+    renv::restore(project = work, lockfile = lockfile, library = libraries,
+                  packages = missing, clean = FALSE, prompt = FALSE, retry = FALSE)
   }
   # Source builds may load dependencies while installing. The destination is
   # therefore readable, but the explicit staging library remains the only
   # library renv is allowed to write.
-  .libPaths(unique(c(stage, library, original_libpaths)))
-  restore(stage, missing)
+  .libPaths(unique(c(restore_libraries, original_libpaths)))
+  restore_error <- tryCatch({
+    restore(stage, missing, restore_libraries, lockfile)
+    NULL
+  }, error = identity)
+  if (!identical(portable_installed(library), before)) {
+    stop("the portable library changed during staged restore")
+  }
+  if (inherits(restore_error, "error")) stop(restore_error)
   staged <- portable_installed(stage)
   absent <- setdiff(missing, names(staged))
   if (length(absent)) stop("renv did not install required packages: ", paste(absent, collapse = ", "))
-  if (!identical(portable_installed(library), before)) stop("the portable library changed during staged restore")
   for (pkg in missing) {
     destination <- file.path(library, pkg)
     if (dir.exists(destination)) stop("package appeared in portable library during restore: ", pkg)
