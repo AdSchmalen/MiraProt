@@ -1061,6 +1061,38 @@ register_pca_rendering_core <- function(input, output, session, rv, state, debug
     })
   })
 
+  # A restore may run while the whole PCA tab is hidden, in which case Shiny
+  # suspends both conditional main-plot outputs.  Keep only the representation
+  # selected by the restored checkbox active while its render job is pending;
+  # the ordinary suspension behavior is restored as soon as the job settles.
+  observe({
+    report <- (rv$restore_reports %||% list())$PCA %||% list()
+    generation <- state$restore_generation()
+    pending_restore_render <-
+      identical(report$restore_generation, generation) &&
+      identical(report$session_restore_generation,
+                rv$session_restore_generation %||% NA_integer_) &&
+      isTRUE(report$rebuild_requested) &&
+      !isTRUE(report$render_completed) &&
+      !isTRUE(report$render_failed) &&
+      !isTRUE(report$render_timed_out)
+
+    selected_output <- if (isTRUE(input$interactive_plot)) {
+      "interactive_plot_output"
+    } else {
+      "static_plot"
+    }
+    other_output <- if (identical(selected_output, "interactive_plot_output")) {
+      "static_plot"
+    } else {
+      "interactive_plot_output"
+    }
+
+    outputOptions(output, selected_output,
+                  suspendWhenHidden = !pending_restore_render)
+    outputOptions(output, other_output, suspendWhenHidden = TRUE)
+  })
+
   # Show scree tab only when PCA mode and the scree plot option are active
   observe({
     show_scree_tab <- identical(input$analysis_method %||% "pca", "pca") &&
