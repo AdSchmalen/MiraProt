@@ -16,31 +16,6 @@ get_missing_pkgs <- function(pkgs) {
   pkgs[!vapply(pkgs, requireNamespace, quietly = TRUE, FUN.VALUE = logical(1))]
 }
 
-get_missing_pkgs <- function(pkgs) {
-  pkgs[!vapply(pkgs, requireNamespace, quietly = TRUE, FUN.VALUE = logical(1))]
-}
-
-# BiocManager is needed to install Bioconductor packages
-if (!requireNamespace("BiocManager", quietly = TRUE)) {
-  options(repos = c(CRAN = "https://cran.r-project.org"))
-  install.packages("BiocManager")
-}
-
-# pak is needed to install packages from GitHub
-if (!requireNamespace("pak", quietly = TRUE)) {
-  install.packages("pak")
-}
-
-# pkgbuild is used to detect whether local build/compile tools are available.
-# This prevents hard failures in fresh environments (e.g., missing Rtools on Windows)
-# when pak needs to build source packages.
-if (!requireNamespace("pkgbuild", quietly = TRUE)) {
-  options(repos = c(CRAN = "https://cran.r-project.org"))
-  install.packages("pkgbuild")
-}
-
-
-
 ensure_user_library_writable <- function() {
   if (file.access(.Library, 2) == 0) return(invisible(.libPaths()[1]))
   user_lib <- Sys.getenv("R_LIBS_USER")
@@ -142,41 +117,11 @@ bioc_packages <- c(
   "sva",            # ComBat batch correction
   "GO.db",          # GO term hierarchy (e.g. for dropdowns)
   "AnnotationDbi",  # generic annotation infrastructure
-  "biomaRt"         # annotation via Ensembl
+  "biomaRt",        # annotation via Ensembl
+  "org.Hs.eg.db",   # human gene annotation used by GO workflows
+  "DOSE"            # GSEA result handling
   # "ensembldb"     # optional: additional annotation via Ensembl databases
 )
-
-# Install only missing Bioconductor packages
-bioc_to_install <- bioc_packages[!bioc_packages %in% rownames(installed.packages())]
-if (length(bioc_to_install)) {
-  options(repos = BiocManager::repositories())
-  BiocManager::install(bioc_to_install, ask = FALSE, update = FALSE)
-}
-
-# Verify Bioconductor installs and retry once if needed.
-bioc_missing_after <- get_missing_pkgs(bioc_packages)
-if (length(bioc_missing_after)) {
-  message("Retrying missing Bioconductor packages: ", paste(bioc_missing_after, collapse = ", "))
-  options(repos = BiocManager::repositories())
-  BiocManager::install(bioc_missing_after, ask = FALSE, update = FALSE, force = TRUE)
-}
-
-install_annotationhub_reliably(update = TRUE)
-
-bioc_missing_after_retry <- get_missing_pkgs(bioc_packages)
-if (length(bioc_missing_after_retry) && !isTRUE(pkgbuild::has_build_tools(debug = FALSE))) {
-  stop(
-    paste0(
-      "Bioconductor packages still missing after retry: ",
-      paste(bioc_missing_after_retry, collapse = ", "),
-      "\nCause is typically that only source tarballs are available for your platform/R version, ",
-      "but local build tools are not installed.\n",
-      "Please install R build tools (e.g., Rtools on Windows) and rerun install.R."
-    ),
-    call. = FALSE
-  )
-}
-
 
 ## 3) Required CRAN packages (runtime) --------------------------------------
 
@@ -236,8 +181,137 @@ cran_packages <- c(
   "Rcpp",           # Dependency
   "rlang",          # Dependency
   "europepmc",      # GO/GSEA PubMed citation plots (enrichplot Suggests)
-  "qs2"             # Session serialization
+  "qs2",            # Session serialization
+  "data.table",     # high-performance delimited-file loading
+  "DBI",            # database access for annotation caches
+  "dendextend",     # heatmap dendrogram ordering
+  "digest",         # session and Data Wizard state hashing
+  "gtable",         # plot-grid layout manipulation
+  "jsonlite",       # runtime metadata and API JSON handling
+  "R6",             # centralized cleanup manager
+  "readr",          # delimited-file loading and encoding detection
+  "RSQLite",        # SQLite annotation-cache connections
+  "tidyr"           # Data Wizard pivot operations
 )
+
+# Packages that are installed from GitHub (via pak)
+github_repos <- c(
+  "shinyTree/shinyTree"  # shinyTree: tree widgets for Shiny
+)
+
+## Prefer the committed renv runtime ----------------------------------------
+
+script_arg <- grep("^--file=", commandArgs(trailingOnly = FALSE), value = TRUE)
+script_path <- if (length(script_arg)) sub("^--file=", "", script_arg[[1]]) else NULL
+if (is.null(script_path)) {
+  source_files <- Filter(Negate(is.null), lapply(sys.frames(), function(frame) frame$ofile))
+  if (length(source_files)) script_path <- source_files[[length(source_files)]]
+}
+project_root <- if (!is.null(script_path)) dirname(normalizePath(script_path, mustWork = FALSE)) else getwd()
+lockfile_path <- file.path(project_root, "renv.lock")
+renv_restore_ok <- FALSE
+
+if (file.exists(lockfile_path)) {
+  message("Found renv.lock; attempting reproducible MiraProt restore...")
+  renv_error <- tryCatch({
+    if (!requireNamespace("renv", quietly = TRUE)) {
+      message("renv is not installed; attempting to bootstrap renv...")
+      activate_path <- file.path(project_root, "renv", "activate.R")
+      if (file.exists(activate_path)) {
+        try(source(activate_path, local = .GlobalEnv), silent = TRUE)
+      }
+      if (!requireNamespace("renv", quietly = TRUE)) {
+        install.packages("renv", repos = "https://cran.r-project.org")
+      }
+    }
+    if (!requireNamespace("renv", quietly = TRUE)) stop("renv is unavailable")
+
+    message("Restoring MiraProt runtime packages from renv.lock...")
+    renv::restore(
+      project = project_root,
+      lockfile = lockfile_path,
+      clean = FALSE,
+      prompt = FALSE
+    )
+
+    github_pkg_names <- sub("^.*/", "", github_repos)
+    required_all <- unique(c(bioc_packages, cran_packages, github_pkg_names))
+    project_library <- renv::paths$library(project = project_root)
+    missing_after_restore <- required_all[!vapply(
+      required_all,
+      requireNamespace,
+      quietly = TRUE,
+      lib.loc = project_library,
+      FUN.VALUE = logical(1)
+    )]
+    if (length(missing_after_restore)) {
+      stop("required packages missing from project library: ", paste(missing_after_restore, collapse = ", "))
+    }
+    renv_restore_ok <- TRUE
+    NULL
+  }, error = function(e) conditionMessage(e))
+
+  if (renv_restore_ok) {
+    message("MiraProt runtime packages restored successfully from renv.lock.")
+  } else {
+    warning("renv restore failed: ", renv_error, call. = FALSE)
+  }
+} else {
+  warning("renv.lock was not found at ", lockfile_path, call. = FALSE)
+}
+
+if (!renv_restore_ok) {
+  message("Using MiraProt package-list fallback.")
+
+  # BiocManager is needed to install Bioconductor packages
+  if (!requireNamespace("BiocManager", quietly = TRUE)) {
+    options(repos = c(CRAN = "https://cran.r-project.org"))
+    install.packages("BiocManager")
+  }
+
+  # pak is needed to install packages from GitHub
+  if (!requireNamespace("pak", quietly = TRUE)) {
+    install.packages("pak")
+  }
+
+  # pkgbuild is used to detect whether local build/compile tools are available.
+  # This prevents hard failures in fresh environments (e.g., missing Rtools on Windows)
+  # when pak needs to build source packages.
+  if (!requireNamespace("pkgbuild", quietly = TRUE)) {
+    options(repos = c(CRAN = "https://cran.r-project.org"))
+    install.packages("pkgbuild")
+  }
+
+  # Install only missing Bioconductor packages
+  bioc_to_install <- bioc_packages[!bioc_packages %in% rownames(installed.packages())]
+  if (length(bioc_to_install)) {
+    options(repos = BiocManager::repositories())
+    BiocManager::install(bioc_to_install, ask = FALSE, update = FALSE)
+  }
+
+  # Verify Bioconductor installs and retry once if needed.
+  bioc_missing_after <- get_missing_pkgs(bioc_packages)
+  if (length(bioc_missing_after)) {
+    message("Retrying missing Bioconductor packages: ", paste(bioc_missing_after, collapse = ", "))
+    options(repos = BiocManager::repositories())
+    BiocManager::install(bioc_missing_after, ask = FALSE, update = FALSE, force = TRUE)
+  }
+
+  install_annotationhub_reliably(update = TRUE)
+
+  bioc_missing_after_retry <- get_missing_pkgs(bioc_packages)
+  if (length(bioc_missing_after_retry) && !isTRUE(pkgbuild::has_build_tools(debug = FALSE))) {
+    stop(
+      paste0(
+        "Bioconductor packages still missing after retry: ",
+        paste(bioc_missing_after_retry, collapse = ", "),
+        "\nCause is typically that only source tarballs are available for your platform/R version, ",
+        "but local build tools are not installed.\n",
+        "Please install R build tools (e.g., Rtools on Windows) and rerun install.R."
+      ),
+      call. = FALSE
+    )
+  }
 
 # Install only missing required CRAN packages
 cran_to_install <- cran_packages[!cran_packages %in% rownames(installed.packages())]
@@ -251,6 +325,7 @@ if (length(cran_missing_after)) {
   message("Retrying missing CRAN packages: ", paste(cran_missing_after, collapse = ", "))
   options(repos = c(CRAN = "https://cran.r-project.org"))
   install.packages(cran_missing_after, dependencies = TRUE)
+}
 }
 
 
@@ -266,9 +341,7 @@ if (length(cran_missing_after)) {
 
 optional_cran_packages <- c(
   "devtools",  # source-development tooling; not required by the application
-  "tidyr",     # data tidying (already covered by tidyverse, but listed explicitly in docs)
   "tibble",    # modern data frames (also pulled in by tidyverse)
-  "jsonlite",  # JSON handling (e.g. metadata export)
   "yaml",      # YAML configs
   "knitr",     # report generation / markdown knitting
   "rmarkdown", # R Markdown documents
@@ -283,8 +356,7 @@ optional_cran_packages <- c(
   "httr",      # HTTP requests
   "curl",      # low-level HTTP client
   "dataRetrieval", # Curl dependency
-  "remotes",   # install packages from remote repositories
-  "gtable"     # layout tool used under the hood by ggplot2
+  "remotes"    # install packages from remote repositories
 )
 
 opt_to_install <- optional_cran_packages[!optional_cran_packages %in% rownames(installed.packages())]
@@ -303,11 +375,7 @@ if (length(opt_missing_after)) {
 
 ## 5) GitHub packages -------------------------------------------------------
 
-# Packages that are installed from GitHub (via pak)
-github_repos <- c(
-  "shinyTree/shinyTree"  # shinyTree: tree widgets for Shiny
-)
-
+if (!renv_restore_ok) {
 for (repo in github_repos) {
   has_build_tools <- isTRUE(pkgbuild::has_build_tools(debug = FALSE))
 
@@ -366,6 +434,7 @@ if (length(missing_final)) {
     ),
     call. = FALSE
   )
+}
 }
 
 cat("MiraProt dependency installation finished successfully.\n")
