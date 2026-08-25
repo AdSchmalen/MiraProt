@@ -360,7 +360,8 @@ fi
 # -----------------------------------------------------------------------
 echo "--- Installing R packages into $R_LIBRARY ---"
 run_with_clean_r_environment R_LIBS_USER="$R_LIBRARY" \
-  "$R_PORTABLE/bin/Rscript" --vanilla "$SCRIPT_DIR/install-packages.R" "$R_LIBRARY"
+  "$R_PORTABLE/bin/Rscript" --vanilla "$SCRIPT_DIR/install-packages-portable.R" \
+  "$R_LIBRARY" "$PROJECT_ROOT" "$SCRIPT_DIR/install-packages.R"
 echo ""
 
 # -----------------------------------------------------------------------

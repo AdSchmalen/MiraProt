@@ -756,9 +756,10 @@ Write-Host "--- Installing R packages into $RLibrary ---"
 Write-Host "The installer prefers compatible Windows binary packages when repositories provide them."
 Write-Host "Rtools is needed only for dependencies that genuinely must compile from source; the installer will identify the compatible generation if it is missing."
 
-$InstallScript = Join-Path $ScriptDir "install-packages.R"
+$InstallScript = Join-Path $ScriptDir "install-packages-portable.R"
+$FallbackInstallScript = Join-Path $ScriptDir "install-packages.R"
 Invoke-WithCleanREnvironment -Environment @{ R_LIBS_USER = $RLibrary } -Action {
-    & $RscriptPath --vanilla $InstallScript $RLibrary
+    & $RscriptPath --vanilla $InstallScript $RLibrary $ProjectRoot $FallbackInstallScript
 }
 
 if ($LASTEXITCODE -ne 0) {

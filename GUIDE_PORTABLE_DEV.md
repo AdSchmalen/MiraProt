@@ -135,6 +135,7 @@ portable/
 ├── scripts/
 │   ├── bundle-r.sh
 │   ├── bundle-r-windows.ps1
+│   ├── install-packages-portable.R
 │   ├── install-packages.R
 │   └── prebuild-cache.R
 └── installers/
@@ -148,6 +149,13 @@ portable/
 ```
 
 Generated bundle directories, binaries, `.syso` files, installers, DMGs, AppImages, and temporary packaging directories are build products and should not be committed.
+
+Package installation prefers the committed `renv.lock`, installing only packages
+missing from the destination `r-library`. Existing portable packages are
+deliberately preserved, including when their versions differ from the lockfile.
+If the lockfile or its committed renv bootstrap is unavailable or unusable, the
+builder automatically runs the existing package-list installer. Portable builds
+read but never modify `renv.lock`.
 
 ---
 
