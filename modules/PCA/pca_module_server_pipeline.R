@@ -962,6 +962,7 @@ register_pca_rendering_core <- function(input, output, session, rv, state, debug
   # ========================================
 
   output$interactive_plot_output <- renderPlotly({
+    render_nonce()
     debounced_pca_plot_inputs()
 
     if (!plots_ready()) {
@@ -994,6 +995,7 @@ register_pca_rendering_core <- function(input, output, session, rv, state, debug
     }
 
     isolate({
+    render_generation <- state$restore_generation()
     # Collect font size parameters from UI
     font_sizes <- list(
       axis_title = input$AxisTitleSize_PCATab,
@@ -1043,12 +1045,14 @@ register_pca_rendering_core <- function(input, output, session, rv, state, debug
         return(NULL)
       }
 
+      update_restore_render_report(render_generation, "render_completed")
       debug_log("Interactive plot created successfully", 2)
 
       interactive_plot_obj(p)
       return(p)
 
     }, error = function(e) {
+      update_restore_render_report(render_generation, "render_failed", e$message)
       debug_log(paste("Error creating interactive plot:", e$message), 1)
       debug_log(paste("Error class:", class(e)), 1)
       debug_log(paste("Error traceback:", paste(traceback(), collapse = " | ")), 1)
