@@ -461,7 +461,7 @@ Unknown filename prefix "\C:"
 ## Step 7 — Verify the installer
 
 ```powershell
-$installer=(Resolve-Path ".\output\MiraProt-$appVersion-windows-setup.exe").Path; $installer; Get-Item $installer | Select-Object FullName,Length,LastWriteTime
+$installer=(Resolve-Path "..\MiraPort_Installer\MiraProt-$appVersion-windows-setup.exe").Path; $installer; Get-Item $installer | Select-Object FullName,Length,LastWriteTime
 ```
 
 The generated setup executable is unsigned unless a separate signing process is performed.
