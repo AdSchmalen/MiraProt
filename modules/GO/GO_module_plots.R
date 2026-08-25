@@ -349,12 +349,46 @@ create_go_cnet_plot_fc_fixed <- function(results_list, selected_terms, colors, s
       return(list(plot = NULL, height = 600, width = 800, message = "GO enrichment results not available"))
     }
 
-    fc_data <- results_list$FC_data
+    # go_data_FC is the canonical measured fold-change vector. FC_data is kept
+    # only as a compatibility path for objects created by older releases.
+    fc_data <- results_list$go_data_FC
     if (is.null(fc_data) || length(fc_data) == 0) {
-      genes_in_selected <- unique(unlist(strsplit(edo@result$geneID[edo@result$Description %in% selected_terms], "/")))
-      fc_data <- rnorm(length(genes_in_selected), mean = 0, sd = 1.5)
-      names(fc_data) <- genes_in_selected
-      debug_log("Using simulated fold changes for demonstration", 2)
+      legacy_fc_data <- results_list$FC_data
+      if (!is.null(legacy_fc_data) && length(legacy_fc_data) > 0) {
+        fc_data <- legacy_fc_data
+      }
+    }
+
+    genes_in_selected <- unique(unlist(strsplit(
+      edo@result$geneID[edo@result$Description %in% selected_terms],
+      "/",
+      fixed = TRUE
+    )))
+    genes_in_selected <- genes_in_selected[
+      !is.na(genes_in_selected) & nzchar(genes_in_selected)
+    ]
+
+    compatible_fc <- !is.null(fc_data) &&
+      length(fc_data) > 0 &&
+      is.numeric(fc_data) &&
+      !is.null(names(fc_data))
+
+    if (compatible_fc) {
+      keep_fc <- !is.na(names(fc_data)) &
+        nzchar(names(fc_data)) &
+        names(fc_data) %in% genes_in_selected &
+        is.finite(fc_data)
+      fc_data <- fc_data[keep_fc]
+      compatible_fc <- length(fc_data) > 0
+    }
+
+    if (!compatible_fc) {
+      message <- paste(
+        "The log2FC Cnet plot cannot be generated because measured fold changes",
+        "are unavailable or use an incompatible identifier namespace."
+      )
+      debug_log(message, 1)
+      return(list(plot = NULL, height = 600, width = 800, message = message))
     }
 
     horizontal <- legend_position %in% c("top", "bottom")
