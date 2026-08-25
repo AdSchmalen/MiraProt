@@ -171,7 +171,7 @@ portable/logs/build-<timestamp>-<platform>.log
 | Windows | `-Interactive`, `-OutputDir <directory>`, `-RVersion <MAJOR.MINOR.PATCH>` (the `.cmd` entry point supplies `-Interactive`) |
 | Linux/macOS | `--interactive`, `--output-dir <directory>`, `--r-version <MAJOR.MINOR.PATCH>`, `-h` / `--help` |
 
-The default output is `portable/dist`, and relative output paths are resolved from the repository root. The maintained `portable/R_VERSION` should normally be used; an R-version option selects the runtime, never the MiraProt application version.
+The Windows friendly entry point defaults to the sibling directory `../MiraProt_Portable`; the Unix entry points retain `portable/dist`. Relative output paths are resolved from the repository root. The maintained `portable/R_VERSION` should normally be used; an R-version option selects the runtime, never the MiraProt application version.
 
 ### Bootstrap platform prerequisites
 

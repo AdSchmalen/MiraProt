@@ -85,6 +85,34 @@ function Invoke-WithCleanREnvironment {
     }
 }
 
+# ProcessStartInfo.ArgumentList is unavailable in Windows PowerShell 5.1. Its
+# Arguments property accepts one Windows command-line string, so quote each
+# argument according to the CommandLineToArgvW/MSVC rules.
+function ConvertTo-WindowsCommandLineArgument {
+    param([Parameter(Mandatory = $true)][AllowEmptyString()][string]$Argument)
+
+    $builder = New-Object Text.StringBuilder
+    [void]$builder.Append('"')
+    $backslashes = 0
+    foreach ($character in $Argument.ToCharArray()) {
+        if ($character -eq '\') {
+            $backslashes++
+            continue
+        }
+        if ($character -eq '"') {
+            [void]$builder.Append(('\' * (($backslashes * 2) + 1)))
+            [void]$builder.Append('"')
+        } else {
+            if ($backslashes -gt 0) { [void]$builder.Append(('\' * $backslashes)) }
+            [void]$builder.Append($character)
+        }
+        $backslashes = 0
+    }
+    if ($backslashes -gt 0) { [void]$builder.Append(('\' * ($backslashes * 2))) }
+    [void]$builder.Append('"')
+    return $builder.ToString()
+}
+
 $ScriptDir  = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ProjectRoot = (Resolve-Path (Join-Path $ScriptDir "..\..")).Path
 $VersionPath = Join-Path $ProjectRoot "VERSION"
@@ -169,32 +197,46 @@ function Invoke-RValidationProbe {
         [Parameter(Mandatory = $true)]
         [string]$Label,
         [string]$LogDirectory,
-        [string]$EventName
+        [string]$EventName,
+        [Parameter(Mandatory = $true)]
+        [string]$RHome
     )
 
     Write-LifecycleEvent "$EventName start"
     Write-Host "Probe: $Label"
-    $captureRoot = Join-Path ([IO.Path]::GetTempPath()) ("miraprot-r-probe-" + [guid]::NewGuid().ToString("N"))
-    $stdoutPath = "$captureRoot.stdout"
-    $stderrPath = "$captureRoot.stderr"
+    $process = New-Object System.Diagnostics.Process
+    $process.StartInfo.FileName = $FilePath
+    $process.StartInfo.UseShellExecute = $false
+    $process.StartInfo.CreateNoWindow = $true
+    $process.StartInfo.RedirectStandardOutput = $true
+    $process.StartInfo.RedirectStandardError = $true
+    $encodedArguments = @($ArgumentList | ForEach-Object { ConvertTo-WindowsCommandLineArgument -Argument $_ })
+    $process.StartInfo.Arguments = ($encodedArguments -join " ")
+    $process.StartInfo.WorkingDirectory = $RHome
     try {
         try {
-            $processResult = Invoke-WithCleanREnvironment -Action {
-                # Let PowerShell pass the argument vector to the absolute staged
-                # executable instead of rebuilding a Windows command line.
-                & $FilePath @ArgumentList 1> $stdoutPath 2> $stderrPath
+            # Explicit R_HOME and a working directory inside the staged tree
+            # prevent registry state or an unrelated system R installation from
+            # influencing startup before the staged runtime is promoted.
+            $processResult = Invoke-WithCleanREnvironment -Environment @{ R_HOME = $RHome } -Action {
+                if (-not $process.Start()) { throw "Process.Start returned false." }
+                $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+                $stderrTask = $process.StandardError.ReadToEndAsync()
+                $process.WaitForExit()
                 [pscustomobject]@{
-                    ExitCode = [int]$LASTEXITCODE
+                    Stdout = $stdoutTask.GetAwaiter().GetResult()
+                    Stderr = $stderrTask.GetAwaiter().GetResult()
+                    ExitCode = [int]$process.ExitCode
                 }
             }
         } catch {
             throw "Process-start exception while running '$Label' with '$FilePath': $($_.Exception.Message)"
         }
-        $stdout = if (Test-Path -LiteralPath $stdoutPath) { Get-Content -LiteralPath $stdoutPath -Raw } else { "" }
-        $stderr = if (Test-Path -LiteralPath $stderrPath) { Get-Content -LiteralPath $stderrPath -Raw } else { "" }
+        $stdout = $processResult.Stdout
+        $stderr = $processResult.Stderr
         $exitCode = $processResult.ExitCode
     } finally {
-        Remove-Item -LiteralPath $stdoutPath, $stderrPath -Force -ErrorAction SilentlyContinue
+        $process.Dispose()
     }
     $unsignedExitCode = [BitConverter]::ToUInt32([BitConverter]::GetBytes($exitCode), 0)
     $hexExitCode = "0x{0:X8}" -f $unsignedExitCode
@@ -205,7 +247,7 @@ function Invoke-RValidationProbe {
         New-Item -ItemType Directory -Force -Path $LogDirectory | Out-Null
         $safeName = $EventName -replace '[^A-Za-z0-9_.-]', '-'
         $probeLog = Join-Path $LogDirectory "$safeName.log"
-        @("Executable: $FilePath", "Arguments: $($ArgumentList -join ' ')", "R environment: inherited R_* overrides cleared", "Exit code: $exitCode ($hexExitCode)", "--- stdout ---", $stdout, "--- stderr ---", $stderr) |
+        @("Executable: $FilePath", "Working directory: $RHome", "Arguments: $($encodedArguments -join ' ')", "R environment: R_HOME=$RHome; other R_* overrides cleared", "Exit code: $exitCode ($hexExitCode)", "--- stdout ---", $stdout, "--- stderr ---", $stderr) |
             Set-Content -LiteralPath $probeLog -Encoding UTF8
     }
     Write-LifecycleEvent "$EventName exit ($exitCode)"
@@ -249,10 +291,10 @@ function Test-RRuntimeProcesses {
     try {
         # These probes establish native process startup only. Their human-readable
         # output is deliberately not parsed as authoritative version evidence.
-        $rVersionProbe = Invoke-RValidationProbe -FilePath $rPath -ArgumentList @("--version") -Label "R.exe --version" -LogDirectory $LogDirectory -EventName "$EventPrefix probe R.exe --version"
+        $rVersionProbe = Invoke-RValidationProbe -FilePath $rPath -ArgumentList @("--version") -Label "R.exe --version" -LogDirectory $LogDirectory -EventName "$EventPrefix probe R.exe --version" -RHome $RHome
         Assert-RProbeSucceeded -Probe $rVersionProbe
 
-        $rscriptVersionProbe = Invoke-RValidationProbe -FilePath $rscriptPath -ArgumentList @("--version") -Label "Rscript.exe --version" -LogDirectory $LogDirectory -EventName "$EventPrefix probe Rscript.exe --version"
+        $rscriptVersionProbe = Invoke-RValidationProbe -FilePath $rscriptPath -ArgumentList @("--version") -Label "Rscript.exe --version" -LogDirectory $LogDirectory -EventName "$EventPrefix probe Rscript.exe --version" -RHome $RHome
         Assert-RProbeSucceeded -Probe $rscriptVersionProbe
     } catch {
         throw "$phaseLabel failure: $($_.Exception.Message)"
@@ -264,7 +306,7 @@ function Test-RRuntimeProcesses {
         # UTF-8 without a BOM is deterministic across Windows PowerShell and
         # PowerShell, and passing the file as one native argument supports spaces.
         [IO.File]::WriteAllText($probeScriptPath, "cat(as.character(getRversion()))`n", (New-Object Text.UTF8Encoding($false)))
-        $expressionProbe = Invoke-RValidationProbe -FilePath $rscriptPath -ArgumentList @("--vanilla", $probeScriptPath) -Label "Rscript.exe --vanilla <version-probe.R>" -LogDirectory $LogDirectory -EventName "$EventPrefix probe R version script"
+        $expressionProbe = Invoke-RValidationProbe -FilePath $rscriptPath -ArgumentList @("--vanilla", $probeScriptPath) -Label "Rscript.exe --vanilla <version-probe.R>" -LogDirectory $LogDirectory -EventName "$EventPrefix probe R version script" -RHome $RHome
         Assert-RProbeSucceeded -Probe $expressionProbe
     } catch {
         throw "$comparisonLayer failure: authoritative getRversion() probe failed. $($_.Exception.Message)"
