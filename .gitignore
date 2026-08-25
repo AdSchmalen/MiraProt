@@ -10,6 +10,7 @@ GSEA/*.gmt
 # Portable launcher build artifacts (large, generated locally)
 portable/build/
 portable/dist/
+portable/logs/
 portable/launcher/MiraProt-launcher
 portable/launcher/MiraProt-launcher.exe
 portable/launcher/*.syso

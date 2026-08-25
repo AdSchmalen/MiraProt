@@ -112,6 +112,25 @@ Use `renv::restore()` when reproducing the package environment associated with a
 
 ---
 
+## Build portable MiraProt locally
+
+The root build entry points run prerequisite checks, record a log, and then create the stage-1 portable bundle. On Windows, double-click `Build-MiraProt.cmd`; on macOS, double-click `Build-MiraProt.command` (and approve execution if macOS prompts). Linux users should run the shell entry point from a terminal. The terminal equivalents, run from the repository root, are:
+
+```powershell
+.\Build-MiraProt.cmd
+```
+
+```bash
+./Build-MiraProt.command  # macOS; interactive and waits before closing
+./Build-MiraProt.sh       # Linux; non-interactive terminal workflow
+```
+
+Windows is the validated portable-build workflow. Linux and macOS remain experimental. Generated bundles and build logs are ignored local artifacts, and the official MiraProt distribution remains source-only; building locally does not create an official binary release.
+
+See [GUIDE_PORTABLE_USER.md](GUIDE_PORTABLE_USER.md) for prerequisites and walkthroughs, and [GUIDE_PORTABLE_DEV.md](GUIDE_PORTABLE_DEV.md) for wrapper and bundler architecture.
+
+---
+
 ## Portable mode
 
 MiraProt includes portable-build tooling for Windows, Ubuntu/Debian-family Linux, and macOS.

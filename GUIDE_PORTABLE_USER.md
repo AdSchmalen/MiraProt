@@ -180,13 +180,13 @@ Several gigabytes are required. At least approximately 10 GB of free working spa
 
 ## Step 8 — Build the portable bundle
 
-For the default output directory:
+For the friendly default workflow, double-click `Build-MiraProt.cmd` in File Explorer. The window remains open at the end so you can read the result. The terminal equivalent is:
 
 ```powershell
-.\portable\scripts\bundle-r-windows.ps1
+.\Build-MiraProt.cmd
 ```
 
-For a separate output directory:
+The wrapper checks prerequisites, writes a timestamped file under `portable\logs\`, and builds the default `portable\dist` output. Advanced users can invoke the Stage-1 builder directly, including to select a separate output directory:
 
 ```powershell
 .\portable\scripts\bundle-r-windows.ps1 -RVersion "4.6.1" -OutputDir "..\MiraProt_Portable"
@@ -541,11 +541,13 @@ The versions must match.
 
 ## Build
 
-From the repository root:
+From the repository root, use the friendly non-interactive terminal entry point:
 
 ```bash
-bash portable/scripts/bundle-r.sh --output-dir portable/dist
+./Build-MiraProt.sh
 ```
+
+It performs bootstrap checks and records output under `portable/logs/`. Advanced users may invoke Stage 1 directly with `bash portable/scripts/bundle-r.sh --output-dir portable/dist`.
 
 The stage-1 output contains:
 
@@ -662,9 +664,13 @@ The versions must match.
 
 ## Build
 
+In Finder, double-click `Build-MiraProt.command`; its interactive terminal remains open so you can read the final status. The terminal equivalent is:
+
 ```bash
-bash portable/scripts/bundle-r.sh --output-dir portable/dist
+./Build-MiraProt.command
 ```
+
+For non-interactive automation use `./Build-MiraProt.sh`. Advanced users may invoke Stage 1 directly with `bash portable/scripts/bundle-r.sh --output-dir portable/dist`. All friendly entry points record bootstrap and build output under `portable/logs/`.
 
 The script creates a flat portable directory containing the copied R runtime, package library, Shiny application, cache resources, and native launcher.
 
@@ -853,14 +859,16 @@ Then perform a clean rebuild if you want the portable artifact to reflect the up
 Windows:
 
 ```powershell
-Remove-Item -Recurse -Force .\portable\dist -ErrorAction SilentlyContinue; .\portable\scripts\bundle-r-windows.ps1
+Remove-Item -Recurse -Force .\portable\dist -ErrorAction SilentlyContinue; .\Build-MiraProt.cmd
 ```
 
 Linux/macOS:
 
 ```bash
-rm -rf portable/dist && bash portable/scripts/bundle-r.sh --output-dir portable/dist
+rm -rf portable/dist && ./Build-MiraProt.sh
 ```
+
+Direct builder commands remain available as advanced alternatives when bypassing bootstrap checks and logging is intentional.
 
 For Windows installer users, rebuild the installer after rebuilding and testing the new stage-1 bundle.
 
