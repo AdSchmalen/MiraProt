@@ -119,6 +119,7 @@ render_volcano_user_workflow_content <- function() {
     h3("Search and exact matching"),
     tags$ul(
       tags$li("Suggested identifiers show both partial and exact matches from the dataset."),
+      tags$li("Significantly more abundant and Significantly less abundant add the matching proteins from the selected plot to the search field using the current thresholds and identifier column."),
       tags$li("Add transfers only exact matches into the selected-protein list used for static annotation."),
       tags$li("Importing pathway proteins fills the search field, but it does not annotate proteins by itself."),
       tags$li("This approach reduces the risk of highlighting the wrong protein when names are similar.")
