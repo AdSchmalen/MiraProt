@@ -263,15 +263,16 @@ The implementation is real but currently **experimental** because complete nativ
 
 Do not claim CI-tested Linux/macOS targets unless an active workflow actually exists and has successfully validated them.
 
-## Important Git metadata limitation
+## Git checkout and source-archive metadata
 
-The current Unix bundler writes `BUILD_INFO` and launcher version information using Git commands.
+The Unix bundler supports both Git checkouts and extracted source archives. When
+`.git` metadata exists, Git is required and the bundler fails if the checkout or
+`HEAD` is invalid. It records the real commit count, short SHA, and commit date.
 
-Therefore a current Linux/macOS portable build should use a **Git checkout**.
-
-An extracted source archive without `.git` metadata is not currently a supported Unix portable-build input unless `bundle-r.sh` is updated to provide the same archive-safe fallback behavior as the Windows builder.
-
-This should be fixed before source-archive Linux/macOS builds are documented as supported.
+Without `.git` metadata, the canonical `VERSION` supplies the application and
+launcher SemVer. `BUILD_INFO` explicitly marks commit fields as unavailable and
+identifies the revision as `source-archive`; it does not fabricate repository
+metadata.
 
 ## R requirements
 
@@ -1162,11 +1163,12 @@ Unix expected path:
 r-portable/bin/Rscript
 ```
 
-## Linux/macOS source archive build fails at Git metadata
+## Linux/macOS checkout metadata is invalid
 
-The current Unix builder assumes Git metadata while writing `BUILD_INFO` and determining the launcher version.
-
-Use a Git checkout until the builder is made archive-safe.
+When `.git` metadata exists, the Unix builder requires a working Git command and
+a valid checkout with `HEAD`. Repair the checkout or build from a source archive
+that does not contain `.git` metadata. Archive builds use canonical `VERSION`
+SemVer and explicitly unavailable revision metadata.
 
 ## Linux launcher fails because of shared libraries
 

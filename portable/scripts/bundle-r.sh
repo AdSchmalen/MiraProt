@@ -460,11 +460,36 @@ cp "$VERSION_FILE" "$SHINY_APP/VERSION"
 rm -rf "$SHINY_APP/renv" "$SHINY_APP/.Rprofile" "$SHINY_APP/renv.lock"
 
 echo "App copied to: $SHINY_APP"
-{
-  echo "COMMIT_COUNT=$(git -C "$PROJECT_ROOT" rev-list --count HEAD)"
-  echo "COMMIT_SHA=$(git -C "$PROJECT_ROOT" rev-parse --short=7 HEAD)"
-  echo "COMMIT_DATE=$(git -C "$PROJECT_ROOT" log -1 --format=%cs)"
-} > "$SHINY_APP/BUILD_INFO"
+HAS_GIT_METADATA=false
+if [ -e "$PROJECT_ROOT/.git" ]; then
+  HAS_GIT_METADATA=true
+  if ! command -v git >/dev/null 2>&1; then
+    echo "ERROR: Git metadata exists, but the git command is unavailable." >&2
+    exit 2
+  fi
+  if ! COMMIT_COUNT="$(git -C "$PROJECT_ROOT" rev-list --count HEAD)" ||
+     ! COMMIT_SHA="$(git -C "$PROJECT_ROOT" rev-parse --short=7 HEAD)" ||
+     ! COMMIT_DATE="$(git -C "$PROJECT_ROOT" log -1 --format=%cs)" ||
+     [[ ! "$COMMIT_COUNT" =~ ^[0-9]+$ ]] ||
+     [[ ! "$COMMIT_SHA" =~ ^[0-9a-fA-F]{7,40}$ ]] ||
+     [[ ! "$COMMIT_DATE" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
+    echo "ERROR: Git metadata exists, but the checkout or HEAD is invalid." >&2
+    exit 2
+  fi
+  {
+    echo "COMMIT_COUNT=$COMMIT_COUNT"
+    echo "COMMIT_SHA=$COMMIT_SHA"
+    echo "COMMIT_DATE=$COMMIT_DATE"
+  } > "$SHINY_APP/BUILD_INFO"
+else
+  echo "No .git metadata found; using canonical VERSION and archive-safe build metadata."
+  {
+    echo "COMMIT_COUNT=unavailable"
+    echo "COMMIT_SHA=unavailable"
+    echo "COMMIT_DATE=unavailable"
+    echo "REVISION=source-archive"
+  } > "$SHINY_APP/BUILD_INFO"
+fi
 echo ""
 
 # -----------------------------------------------------------------------
@@ -473,17 +498,19 @@ echo ""
 echo "--- Building Go launcher ---"
 LAUNCHER_DIR="$SCRIPT_DIR/../launcher"
 LAUNCHER_VERSION="v$MIRAPROT_VERSION"
-if command -v git >/dev/null 2>&1 && git -C "$PROJECT_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-  SHORT_SHA="$(git -C "$PROJECT_ROOT" rev-parse --short=7 HEAD 2>/dev/null || true)"
+if [ "$HAS_GIT_METADATA" = true ]; then
+  SHORT_SHA="$COMMIT_SHA"
   NEAREST_TAG="$(git -C "$PROJECT_ROOT" describe --tags --abbrev=0 2>/dev/null || true)"
   if [ -n "$NEAREST_TAG" ]; then
-    COMMIT_DISTANCE="$(git -C "$PROJECT_ROOT" rev-list --count "$NEAREST_TAG..HEAD" 2>/dev/null || true)"
+    COMMIT_DISTANCE="$(git -C "$PROJECT_ROOT" rev-list --count "$NEAREST_TAG..HEAD")"
   else
-    COMMIT_DISTANCE="$(git -C "$PROJECT_ROOT" rev-list --count HEAD 2>/dev/null || true)"
+    COMMIT_DISTANCE="$COMMIT_COUNT"
   fi
-  if [[ "$SHORT_SHA" =~ ^[0-9a-fA-F]{7}$ && "$COMMIT_DISTANCE" =~ ^[0-9]+$ ]]; then
-    LAUNCHER_VERSION="v$MIRAPROT_VERSION-$COMMIT_DISTANCE-g$SHORT_SHA"
+  if [[ ! "$COMMIT_DISTANCE" =~ ^[0-9]+$ ]]; then
+    echo "ERROR: Git metadata exists, but launcher revision distance is invalid." >&2
+    exit 2
   fi
+  LAUNCHER_VERSION="v$MIRAPROT_VERSION-$COMMIT_DISTANCE-g$SHORT_SHA"
 fi
 (
   cd "$LAUNCHER_DIR"
