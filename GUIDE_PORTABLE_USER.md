@@ -34,9 +34,10 @@ The workflow is:
 
 # 1. Get the MiraProt source
 
-For Windows, either a Git checkout or extracted source archive can be used.
-
-For the current Linux/macOS portable builder, use a **Git checkout**. The current Unix build path uses Git metadata while generating `BUILD_INFO` and the launcher version, so an extracted source archive without `.git` metadata is not currently a supported Linux/macOS portable-build input.
+On Windows, Linux, or macOS, either a Git checkout or an extracted source archive
+can be used. Checkout builds require Git and record real revision metadata.
+Archive builds use the canonical `VERSION` for application and launcher SemVer
+and explicitly report that commit metadata is unavailable.
 
 ## Clone with Git
 
@@ -505,12 +506,10 @@ Fedora/RHEL-family, Arch-family, openSUSE, and other distributions are not curre
 
 ## Requirements
 
-Use a **Git checkout**, not a source archive, for the current Linux portable build.
-
 Install:
 
 - the exact R version configured in `portable/R_VERSION`;
-- Git;
+- Git, when building from a Git checkout;
 - Go;
 - `rsync`;
 - `gcc`;
@@ -616,14 +615,12 @@ The generated AppImage is currently considered experimental until it has been bu
 
 > **Validation status:** the macOS portable-build and DMG packaging paths are implemented for Intel (`x86_64`) and Apple Silicon (`arm64`), but have not yet been manually validated end-to-end on native Macs. Treat these packaging paths as experimental.
 
-Use a **Git checkout**, not a source archive, for the current macOS portable build.
-
 ## Requirements
 
 Install:
 
 - the exact R version configured in `portable/R_VERSION`;
-- Git;
+- Git, when building from a Git checkout;
 - Go 1.22 or later;
 - Xcode Command Line Tools when native compilation is required.
 
