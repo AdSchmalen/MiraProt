@@ -1176,6 +1176,10 @@ modPCAServer <- function(id, rv, res_GSEA = NULL, res_GO = NULL, module_outputs 
           if (is.list(cand)) { state$restore_plot_data_cache <- cand; cache_hit <- TRUE; cache_key <- key; cache_hit_reason <- "cache_restored_by_title" }
         }
         pca_state$restore_plot_data_cache(if (is.list(state$restore_plot_data_cache)) state$restore_plot_data_cache else NULL)
+        if (isTRUE(cache_hit) && isTRUE(coordinates_available) && isTRUE(had_plot_on_save)) {
+          pca_state$result_origin("restored_cache")
+          pca_state$live_revision(NULL)
+        }
         if (isTRUE(cache_hit)) {
           restore_cache <- state$restore_plot_data_cache
           attach_restore_cache_to_results <- function(results_obj) {
