@@ -1532,6 +1532,9 @@ modDataWizardServer <- function(id, rv, debug_level = 0) {
 
     return(list(
       # Phase 1: Raw Data Access
+      # Session restore must write through the same registry used by the
+      # module's internal Apply Metadata Rules path.
+      dataset_registry = core_values$dataset_registry,
       primary_data_raw = core_values$primary_data_raw,
       import_phase = core_values$import_phase,
       import_ready_revision = core_values$import_ready_revision,

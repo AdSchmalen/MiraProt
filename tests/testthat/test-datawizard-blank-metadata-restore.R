@@ -128,3 +128,101 @@ testthat::test_that("canonical transaction publishes blank metadata and rejects 
   testthat::expect_null(dw$final_processed_metadata())
   testthat::expect_identical(calls$final_metadata, "not-cleared")
 })
+
+testthat::test_that("session restore public handles share the Data Wizard registry", {
+  testthat::skip_if_not_installed("shiny")
+  suppressPackageStartupMessages(library(shiny))
+  source(file.path("modules", "Data Wizard", "datawizard_core.R"), local = FALSE)
+
+  # Guard the actual module contract: before this regression fix the public
+  # return omitted dataset_registry, making the restore adapter fall back to rv.
+  module_source <- paste(readLines(file.path("modules", "datawizard_module.R")), collapse = "\n")
+  testthat::expect_match(
+    module_source,
+    "dataset_registry\\s*=\\s*core_values\\$dataset_registry"
+  )
+
+  data_b <- data.frame(`Row Index` = 1:2, B = 5:6, check.names = FALSE)
+  metadata_b <- make_metadata(data_b)
+  core_values <- create_core_reactive_values()
+  public_handles <- list(
+    dataset_registry = core_values$dataset_registry,
+    primary_data_raw = core_values$primary_data_raw,
+    handson_metadata = core_values$handson_metadata,
+    final_processed_data = core_values$final_processed_data,
+    final_processed_metadata = core_values$final_processed_metadata
+  )
+  rv <- shiny::reactiveValues()
+  restore_adapter <- create_primary_data_state_adapter(
+    rv = rv,
+    core_values = public_handles
+  )
+  historical_pca_cache <- list(
+    data = data.frame(`Row Index` = 1:2, A = 3:4, check.names = FALSE),
+    metadata = make_metadata(
+      data.frame(`Row Index` = 1:2, A = 3:4, check.names = FALSE),
+      c("Row Index", "Condition")
+    ),
+    cache_key = "A"
+  )
+  cache_before <- unserialize(serialize(historical_pca_cache, NULL))
+
+  shiny::isolate({
+    restore_adapter$set_raw_imported_data(data_b, "session restore regression")
+    restore_adapter$set_metadata_for_current_data(metadata_b)
+  })
+
+  primary <- shiny::isolate(resolve_datawizard_dataset(
+    "primary_working", core_values = core_values, rv = rv
+  )$data)
+  canonical_metadata <- shiny::isolate(resolve_datawizard_dataset(
+    "metadata_working", core_values = core_values, rv = rv
+  )$data)
+  canonical_resolved <- shiny::isolate(resolve_current_metadata("primary_working"))
+  table_metadata <- metadata_b
+  core_metadata <- shiny::isolate(core_values$handson_metadata())
+
+  testthat::expect_identical(restore_adapter$registry(), core_values$dataset_registry())
+  testthat::expect_identical(primary, data_b)
+  testthat::expect_identical(shiny::isolate(rv$data_mod), data_b)
+  testthat::expect_identical(canonical_metadata, metadata_b)
+  testthat::expect_identical(core_metadata, metadata_b)
+  testthat::expect_identical(shiny::isolate(rv$data_def), metadata_b)
+  testthat::expect_true(metadata_matches_dataset(table_metadata, primary))
+  testthat::expect_true(metadata_matches_dataset(core_metadata, primary))
+  testthat::expect_true(metadata_matches_dataset(canonical_metadata, primary))
+  testthat::expect_identical(canonical_resolved, metadata_b)
+  testthat::expect_true(metadata_matches_dataset(canonical_resolved, primary))
+  testthat::expect_true(any(vapply(
+    list(table_metadata, core_metadata, canonical_resolved),
+    metadata_matches_dataset,
+    logical(1),
+    dataset = primary
+  )))
+  testthat::expect_identical(historical_pca_cache, cache_before)
+})
+
+testthat::test_that("restore lifecycle ranks alignment ahead of meaningfulness", {
+  testthat::skip_if_not_installed("shiny")
+  suppressPackageStartupMessages(library(shiny))
+  source(file.path("modules", "Data Wizard", "datawizard_core.R"), local = FALSE)
+
+  data_a <- data.frame(`Row Index` = 1:2, A = 3:4, check.names = FALSE)
+  data_b <- data.frame(`Row Index` = 1:2, B = 5:6, check.names = FALSE)
+  meaningful_a <- make_metadata(data_a, c("Row Index", "Condition"))
+  blank_b <- make_metadata(data_b)
+  meaningful_b <- make_metadata(data_b, c("Row Index", "Condition"))
+
+  testthat::expect_identical(
+    select_datawizard_restore_lifecycle_metadata(blank_b, meaningful_a, data_b),
+    blank_b
+  )
+  testthat::expect_identical(
+    select_datawizard_restore_lifecycle_metadata(blank_b, meaningful_b, data_b),
+    meaningful_b
+  )
+  testthat::expect_identical(
+    select_datawizard_restore_lifecycle_metadata(meaningful_b, meaningful_b, data_b),
+    meaningful_b
+  )
+})

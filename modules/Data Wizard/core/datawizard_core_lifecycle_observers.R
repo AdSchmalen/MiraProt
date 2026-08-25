@@ -25,6 +25,27 @@
 #   context per module session, source-DAG acyclicity, and existing timing guards.
 # ============================================================================
 
+# Choose between live and restored metadata while restore observers are
+# replaying.  Dataset alignment is the first-order invariant; meaningfulness
+# only breaks a tie between two candidates for the same live dataset.
+select_datawizard_restore_lifecycle_metadata <- function(current_metadata,
+                                                         restored_metadata,
+                                                         current_data) {
+  current_aligned <- metadata_matches_dataset(current_metadata, current_data)
+  restored_aligned <- metadata_matches_dataset(restored_metadata, current_data)
+
+  if (isTRUE(current_aligned)) {
+    if (isTRUE(restored_aligned) &&
+        is_meaningful_metadata(restored_metadata) &&
+        !is_meaningful_metadata(current_metadata)) {
+      return(restored_metadata)
+    }
+    return(current_metadata)
+  }
+
+  if (isTRUE(restored_aligned)) restored_metadata else current_metadata
+}
+
 #' Register core data/metadata lifecycle observers
 #' @param loader_out File loader module output
 #' @param core_values Core reactive values container
@@ -128,17 +149,39 @@ register_core_data_lifecycle_observers <- function(loader_out, core_values, rv, 
       }
 
       if (restore_guard_active() && is_row_index_only_metadata(current_metadata)) {
-        debug_log(
-          "Metadata lifecycle: ignored Row-Index-only placeholder during restore",
-          level = 1
+        current_primary <- tryCatch(
+          resolve_datawizard_dataset(
+            "primary_working", core_values = core_values, rv = rv
+          )$data,
+          error = function(e) NULL
+        )
+        restored_metadata <- tryCatch(
+          datawizard_drop_deprecated_metadata_columns(rv$data_def),
+          error = function(e) NULL
+        )
+        selected_metadata <- select_datawizard_restore_lifecycle_metadata(
+          current_metadata, restored_metadata, current_primary
         )
 
-        if (!is.null(rv$data_def) &&
-            is.data.frame(rv$data_def) &&
-            !is_row_index_only_metadata(rv$data_def) &&
-            !identical(current_metadata, rv$data_def)) {
-          core_values$handson_metadata(
-            datawizard_drop_deprecated_metadata_columns(rv$data_def))
+        if (!identical(selected_metadata, current_metadata)) {
+          core_values$handson_metadata(selected_metadata)
+          debug_log(
+            "Metadata lifecycle: preferred meaningful restored metadata aligned with live data",
+            level = 1
+          )
+        } else if (metadata_matches_dataset(current_metadata, current_primary)) {
+          debug_log(
+            "Metadata lifecycle: preserving Row-Index-only metadata aligned with live data",
+            level = 1
+          )
+          if (!identical(rv$data_def, current_metadata)) {
+            primary_data_state$set_metadata_for_current_data(current_metadata)
+          }
+        } else {
+          debug_log(
+            "Metadata lifecycle: deferred misaligned Row-Index-only metadata during restore",
+            level = 1
+          )
         }
 
         return()
@@ -192,13 +235,20 @@ register_core_data_lifecycle_observers <- function(loader_out, core_values, rv, 
       datawizard_drop_deprecated_metadata_columns(rv$data_def),
       error = function(e) NULL) else NULL
 
+    restore_selected_meta <- if (restore_guard_active()) {
+      select_datawizard_restore_lifecycle_metadata(
+        current_meta, restored_meta, current_data
+      )
+    } else NULL
+
     if (restore_guard_active() &&
         is.data.frame(restored_meta) &&
-        !is_row_index_only_metadata(restored_meta)) {
-      if (!identical(current_meta, restored_meta) &&
+        !is_row_index_only_metadata(restored_meta) &&
+        identical(restore_selected_meta, restored_meta)) {
+      if (!identical(current_meta, restore_selected_meta) &&
           !is.null(core_values) &&
           is.function(core_values$handson_metadata)) {
-        core_values$handson_metadata(restored_meta)
+        core_values$handson_metadata(restore_selected_meta)
       }
       debug_log(
         "Metadata lifecycle: restore replay active with restored metadata; skipping placeholder sync/recreation",
