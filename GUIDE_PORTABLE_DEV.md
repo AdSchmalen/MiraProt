@@ -150,6 +150,37 @@ portable/
 
 Generated bundle directories, binaries, `.syso` files, installers, DMGs, AppImages, and temporary packaging directories are build products and should not be committed.
 
+## Friendly wrappers, bootstrap, and Stage 1
+
+Portable builds have three layers:
+
+1. the root entry points (`Build-MiraProt.cmd`, `Build-MiraProt.command`, and `Build-MiraProt.sh`) provide memorable double-click or terminal commands;
+2. the Stage-0 bootstrap wrappers (`portable/scripts/start-build-windows.ps1` and `portable/scripts/start-build-unix.sh`) validate the host, create a timestamped log, and invoke the correct builder;
+3. the Stage-1 builders (`bundle-r-windows.ps1` and `bundle-r.sh`) assemble and verify the flat portable bundle. Stage 2 only consumes that tested output and is unchanged by these wrappers.
+
+`Build-MiraProt.cmd` and `Build-MiraProt.command` enable interactive mode so a double-clicked window waits for Enter after success or failure. `Build-MiraProt.sh` is non-interactive by default, returns the builder's exit status directly, and is the preferred Unix automation entry point. Passing `--interactive` to the Unix shell entry point opts into the pause. The bootstrap always writes its preflight, builder output, verification, final status, and exit code to:
+
+```text
+portable/logs/build-<timestamp>-<platform>.log
+```
+
+`portable/logs/` and generated bundles are ignored local artifacts. Bootstrap options are forwarded through the root entry points:
+
+| Platform | Supported bootstrap arguments |
+|---|---|
+| Windows | `-Interactive`, `-OutputDir <directory>`, `-RVersion <MAJOR.MINOR.PATCH>` (the `.cmd` entry point supplies `-Interactive`) |
+| Linux/macOS | `--interactive`, `--output-dir <directory>`, `--r-version <MAJOR.MINOR.PATCH>`, `-h` / `--help` |
+
+The default output is `portable/dist`, and relative output paths are resolved from the repository root. The maintained `portable/R_VERSION` should normally be used; an R-version option selects the runtime, never the MiraProt application version.
+
+### Bootstrap platform prerequisites
+
+All platforms require a supported 64-bit architecture, Go 1.22 or later, writable output space, and CRAN network access. Git is required only when `.git` exists. Windows requires x86-64 Windows and PowerShell 5.1 or later; its Stage-1 builder downloads R, so system R is not required. Linux/macOS require native `R`, `Rscript`, Go, and `rsync`, with R exactly matching `portable/R_VERSION`. Linux currently also requires `apt-get` and `dpkg`; macOS requires Xcode Command Line Tools. The detailed native libraries remain listed in the platform sections below.
+
+For a Git checkout, bootstrap requires Git and Stage 1 records actual `HEAD` revision metadata. For an extracted source archive without `.git`, Git is skipped; canonical `VERSION` provides SemVer and `BUILD_INFO` explicitly records unavailable commit data and `REVISION=source-archive`.
+
+Build-time dependencies are not automatically finished-runtime dependencies. PowerShell, Git, Go, compilers, `rsync`, Rtools, Xcode tools, and packaging utilities assemble the artifact. The finished bundle includes its own R runtime, R library, Shiny payload, and launcher. A Windows target does not require those build tools to run; Linux/macOS targets may still require compatible OS shared libraries such as glibc, graphics/font libraries, GTK, or AppIndicator.
+
 Package installation prefers the committed `renv.lock`, installing only packages
 missing from the destination `r-library`. Existing portable packages are
 deliberately preserved, including when their versions differ from the lockfile.
