@@ -158,7 +158,7 @@ Portable builds have three layers:
 2. the Stage-0 bootstrap wrappers (`portable/scripts/start-build-windows.ps1` and `portable/scripts/start-build-unix.sh`) validate the host, create a timestamped log, and invoke the correct builder;
 3. the Stage-1 builders (`bundle-r-windows.ps1` and `bundle-r.sh`) assemble and verify the flat portable bundle. Stage 2 only consumes that tested output and is unchanged by these wrappers.
 
-`Build-MiraProt.cmd` and `Build-MiraProt.command` enable interactive mode so a double-clicked window waits for Enter after success or failure. `Build-MiraProt.sh` is non-interactive by default, returns the builder's exit status directly, and is the preferred Unix automation entry point. Passing `--interactive` to the Unix shell entry point opts into the pause. The bootstrap always writes its preflight, builder output, verification, final status, and exit code to:
+`Build-MiraProt.cmd` and `Build-MiraProt.command` enable interactive mode so a double-clicked window waits for Enter after success or failure. `Build-MiraProt.sh` is non-interactive by default, returns the builder's exit status directly, and is the preferred Unix automation entry point. Passing `--interactive` to the Unix shell entry point opts into the pause; it changes only the final prompt, not validation or build behavior. The bootstrap always writes its preflight, builder output, verification, final status, and exit code to:
 
 ```text
 portable/logs/build-<timestamp>-<platform>.log

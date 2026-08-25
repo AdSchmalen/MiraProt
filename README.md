@@ -114,7 +114,7 @@ Use `renv::restore()` when reproducing the package environment associated with a
 
 ## Build portable MiraProt locally
 
-The root build entry points run prerequisite checks, record a log, and then create the stage-1 portable bundle. On Windows, double-click `Build-MiraProt.cmd`; on macOS, double-click `Build-MiraProt.command` (and approve execution if macOS prompts). Linux users should run the shell entry point from a terminal. The terminal equivalents, run from the repository root, are:
+The root build entry points run prerequisite checks, record a log, and then create the stage-1 portable bundle. On Windows, double-click `Build-MiraProt.cmd`; on macOS, double-click `Build-MiraProt.command` (and approve execution if macOS prompts). Linux users should run `Build-MiraProt.sh` from a terminal because desktop double-click behavior varies. The terminal equivalents, run from the repository root, are:
 
 ```powershell
 .\Build-MiraProt.cmd
