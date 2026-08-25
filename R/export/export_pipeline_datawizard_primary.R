@@ -136,7 +136,7 @@ apply_processed_data_metadata_coloring <- function(wb, sheet, processed_data, me
       return(invisible(FALSE))
     }
 
-    styled_rows <- 1:(nrow(processed_data) + 1)
+    styled_rows <- seq_len(nrow(processed_data)) + 1L
 
     for (fill_color in unique(unname(color_mapping))) {
       styled_cols <- which(names(processed_data) %in% names(color_mapping)[color_mapping == fill_color])
