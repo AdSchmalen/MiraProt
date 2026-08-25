@@ -856,10 +856,19 @@ create_go_results_list_direct <- function(edo, go_data, annotations = NULL, keyT
   debug_log(paste("Created fold change vector directly from filtered GO input with", length(fc_vec), "unique gene entries"), 2)
   debug_log(paste("GO fold-change source rows:", nrow(fc_source), "unique genes:", length(unique(fc_source$Gene))), 1)
 
-  edox <- if (!is.null(annotations)) {
+  edo_is_readable <- isTRUE(safe_go_enrich_slot(edo, "readable", default = FALSE))
+  edo_source_key_type <- safe_go_enrich_slot(edo, "keytype", default = keyType)
+  edo_source_key_type <- as.character(edo_source_key_type)[1]
+  edo_uses_symbols <- !is.na(edo_source_key_type) &&
+    identical(toupper(edo_source_key_type), "SYMBOL")
+
+  edox <- if (edo_is_readable || edo_uses_symbols) {
+    debug_log("GO enrichment result is already symbol-readable, using original edo", 2)
+    edo
+  } else if (!is.null(annotations)) {
     tryCatch({
       debug_log("Applying setReadable", 2)
-      setReadable(edo, annotations, keyType)
+      setReadable(edo, annotations, edo_source_key_type)
     }, error = function(e) {
       debug_log(paste("setReadable failed:", e$message), 1)
       edo
