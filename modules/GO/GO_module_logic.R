@@ -842,19 +842,18 @@ create_go_results_list_direct <- function(edo, go_data, annotations = NULL, keyT
 
   debug_log("Creating GO results list", 1)
 
-  enrichment_gene_ids <- tryCatch(as.character(edo@gene), error = function(e) character(0))
-  enrichment_gene_ids <- clean_go_identifiers(enrichment_gene_ids)
-  if (length(enrichment_gene_ids) == 0) {
-    enrichment_gene_ids <- clean_go_identifiers(go_data$Gene)
-  }
-
-  fc_source <- go_data[!is.na(go_data$Gene) & go_data$Gene != "" & nzchar(go_data$Gene), , drop = FALSE]
-  fc_source <- fc_source[fc_source$Gene %in% enrichment_gene_ids, , drop = FALSE]
+  # go_data is already the filtered enrichment input and its Gene values remain
+  # in the user-selected keyType namespace.  edo@gene is not a safe filter here:
+  # enrichResult internals can use a different identifier namespace.  Preserve
+  # input order so duplicate identifiers resolve deterministically to the first
+  # filtered occurrence, without dropping measured (including NA) abundances.
+  fc_source <- go_data
+  fc_source$Gene <- trimws(as.character(fc_source$Gene))
+  fc_source <- fc_source[!is.na(fc_source$Gene) & nzchar(fc_source$Gene), , drop = FALSE]
   fc_source_dedup <- fc_source[!duplicated(fc_source$Gene), , drop = FALSE]
-  fc_source_dedup <- fc_source_dedup[order(match(fc_source_dedup$Gene, enrichment_gene_ids)), , drop = FALSE]
 
   fc_vec <- setNames(fc_source_dedup$Abundance, fc_source_dedup$Gene)
-  debug_log(paste("Created fold change vector from enrichment identifier set with", length(fc_vec), "unique gene entries"), 2)
+  debug_log(paste("Created fold change vector directly from filtered GO input with", length(fc_vec), "unique gene entries"), 2)
   debug_log(paste("GO fold-change source rows:", nrow(fc_source), "unique genes:", length(unique(fc_source$Gene))), 1)
 
   edox <- if (!is.null(annotations)) {
