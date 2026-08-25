@@ -1000,6 +1000,28 @@ prepare_pca_analysis_data <- function(data, metadata, selected_data_type, select
   })
 }
 
+# Return selected samples whose abundance metadata has conflicting, non-empty
+# biological-group assignments. Duplicate rows with the same group are benign.
+pca_conflicting_group_samples <- function(metadata, selected_data_type, selected_samples) {
+  if (!inherits(metadata, "data.frame")) return(character())
+  content_col <- get_col(metadata, c("Content"))
+  sample_col <- get_col(metadata, c("Sample", "Column"))
+  option_col <- get_col(metadata, c("Options", "Option"))
+  if (any(vapply(list(content_col, sample_col, option_col), is.null, logical(1)))) {
+    return(character())
+  }
+
+  rows <- !is.na(metadata[[content_col]]) &
+    trimws(as.character(metadata[[content_col]])) == trimws(as.character(selected_data_type))[1] &
+    !is.na(metadata[[sample_col]]) & metadata[[sample_col]] %in% selected_samples
+  groups <- split(as.character(metadata[[option_col]][rows]), as.character(metadata[[sample_col]][rows]))
+  conflicts <- names(groups)[vapply(groups, function(values) {
+    values <- trimws(values[!is.na(values)])
+    length(unique(values[nzchar(values)])) > 1L
+  }, logical(1))]
+  selected_samples[selected_samples %in% conflicts]
+}
+
 #' Create convex hull data for polygon plotting by condition (Enhanced Debug Version)
 #' @param plot_data Data frame with x, y coordinates and Condition column
 #' @param debug_log Logging function

@@ -135,6 +135,15 @@ register_pca_analysis_core <- function(
   # ========================================
   perform_analysis <- eventReactive(input$create_plot, {
 
+    if (datawizard_import_barrier_active(rv) ||
+        datawizard_metadata_assignment_pending(rv)) {
+      showNotification(
+        "Data Wizard is still updating data or metadata. Please retry when the update is complete.",
+        type = "warning", duration = 5
+      )
+      return(NULL)
+    }
+
     if (!data_available()) {
       showNotification("Data not available", type = "error", duration = 3)
       return(NULL)
@@ -183,6 +192,22 @@ register_pca_analysis_core <- function(
       debug_log(paste("Selected samples:", paste(selected_samples, collapse = ", ")), 2)
       debug_log(paste("Identifier:", selected_identifier), 2)
 
+      if (identical(input$comparison_target, "samples")) {
+        conflicting_samples <- pca_conflicting_group_samples(
+          metadata, selected_data_type, selected_samples
+        )
+        if (length(conflicting_samples) > 0L) {
+          debug_log(paste(
+            "Conflicting biological-group assignments for selected samples:",
+            paste(conflicting_samples, collapse = ", ")
+          ), 2)
+          showNotification(sprintf(
+            "Some selected samples have conflicting biological-group assignments. PCA used the first metadata assignment for: %s.",
+            paste(conflicting_samples, collapse = ", ")
+          ), type = "warning", duration = 8)
+        }
+      }
+
       progress$inc(0.2, detail = "Preparing data...")
 
       prep_data <- prepare_pca_analysis_data(
@@ -200,8 +225,8 @@ register_pca_analysis_core <- function(
       }
 
       # Check minimum requirements
-      min_samples <- if (input$comparison_target == "samples") nrow(prep_data$data) else ncol(prep_data$data)
-      min_features <- if (input$comparison_target == "samples") ncol(prep_data$data) else nrow(prep_data$data)
+      min_samples <- if (input$comparison_target == "samples") ncol(prep_data$data) else nrow(prep_data$data)
+      min_features <- if (input$comparison_target == "samples") nrow(prep_data$data) else ncol(prep_data$data)
 
       if (min_samples < 3) {
         showNotification("At least 3 samples required for analysis", type = "error", duration = 5)
@@ -246,7 +271,7 @@ register_pca_analysis_core <- function(
       results$comparison_target <- input$comparison_target
       results$method <- method
       results$metadata <- prep_data$metadata
-      results$raw_metadata <- rv$data_def
+      results$raw_metadata <- metadata
       results$identifier_col <- selected_identifier
       results$selected_samples <- selected_samples
       results$selected_data_type <- selected_data_type
@@ -295,6 +320,13 @@ register_pca_analysis_core <- function(
       analysis_results(results)
       store_analysis_results(results)
       plots_ready(TRUE)
+      if (!is.null(state)) {
+        state$result_origin("live")
+        state$live_revision(list(
+          data = rv$datawizard_data_revision_id %||% 0L,
+          metadata = rv$datawizard_metadata_revision_id %||% 0L
+        ))
+      }
 
       showNotification("Analysis completed successfully", type = "message", duration = 3)
       debug_log(paste("Analysis completed:", method, "with", length(point_names), "points"), 1)
@@ -361,6 +393,35 @@ register_pca_analysis_core <- function(
     }
 
     perform_analysis()
+  })
+
+  # Only results explicitly created from live Data Wizard state participate in
+  # revision invalidation. A cache-restored historical result remains owned by
+  # its cached data/metadata even after session restoration has settled.
+  observe({
+    current_revision <- list(
+      data = rv$datawizard_data_revision_id %||% 0L,
+      metadata = rv$datawizard_metadata_revision_id %||% 0L
+    )
+    if (is.null(state) || !identical(isolate(state$result_origin()), "live")) return()
+    if (datawizard_import_barrier_active(rv) ||
+        datawizard_metadata_assignment_pending(rv)) return()
+
+    owned_revision <- isolate(state$live_revision())
+    if (is.null(owned_revision) || identical(current_revision, owned_revision)) return()
+
+    stale_result <- isolate(analysis_results())
+    if (is.list(stale_result)) {
+      method <- tolower(stale_result$method %||% "")
+      target <- tolower(stale_result$comparison_target %||% "")
+      slot_name <- paste0(if (target == "samples") "sample_" else "protein_", method, "_results")
+      if (slot_name %in% names(state) && is.function(state[[slot_name]])) state[[slot_name]](NULL)
+    }
+    analysis_results(NULL)
+    plots_ready(FALSE)
+    state$result_origin(NULL)
+    state$live_revision(NULL)
+    debug_log("Live PCA/UMAP invalidated after a committed Data Wizard revision", 1)
   })
 
   return(list(perform_analysis = perform_analysis))

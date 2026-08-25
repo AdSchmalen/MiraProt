@@ -59,6 +59,11 @@ init_pca_state <- function(input, debug_log) {
   # Plot readiness flags
   plots_ready <- reactiveVal(FALSE)
 
+  # Runtime-only ownership of the displayed result. Restored cache results are
+  # deliberately independent of the current Data Wizard dataset.
+  result_origin <- reactiveVal(NULL)
+  live_revision <- reactiveVal(NULL)
+
   # Selected points for interactive plots
   selected_points_interactive <- reactiveVal(data.frame())
 
@@ -197,6 +202,8 @@ init_pca_state <- function(input, debug_log) {
   return(list(
     analysis_results = analysis_results,
     plots_ready = plots_ready,
+    result_origin = result_origin,
+    live_revision = live_revision,
     selected_points_interactive = selected_points_interactive,
     labeled_proteins = labeled_proteins,
     protein_suggestions = protein_suggestions,
