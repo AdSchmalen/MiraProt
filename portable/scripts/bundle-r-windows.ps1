@@ -819,22 +819,15 @@ New-Item -ItemType Directory -Force -Path $GoCache | Out-Null
 Write-Host "--- Seeding portable caches from existing MiraProt cache ---"
 $ProjectGoCache      = Join-Path $ProjectCache "GO_Cache"
 $ProjectBioMartCache = Join-Path $ProjectCache "BioMart_Cache"
+$PortableBioMart     = Join-Path $GoCache "go_cache\BioMart_Cache"
 
-if (Test-Path $ProjectGoCache) {
-        $PortableGoCacheSub = Join-Path $GoCache "go_cache"
-        Write-Host "Reusing source GO cache: cache\GO_Cache"
-        New-Item -ItemType Directory -Force -Path $PortableGoCacheSub | Out-Null
-        & robocopy $ProjectGoCache $PortableGoCacheSub /E /NFL /NDL /NJH /NJS /NP *> $null
-        if ($LASTEXITCODE -ge 8) {
-            Write-Warning "robocopy failed while copying GO_Cache (exit $LASTEXITCODE)"
-        }
-        $global:LASTEXITCODE = 0
-} else {
+if (-not (Test-Path $ProjectGoCache)) {
     Write-Host "No source GO cache found - portable prebuild will fill required cache if possible."
 }
 
-if (Test-Path $ProjectBioMartCache) {
-        $PortableBioMart = Join-Path $GoCache "go_cache\BioMart_Cache"
+if ((Test-Path $ProjectBioMartCache) -and
+    ((-not (Test-Path $PortableBioMart)) -or
+     ($null -eq (Get-ChildItem -LiteralPath $PortableBioMart -Force -ErrorAction SilentlyContinue | Select-Object -First 1)))) {
         Write-Host "Reusing source BioMart cache: cache\BioMart_Cache"
         New-Item -ItemType Directory -Force -Path $PortableBioMart | Out-Null
         & robocopy $ProjectBioMartCache $PortableBioMart /E /NFL /NDL /NJH /NJS /NP *> $null
@@ -843,30 +836,12 @@ if (Test-Path $ProjectBioMartCache) {
         }
         $global:LASTEXITCODE = 0
 } else {
-    Write-Host "No source BioMart cache found - BioMart will populate its cache on demand."
-}
-
-# Each organism ah_cache is a complete, independent BiocFileCache. Copy only
-# the canonical human cache into an empty target; never merge several indexes.
-$SourceAh = Join-Path $ProjectGoCache "org.Hs.eg.db\ah_cache"
-$TargetAh = Join-Path $GoCache "annotation_cache"
-$SourceAhHasFiles = (Test-Path (Join-Path $SourceAh "annotationhub.sqlite3")) -or (Test-Path (Join-Path $SourceAh "annotationhub.index.rds"))
-$TargetAhEmpty = (-not (Test-Path $TargetAh)) -or ($null -eq (Get-ChildItem -LiteralPath $TargetAh -Force -ErrorAction SilentlyContinue | Select-Object -First 1))
-if ($SourceAhHasFiles -and $TargetAhEmpty) {
-    Write-Host "Reusing complete source AnnotationHub cache: cache\GO_Cache\org.Hs.eg.db\ah_cache"
-    Remove-Item -LiteralPath $TargetAh -Recurse -Force -ErrorAction SilentlyContinue
-    New-Item -ItemType Directory -Force -Path $TargetAh | Out-Null
-    & robocopy $SourceAh $TargetAh /E /NFL /NDL /NJH /NJS /NP *> $null
-    if ($LASTEXITCODE -ge 8) {
-        Write-Warning "robocopy failed while copying AnnotationHub cache (exit $LASTEXITCODE)"
-        Remove-Item -LiteralPath $TargetAh -Recurse -Force -ErrorAction SilentlyContinue
-    }
-    $global:LASTEXITCODE = 0
+    Write-Host "Existing portable BioMart cache retained, or no source cache is available."
 }
 
 Write-Host "--- Validating and filling portable AnnotationHub/GO caches ---"
 Invoke-WithCleanREnvironment -Environment @{ R_LIBS_USER = $RLibrary } -Action {
-    & $RscriptPath --vanilla (Join-Path $ScriptDir "prebuild-cache.R") $GoCache $RLibrary
+    & $RscriptPath --vanilla (Join-Path $ScriptDir "prebuild-cache.R") $GoCache $RLibrary $ProjectGoCache
 }
 if ($LASTEXITCODE -ne 0) {
     Write-Warning "Cache pre-build failed (exit code $LASTEXITCODE) - portable app will download on first launch"

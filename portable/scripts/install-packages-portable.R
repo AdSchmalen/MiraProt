@@ -35,6 +35,7 @@ portable_bootstrap_renv <- function(project, work) {
 
 portable_restore_missing <- function(lockfile, library, project, bootstrap = portable_bootstrap_renv,
                                      restore = NULL, read_lock = renv::lockfile_read,
+                                     write_lock = renv::lockfile_write,
                                      runtime_library = .Library) {
   original_libpaths <- .libPaths()
   on.exit(.libPaths(original_libpaths), add = TRUE)
@@ -88,6 +89,15 @@ portable_restore_missing <- function(lockfile, library, project, bootstrap = por
         length(before), " existing portable packages.\n", sep = "")
     return(invisible(TRUE))
   }
+  cat("Restoring genuinely missing packages: ", paste(missing, collapse = ", "), "\n", sep = "")
+  # renv's packages= argument selects requested packages, but restore still
+  # synchronizes records from the supplied lockfile. Give it only the records
+  # it is permitted to stage so preserved version mismatches cannot become
+  # incidental upgrades or downgrades.
+  selected <- lock
+  selected$Packages <- lock$Packages[missing]
+  selected_lock <- file.path(work, "renv.lock")
+  write_lock(selected, selected_lock)
   restore_libraries <- unique(c(stage, library, runtime_library))
   if (is.null(restore)) restore <- function(stage, missing, libraries, lockfile) {
     renv::restore(project = work, lockfile = lockfile, library = libraries,
@@ -98,7 +108,7 @@ portable_restore_missing <- function(lockfile, library, project, bootstrap = por
   # library renv is allowed to write.
   .libPaths(unique(c(restore_libraries, original_libpaths)))
   restore_error <- tryCatch({
-    restore(stage, missing, restore_libraries, lockfile)
+    restore(stage, missing, restore_libraries, selected_lock)
     NULL
   }, error = identity)
   if (!identical(portable_installed(library), before)) {
