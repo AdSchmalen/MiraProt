@@ -217,6 +217,20 @@ volcano_protein_labeling_panel <- function(ns) {
             ),
             # PATHWAY SELECTION
             column(width = 6,
+                   fluidRow(
+                     column(width = 6,
+                            actionButton(ns("significantMoreButton_Volcano"),
+                                         "Significantly more abundant",
+                                         icon = icon("arrow-up"),
+                                         width = "100%")
+                     ),
+                     column(width = 6,
+                            actionButton(ns("significantLessButton_Volcano"),
+                                         "Significantly less abundant",
+                                         icon = icon("arrow-down"),
+                                         width = "100%")
+                     )
+                   ),
                    h6("Import proteins of enriched GSEA gene sets:"),
                    selectInput(ns("GSEA_Volcano"),
                                label = NULL,
