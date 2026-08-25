@@ -144,6 +144,7 @@ render_volcano_tech_reactivity_content <- function() {
     h3("Selection model"),
     tags$ul(
       tags$li("Search textarea input updates volcano_state$selected_genes through observeEvent(input$searchGene_Volcano, ...)."),
+      tags$li(code("significantMoreButton_Volcano"), " and ", code("significantLessButton_Volcano"), " append identifiers for significant rows in the selected static plot, mapping its canonical x, y, and row_idx values through ", code("volcano_state$plot_creation_cache$data_mod"), "."),
       tags$li("transferButton_Volcano adds only exact identifier matches from the search box to selected_data_Volcano() and selected_protein_vector_Volcano()."),
       tags$li("Protein_Input_Volcano imports pathway-derived proteins into the search textarea first; the user must still add exact matches into the labeling selection."),
       tags$li("Interactive plotly selection populates selected_points_interactive_Volcano() only."),

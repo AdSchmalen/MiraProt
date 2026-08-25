@@ -10,6 +10,112 @@ register_volcano_protein_selection_observers <- function(
     selected_points_interactive_Volcano,
     data_in, data_def_in, debug_log, ns, modEnv
 ) {
+  add_significant_proteins <- function(direction = c("up", "down")) {
+    direction <- match.arg(direction)
+
+    tryCatch({
+      selected_plot_name <- input$PlotSelect_Volcano
+      plots <- volcano_state$static_plots
+      if (is.null(selected_plot_name) || !nzchar(selected_plot_name) ||
+          is.null(plots) || length(plots) == 0 ||
+          is.null(plots[[selected_plot_name]])) {
+        showNotification("Please select a valid Volcano plot first", type = "warning")
+        return()
+      }
+
+      plot_data <- plots[[selected_plot_name]]$data
+      required_columns <- c("x", "y", "row_idx")
+      if (!is.data.frame(plot_data) ||
+          !all(required_columns %in% colnames(plot_data))) {
+        showNotification("The selected Volcano plot does not contain usable point data", type = "warning")
+        return()
+      }
+
+      pval_threshold <- suppressWarnings(as.numeric(input$pvalueInput_Volcano)[1])
+      fold_threshold <- suppressWarnings(as.numeric(input$AbundanceInput_Volcano)[1])
+      if (!is.finite(pval_threshold) || pval_threshold <= 0 ||
+          !is.finite(fold_threshold) || fold_threshold < 0) {
+        showNotification("Please enter valid p-value and fold-change thresholds", type = "warning")
+        return()
+      }
+
+      x <- suppressWarnings(as.numeric(plot_data$x))
+      y <- suppressWarnings(as.numeric(plot_data$y))
+      significant <- if (direction == "up") {
+        x > fold_threshold & y > -log10(pval_threshold)
+      } else {
+        x < -fold_threshold & y > -log10(pval_threshold)
+      }
+      significant[is.na(significant)] <- FALSE
+      if (!any(significant)) {
+        showNotification("No proteins satisfy the current significance thresholds", type = "warning")
+        return()
+      }
+
+      # A plot's row indices are only meaningful against its creation snapshot.
+      # Do not fall back to active data, which may belong to a newly loaded dataset.
+      creation_cache <- volcano_state$plot_creation_cache
+      source_data <- if (is.list(creation_cache)) creation_cache$data_mod else NULL
+      if (!is.data.frame(source_data)) {
+        showNotification("The source data for the selected Volcano plot is unavailable", type = "warning")
+        return()
+      }
+
+      selected_identifier <- input$Identifier_Volcano
+      if (is.null(selected_identifier) || length(selected_identifier) != 1 ||
+          is.na(selected_identifier) || !nzchar(trimws(selected_identifier)) ||
+          !selected_identifier %in% colnames(source_data)) {
+        showNotification("Please select an identifier available in the plotted data", type = "warning")
+        return()
+      }
+
+      row_idx <- suppressWarnings(as.numeric(plot_data$row_idx[significant]))
+      valid_rows <- is.finite(row_idx) & row_idx == floor(row_idx) &
+        row_idx >= 1 & row_idx <= nrow(source_data)
+      if (!all(valid_rows)) {
+        showNotification("The selected plot cannot be safely mapped to its source data", type = "warning")
+        return()
+      }
+
+      identifiers <- as.character(source_data[[selected_identifier]][as.integer(row_idx)])
+      identifiers <- identifiers[!is.na(identifiers)]
+      identifiers <- trimws(identifiers)
+      identifiers <- unique(identifiers[nzchar(identifiers)])
+      if (length(identifiers) == 0) {
+        showNotification("No valid identifiers were found for the significant proteins", type = "warning")
+        return()
+      }
+
+      current_text <- input$searchGene_Volcano
+      existing <- if (is.null(current_text) || !nzchar(current_text)) {
+        character()
+      } else {
+        trimws(unlist(strsplit(current_text, "\\r?\\n")))
+      }
+      existing <- unique(existing[nzchar(existing)])
+      added_count <- length(setdiff(identifiers, existing))
+      combined <- unique(c(existing, identifiers))
+      updateTextAreaInput(session, "searchGene_Volcano", value = paste(combined, collapse = "\n"))
+
+      abundance_label <- if (direction == "up") "more" else "less"
+      debug_log(paste("Significant", direction, "shortcut added", added_count,
+                      "identifiers from plot", selected_plot_name), 1)
+      showNotification(paste("Added", added_count, "significantly", abundance_label,
+                             "abundant proteins"), type = "message", duration = 3)
+    }, error = function(e) {
+      debug_log(paste("Error adding significant proteins:", e$message), 1)
+      showNotification("Could not add significant proteins", type = "error")
+    })
+  }
+
+  observeEvent(input$significantMoreButton_Volcano, {
+    add_significant_proteins("up")
+  })
+
+  observeEvent(input$significantLessButton_Volcano, {
+    add_significant_proteins("down")
+  })
+
   # ============================================================================
   # SECTION 3: GSEA and GO Pathway Integration
   # ============================================================================
