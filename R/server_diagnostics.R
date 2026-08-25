@@ -102,6 +102,8 @@ setup_diagnostics <- function(input, output, session, module_outputs, module_sta
 
     info <- paste(
       "Debug Level:", current_debug_level,
+      "\nMiraProt Version:", readLines("VERSION", n = 1L, warn = FALSE),
+      "\nShiny Version:", as.character(utils::packageVersion("shiny")),
       "\nSession ID:", current_session_token,
       "\nR Version:", R.version.string,
       "\nTimestamp:", Sys.time()
