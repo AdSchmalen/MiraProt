@@ -3,8 +3,10 @@
 *.go text eol=lf
 *.mod text eol=lf
 *.sum text eol=lf
+# Unix entry points must remain directly executable with LF shebangs.
 *.sh text eol=lf
 *.command text eol=lf
+# Keep the Windows command wrapper friendly to cmd.exe checkouts.
 *.cmd text eol=crlf
 *.yml text eol=lf
 *.yaml text eol=lf
@@ -12,6 +14,7 @@
 *.py text eol=lf
 *.json text eol=lf
 *.plist text eol=lf
+# PowerShell scripts intentionally retain the repository's existing LF policy.
 *.ps1 text eol=lf
 *.png binary
 *.ico binary

@@ -180,7 +180,7 @@ Several gigabytes are required. At least approximately 10 GB of free working spa
 
 ## Step 8 — Build the portable bundle
 
-For the friendly default workflow, double-click `Build-MiraProt.cmd` in File Explorer. The window remains open at the end so you can read the result. The terminal equivalent is:
+For the friendly default workflow, double-click `Build-MiraProt.cmd` in File Explorer. The window remains open after either success or failure so you can read the result. The terminal equivalent is:
 
 ```powershell
 .\Build-MiraProt.cmd
