@@ -27,8 +27,19 @@ function Pass([string]$Message) { Write-Log "PREFLIGHT PASS: $Message" }
 function Assert-Preflight([bool]$Condition, [string]$Message) { if (-not $Condition) { throw $Message } }
 function Quote-Argument([string]$Value) { return "'" + $Value.Replace("'", "''") + "'" }
 function Get-NativeOutput([string]$FilePath, [string[]]$ArgumentList) {
-    $output = & $FilePath @ArgumentList 2>&1 | ForEach-Object { $_.ToString(); Add-Content -LiteralPath $LogFile -Value $_.ToString() -Encoding UTF8 }
-    return [pscustomobject]@{ Output = @($output); ExitCode = $LASTEXITCODE }
+    # Windows PowerShell turns native stderr into non-terminating ErrorRecords
+    # when streams are merged. Do not let the wrapper's Stop preference turn
+    # ordinary stderr output into a false process failure; the native exit code
+    # remains authoritative.
+    $savedErrorActionPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = "Continue"
+        $output = & $FilePath @ArgumentList 2>&1 | ForEach-Object { $_.ToString(); Add-Content -LiteralPath $LogFile -Value $_.ToString() -Encoding UTF8 }
+        $nativeExitCode = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $savedErrorActionPreference
+    }
+    return [pscustomobject]@{ Output = @($output); ExitCode = $nativeExitCode }
 }
 
 try {
@@ -75,9 +86,25 @@ try {
     $Builder = Join-Path $ScriptDir "bundle-r-windows.ps1"
     $BuilderArgs = @("-RVersion", $RVersion, "-OutputDir", $OutputDir)
     Write-Log ("BUILDER INVOCATION: & {0} {1}" -f (Quote-Argument $Builder), (($BuilderArgs | ForEach-Object { Quote-Argument $_ }) -join " "))
-    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $Builder @BuilderArgs 2>&1 | ForEach-Object { Write-Host $_; Add-Content -LiteralPath $LogFile -Value $_.ToString() -Encoding UTF8 }
-    $builderExit = $LASTEXITCODE
-    if ($null -eq $builderExit) { $builderExit = if ($?) { 0 } else { 1 } }
+    # In Windows PowerShell 5.1, merging a child process's stderr with 2>&1
+    # produces ErrorRecord objects. With the wrapper-wide Stop preference, an
+    # informational R message on stderr (for example "loading from cache")
+    # would otherwise abort this pipeline even while Stage 1 was still healthy.
+    # Stream everything live, but decide success only from powershell.exe's
+    # actual exit code.
+    $savedErrorActionPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = "Continue"
+        & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $Builder @BuilderArgs 2>&1 | ForEach-Object {
+            $text = $_.ToString()
+            Write-Host $text
+            Add-Content -LiteralPath $LogFile -Value $text -Encoding UTF8
+        }
+        $builderExit = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $savedErrorActionPreference
+    }
+    if ($null -eq $builderExit) { $builderExit = 1 }
     Write-Log "BUILDER EXIT CODE: $builderExit"
     if ($builderExit -ne 0) { $script:ExitCode = [int]$builderExit; throw "Stage-1 builder failed with exit code $builderExit." }
 
