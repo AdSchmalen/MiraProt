@@ -581,8 +581,7 @@ assert_datawizard_data_only_restore_invariants <- function(rv, strict = FALSE) {
     data_mod_is_data_frame = "rv$data_mod must be a data.frame",
     data_def_is_data_frame = "rv$data_def must be a data.frame",
     data_def_has_column = "rv$data_def must contain a Column field",
-    metadata_columns_match_data = "rv$data_def$Column must exactly match names(rv$data_mod)",
-    metadata_meaningful = "rv$data_def must contain meaningful metadata"
+    metadata_columns_match_data = "rv$data_def$Column must exactly match names(rv$data_mod)"
   )
   invariant_values <- unlist(diagnostics[names(invariant_labels)], use.names = TRUE)
   diagnostics$failures <- unname(invariant_labels[!invariant_values])
@@ -736,6 +735,18 @@ assert_datawizard_data_only_restore_invariants <- function(rv, strict = FALSE) {
   x
 }
 
+.select_datawizard_restored_metadata <- function(state) {
+  restored_data <- state$data_mod
+  candidates <- list(state$data_def, state$handson_metadata, state$final_processed_metadata)
+  for (candidate in candidates) {
+    if (is.data.frame(candidate) && is.data.frame(restored_data) &&
+        isTRUE(metadata_matches_dataset(candidate, restored_data))) {
+      return(candidate)
+    }
+  }
+  .datawizard_safe_metadata_skeleton(restored_data)
+}
+
 .restore_datawizard_canonical_data_transaction <- function(datawizard_state, dw, rv, state,
                                                            restored_metadata,
                                                            final_metadata = NULL,
@@ -744,6 +755,12 @@ assert_datawizard_data_only_restore_invariants <- function(rv, strict = FALSE) {
   canonical_raw <- state$primary_data_raw_rv %||% state$primary_data_raw
   final_data <- state$final_processed_data %||% state$data_mod
   final_metadata <- final_metadata %||% state$final_processed_metadata %||% restored_metadata
+  final_metadata_aligned <- is.data.frame(final_metadata) &&
+    is.data.frame(final_data) &&
+    isTRUE(metadata_matches_dataset(final_metadata, final_data))
+  if (!final_metadata_aligned) {
+    final_metadata <- NULL
+  }
 
   datawizard_state$begin_datawizard_transaction(reason)
   if (is.data.frame(canonical_raw)) {
@@ -752,15 +769,16 @@ assert_datawizard_data_only_restore_invariants <- function(rv, strict = FALSE) {
   if (is.data.frame(state$data_mod)) {
     datawizard_state$set_modified_data(state$data_mod, paste(reason, "working data"))
   }
-  if (is.data.frame(restored_metadata) && isTRUE(is_meaningful_metadata(restored_metadata))) {
+  if (is.data.frame(restored_metadata) && is.data.frame(state$data_mod) &&
+      isTRUE(metadata_matches_dataset(restored_metadata, state$data_mod))) {
     datawizard_state$set_metadata_for_current_data(restored_metadata)
   } else if (!is.null(restored_metadata)) {
-    debug_log("Data Wizard restore: skipped placeholder/Row-Index-only metadata during canonical transaction", 1)
+    debug_log("Data Wizard restore: skipped metadata not aligned with restored working data", 1)
   }
   if (is.data.frame(final_data)) {
     datawizard_state$set_final_data(final_data, paste(reason, "final data"))
   }
-  if (is.data.frame(final_metadata) && isTRUE(is_meaningful_metadata(final_metadata))) {
+  if (is.data.frame(final_metadata)) {
     datawizard_state$set_metadata_final(final_metadata, paste(reason, "final metadata"))
   }
 
@@ -774,14 +792,13 @@ assert_datawizard_data_only_restore_invariants <- function(rv, strict = FALSE) {
     tryCatch(isolate({
       if (is.data.frame(canonical_raw)) rv$primary_data_raw <- canonical_raw
       if (is.data.frame(state$data_mod)) rv$data_mod <- state$data_mod
-      if (is.data.frame(restored_metadata) && isTRUE(is_meaningful_metadata(restored_metadata))) {
+      if (is.data.frame(restored_metadata) && is.data.frame(state$data_mod) &&
+          isTRUE(metadata_matches_dataset(restored_metadata, state$data_mod))) {
         rv$data_def <- restored_metadata
         rv$handson_metadata <- restored_metadata
       }
       if (is.data.frame(final_data)) rv$final_processed_data <- final_data
-      if (is.data.frame(final_metadata) && isTRUE(is_meaningful_metadata(final_metadata))) {
-        rv$final_processed_metadata <- final_metadata
-      }
+      rv$final_processed_metadata <- final_metadata
       rv$datawizard_metadata_sync_paused <- FALSE
       rv$datawizard_metadata_sync_pending <- FALSE
     }), error = function(e) {
@@ -1388,8 +1405,16 @@ register_module_session_participants <- function(session_registry, module_output
             invisible(is.list(outcome) && isTRUE(outcome$success))
           }
           metadata_matches_data <- metadata_matches_dataset
-          canonical_pair_valid <- restore_has_valid_canonical_pair(state$data_mod, state$data_def)
-          metadata_authoritative <- canonical_pair_valid && is_meaningful_metadata(state$data_def)
+          canonical_pair_aligned <- is.data.frame(state$data_mod) &&
+            is.data.frame(state$data_def) &&
+            isTRUE(metadata_matches_dataset(state$data_def, state$data_mod))
+          metadata_meaningful <- isTRUE(is_meaningful_metadata(state$data_def))
+          metadata_authoritative <- canonical_pair_aligned
+          debug_log(paste(
+            "Data Wizard restore canonical metadata:",
+            "aligned=", canonical_pair_aligned,
+            "meaningful=", metadata_meaningful
+          ), 2)
           if (isTRUE(state$legacy_restore_metadata_pending)) {
             debug_log(
               "Data Wizard restore warning: legacy session contained no meaningful metadata; data restored with metadata pending",
@@ -1648,11 +1673,7 @@ register_module_session_participants <- function(session_registry, module_output
 
           if (isTRUE(is_data_only_snapshot(state))) {
             canonical_raw <- state$primary_data_raw_rv %||% state$primary_data_raw
-            restored_metadata <- if (isTRUE(canonical_pair_valid)) {
-              state$data_def
-            } else {
-              state$handson_metadata %||% state$final_processed_metadata %||% state$data_def
-            }
+            restored_metadata <- .select_datawizard_restored_metadata(state)
 
             set_restore_phase("canonical_data", replay_enabled = FALSE, metadata = restored_metadata)
             canonical_restore <- .restore_datawizard_canonical_data_transaction(
@@ -1735,10 +1756,11 @@ register_module_session_participants <- function(session_registry, module_output
           # ----------------------------------------------------------------
           set_restore_phase("canonical_data")
           canonical_raw <- state$primary_data_raw_rv %||% state$primary_data_raw
-          restored_handson_metadata <- state$handson_metadata
-          if (isTRUE(canonical_pair_valid)) {
-            restored_handson_metadata <- state$data_def
+          restored_handson_metadata <- .select_datawizard_restored_metadata(state)
+          if (isTRUE(canonical_pair_aligned)) {
             debug_log("Data Wizard restore: using state$data_def as canonical handson_metadata", 1)
+          } else {
+            debug_log("Data Wizard restore: selected an aligned fallback or rebuilt metadata skeleton", 1)
           }
 
           canonical_restore <- .restore_datawizard_canonical_data_transaction(
@@ -1771,8 +1793,9 @@ register_module_session_participants <- function(session_registry, module_output
           if (!is.null(rv)) {
             tryCatch(isolate({
               if (is.data.frame(state$data_mod)) rv$data_mod <- state$data_mod
-              if (is.data.frame(state$data_def) && isTRUE(is_meaningful_metadata(state$data_def))) {
-                rv$data_def <- state$data_def
+              if (is.data.frame(restored_handson_metadata) &&
+                  isTRUE(metadata_matches_dataset(restored_handson_metadata, state$data_mod))) {
+                rv$data_def <- restored_handson_metadata
               }
               if (is.data.frame(canonical_raw)) rv$primary_data_raw <- canonical_raw
               if (is.data.frame(state$loader_primary_data_original)) {
