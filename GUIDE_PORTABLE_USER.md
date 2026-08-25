@@ -186,7 +186,11 @@ For the friendly default workflow, double-click `Build-MiraProt.cmd` in File Exp
 .\Build-MiraProt.cmd
 ```
 
-The wrapper checks prerequisites, writes a timestamped file under `portable\logs\`, and builds the default `portable\dist` output. Advanced users can invoke the Stage-1 builder directly, including to select a separate output directory:
+This friendly Windows entry point writes the generated bundle to the sibling
+directory `..\MiraProt_Portable` by default. Override it from a terminal with
+`-OutputDir` when another location is preferred.
+
+The wrapper checks prerequisites, writes a timestamped file under `portable\logs\`, and builds the default `..\MiraProt_Portable` output. Advanced users can invoke the Stage-1 builder directly, including to select a separate output directory:
 
 ```powershell
 .\portable\scripts\bundle-r-windows.ps1 -RVersion "4.6.1" -OutputDir "..\MiraProt_Portable"
