@@ -104,7 +104,6 @@ setup_diagnostics <- function(input, output, session, module_outputs, module_sta
       "Debug Level:", current_debug_level,
       "\nSession ID:", current_session_token,
       "\nR Version:", R.version.string,
-      "\nShiny Version:", "1.0.0",
       "\nTimestamp:", Sys.time()
     )
     if (MIRAPROT_IN_PORTABLE) {
