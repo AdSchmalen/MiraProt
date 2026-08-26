@@ -21,7 +21,7 @@ register_volcano_selection_restore_observers <- function(
     data_in, data_def_in, debug_log, ns, modEnv,
     compute_data_signature, update_identifier_choices,
     calculate_optimal_ranges_for_selected_plot, store_original_plots,
-    generateVolcanoPlots_fixed
+    generateVolcanoPlots_fixed, effective_axis_settings, update_axis_ui_controls
 ) {
   # ============================================================================
   # SECTION 11: Interactive Selection
@@ -382,7 +382,8 @@ register_volcano_selection_restore_observers <- function(
       volcano_state$static_plots <- generateVolcanoPlots_fixed(
         data = data, data_def = data_def,
         input = effective_input, debug_log = debug_log,
-        optimal_settings = optimal_settings
+        optimal_settings = optimal_settings,
+        force_optimal_axes = TRUE
       )
       volcano_state$source_data_signature <- compute_data_signature(data, data_def)
 
@@ -398,6 +399,9 @@ register_volcano_selection_restore_observers <- function(
         }
         updateSelectInput(session, "PlotSelect_Volcano", choices = titles, selected = selected_title)
         volcano_state$preferred_plot_title <- selected_title
+        update_axis_ui_controls(
+          effective_axis_settings(selected_title), reason = "session restore"
+        )
         volcano_state$plot_generation_counter <- (volcano_state$plot_generation_counter %||% 0L) + 1L
         store_original_plots()
         # plot_creation_cache is the canonical interaction/save-time pair.

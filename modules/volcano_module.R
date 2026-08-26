@@ -451,6 +451,9 @@ modVolcanoServer <- function(id, rv, res_GSEA = NULL, GO_res = NULL, module_outp
         state$selected_points_interactive <- tryCatch(isolate(selected_points_interactive_Volcano()), error = function(e) NULL)
         state$auto_range_set <- isolate(volcano_state$auto_range_set)
         state$manual_axis_override <- isolate(volcano_state$manual_axis_override)
+        state$plot_axis_overrides <- tryCatch(
+          isolate(volcano_state$plot_axis_overrides), error = function(e) list()
+        )
         state$plot_titles <- current_titles
         state$had_static_plots <- had_static_plots
         state$restore_cache_dependency <- if (isTRUE(had_static_plots)) {
@@ -579,6 +582,11 @@ modVolcanoServer <- function(id, rv, res_GSEA = NULL, GO_res = NULL, module_outp
         if (!is.null(state$selected_genes))      volcano_state$selected_genes <- state$selected_genes
         if (!is.null(state$auto_range_set))      volcano_state$auto_range_set <- state$auto_range_set
         if (!is.null(state$manual_axis_override)) volcano_state$manual_axis_override <- state$manual_axis_override
+        volcano_state$plot_axis_overrides <- if (is.list(state$plot_axis_overrides)) {
+          state$plot_axis_overrides
+        } else {
+          list()
+        }
         if (!is.null(state$labels_by_title))      volcano_labels(state$labels_by_title)
         else if (!is.null(state$volcano_labels))      volcano_labels(state$volcano_labels)
         if (!is.null(state$protein_label_settings)) protein_label_settings(state$protein_label_settings)

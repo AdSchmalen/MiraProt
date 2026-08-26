@@ -254,6 +254,43 @@ has_valid_cached_pairing_result <- function(pairing_result, source_data_signatur
 # Axis Range and Tick Calculation
 # ========================================
 
+volcano_axis_settings_from_values <- function(x, y, debug_log = function(...) NULL) {
+  fallback <- list(x_range = c(-8, 8), y_range = c(0, 18), x_tick = 2, y_tick = 2)
+
+  x <- suppressWarnings(as.numeric(x))
+  y <- suppressWarnings(as.numeric(y))
+  ignored <- sum(!is.finite(x)) + sum(!is.finite(y))
+  if (ignored > 0L) {
+    debug_log(paste("Ignoring", ignored, "non-finite transformed axis values"), 2)
+  }
+  x <- x[is.finite(x)]
+  y <- y[is.finite(y)]
+  if (length(x) == 0L || length(y) == 0L) {
+    debug_log("No usable finite transformed values; using safe axis fallback", 1)
+    return(fallback)
+  }
+
+  x_abs_max <- max(abs(x))
+  x_padding <- max(0.5, x_abs_max * 0.08)
+  x_limit <- max(1, ceiling(x_abs_max + x_padding))
+  x_tick <- if (x_abs_max <= 2) 0.5 else if (x_abs_max <= 6) 1 else 2
+
+  y_max_raw <- max(y)
+  y_padding <- max(0.5, y_max_raw * 0.08)
+  y_max <- max(2, ceiling(y_max_raw + y_padding))
+  y_tick <- calculate_nice_tick_spacing(y_max, target_ticks = 6)
+
+  result <- list(
+    x_range = c(-x_limit, x_limit), y_range = c(0, y_max),
+    x_tick = x_tick, y_tick = y_tick
+  )
+  if (any(!is.finite(unlist(result))) || result$x_tick <= 0 || result$y_tick <= 0) {
+    debug_log("Calculated axis settings were invalid; using safe axis fallback", 1)
+    return(fallback)
+  }
+  result
+}
+
 calculate_optimal_ranges <- function(data, data_def, debug_log, pairs = NULL) {
 
   debug_log("Calculating optimal axis ranges and tick spacing from data", 2)
@@ -327,53 +364,7 @@ calculate_optimal_ranges <- function(data, data_def, debug_log, pairs = NULL) {
       stop("No valid points")
     }
 
-    all_x <- all_x[is.finite(all_x)]
-    all_y <- all_y[is.finite(all_y)]
-
-    if (length(all_x) == 0 || length(all_y) == 0) {
-      debug_log("No finite x/y values after cleaning", 1)
-      stop("No finite points")
-    }
-
-    # X-axis: symmetric around 0 (log2 fold change)
-    x_abs_max <- max(abs(all_x))
-    x_padding <- max(0.5, x_abs_max * 0.08)
-    x_limit <- ceiling(x_abs_max + x_padding)
-    if (x_limit < 1) x_limit <- 1
-
-    x_min <- -x_limit
-    x_max <-  x_limit
-
-    if (x_abs_max <= 2) {
-      x_tick_optimal <- 0.5
-    } else if (x_abs_max <= 6) {
-      x_tick_optimal <- 1
-    } else {
-      x_tick_optimal <- 2
-    }
-
-    debug_log(paste("X-axis symmetric range -", x_min, "to", x_max,
-                    "(padding:", round(x_padding, 3), ") with tick", x_tick_optimal), 2)
-
-    # Y-axis: 0 to max (-log10 p)
-    y_min <- 0
-    y_max_raw <- max(all_y)
-    y_padding <- max(0.5, y_max_raw * 0.08)
-    y_max <- ceiling(y_max_raw + y_padding)
-    if (y_max < 2) y_max <- 2
-
-    y_span <- y_max - y_min
-    y_tick_optimal <- calculate_nice_tick_spacing(y_span, target_ticks = 6)
-
-    debug_log(paste("Y-axis range -", y_min, "to", y_max,
-                    "(padding:", round(y_padding, 3), ") span", y_span, "tick", y_tick_optimal), 2)
-
-    optimal_ranges <- list(
-      x_range = c(x_min, x_max),
-      y_range = c(y_min, y_max),
-      x_tick = x_tick_optimal,
-      y_tick = y_tick_optimal
-    )
+    optimal_ranges <- volcano_axis_settings_from_values(all_x, all_y, debug_log)
 
     debug_log(paste("Calculated optimal ticks - X:", optimal_ranges$x_tick,
                     "Y:", optimal_ranges$y_tick), 1)
