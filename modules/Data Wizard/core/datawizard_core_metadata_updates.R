@@ -603,7 +603,7 @@ create_metadata_update_functions <- function(core_values) {
             Options = new_cols,
             Numerator = rep(NA_character_, length(new_cols)),
             Denominator = rep(NA_character_, length(new_cols)),
-            Transformation = rep("ID Mapping", length(new_cols)),
+            Transformation = rep(NA_character_, length(new_cols)),
             Sample = rep(NA_character_, length(new_cols)),
             stringsAsFactors = FALSE
           )
