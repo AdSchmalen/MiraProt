@@ -18,12 +18,15 @@ authors:
     orcid: "https://orcid.org/0000-0003-2462-2675"
 
 abstract: >-
-  MiraProt is a modular R Shiny-based platform for integrated downstream
-  proteomics analysis of processed protein-level abundance data. It connects
-  data preparation, differential expression analysis, dimensionality
-  reduction, functional enrichment, gene set enrichment analysis, protein
-  interaction network analysis, protein set comparison, and visualization
-  within a single interactive workflow.
+  MiraProt is a modular R Shiny-based platform for integrated downstream analysis
+  of processed protein-level proteomics data. It combines metadata-aware data
+  preparation with differential abundance analysis, dimensionality reduction,
+  functional enrichment and gene set enrichment analysis, protein interaction
+  analysis, protein set comparison, and visualization within a connected
+  interactive workflow. By retaining structured metadata across analysis steps,
+  MiraProt facilitates consistent reuse of prepared datasets and reduces
+  repeated restructuring and manual transfer of intermediate results between
+  separate tools.
 
 repository-code: "https://github.com/AdSchmalen/MiraProt"
 
@@ -35,7 +38,7 @@ keywords:
   - R
   - Shiny
   - downstream proteomics analysis
-  - differential expression
+  - differential abundance
   - dimensionality reduction
   - principal component analysis
   - gene set enrichment analysis
