@@ -1077,7 +1077,8 @@ OrgDb load order (Map IDs action - intra-species):
     tags$p(
       "New annotation columns receive metadata with ",
       tags$code("Content = 'Identifier'"), ", ",
-      tags$code("Transformation = 'ID Mapping'"), ". ",
+      tags$code("Transformation = NA"), ". Identifier columns do not carry ",
+      "mathematical Transformation metadata. ",
       "The update follows the same pattern as basemean: ",
       tags$code("setdiff() -> rbind() -> handson_metadata()"), "."
     ),
