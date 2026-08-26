@@ -10,11 +10,12 @@ type: software
 
 version: "1.0.0"
 
-date-released: "2026-08-25"
+date-released: "2026-08-26"
 
 authors:
   - family-names: "Schmalen"
     given-names: "Adrian"
+    orcid: "https://orcid.org/0000-0003-2462-2675"
 
 abstract: >-
   MiraProt is a modular R Shiny-based platform for integrated downstream
@@ -57,12 +58,14 @@ keywords:
 #   authors:
 #     - family-names: "Schmalen"
 #       given-names: "Adrian"
+#       orcid: "https://orcid.org/0000-0003-2462-2675"
 #     - family-names: "Fleischer"
 #       given-names: "Amelie B."
 #     - family-names: "Riedel"
 #       given-names: "Barbara M."
 #     - family-names: "Deeg"
 #       given-names: "Cornelia A."
+#       orcid: "https://orcid.org/0000-0003-0375-3190"
 #   doi: "10.XXXX/XXXXXXXX"
 #   journal: "JOURNAL"
 #   date-published: "YYYY-MM-DD"
