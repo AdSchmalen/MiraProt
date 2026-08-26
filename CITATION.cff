@@ -48,9 +48,9 @@ keywords:
   - research software
 
 # Zenodo software archive
-#
-# doi: "XX.XXXX/zenodo.XXXXXXXX"
-#
+
+doi: "10.5281/zenodo.22110860"
+
 # Associated MiraProt publication
 #
 # preferred-citation:
