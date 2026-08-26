@@ -91,7 +91,9 @@ register_volcano_observers <- function(
     update_identifier_choices = data_choice_helpers$update_identifier_choices,
     calculate_optimal_ranges_for_selected_plot = lifecycle_helpers$calculate_optimal_ranges_for_selected_plot,
     store_original_plots = lifecycle_helpers$store_original_plots,
-    generateVolcanoPlots_fixed = lifecycle_helpers$generateVolcanoPlots_fixed
+    generateVolcanoPlots_fixed = lifecycle_helpers$generateVolcanoPlots_fixed,
+    effective_axis_settings = lifecycle_helpers$effective_axis_settings,
+    update_axis_ui_controls = lifecycle_helpers$update_axis_ui_controls
   )))
   invisible(NULL)
 }

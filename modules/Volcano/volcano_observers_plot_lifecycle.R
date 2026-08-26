@@ -12,6 +12,21 @@ register_volcano_plot_lifecycle_observers <- function(
     compute_data_signature, has_dataset_mismatch_with_existing_plots,
     resolve_plot_selection, reset_preplot_skip_log_flags, update_identifier_choices
 ) {
+  safe_axis_fallback <- list(x_range = c(-8, 8), y_range = c(0, 18), x_tick = 2, y_tick = 2)
+  valid_axis_settings <- function(settings) {
+    is.list(settings) && length(settings$x_range) == 2L && length(settings$y_range) == 2L &&
+      length(settings$x_tick) == 1L && length(settings$y_tick) == 1L &&
+      all(is.finite(c(settings$x_range, settings$y_range, settings$x_tick, settings$y_tick))) &&
+      settings$x_range[1] < settings$x_range[2] && settings$y_range[1] < settings$y_range[2] &&
+      settings$x_tick > 0 && settings$y_tick > 0
+  }
+  effective_axis_settings <- function(title) {
+    overrides <- volcano_state$plot_axis_overrides %||% list()
+    automatic <- volcano_state$plot_axis_settings %||% list()
+    if (!is.null(title) && valid_axis_settings(overrides[[title]])) return(overrides[[title]])
+    if (!is.null(title) && valid_axis_settings(automatic[[title]])) return(automatic[[title]])
+    safe_axis_fallback
+  }
   # ============================================================================
   # SECTION 5: Plot Selection and Label Management
   # ============================================================================
@@ -66,31 +81,7 @@ register_volcano_plot_lifecycle_observers <- function(
         return(calculate_optimal_ranges(data, data_def, debug_log, pairs = pairs))
       }
 
-      all_x <- plot_df$x[is.finite(plot_df$x)]
-      all_y <- plot_df$y[is.finite(plot_df$y)]
-      if (length(all_x) == 0 || length(all_y) == 0) {
-        return(calculate_optimal_ranges(data, data_def, debug_log, pairs = pairs))
-      }
-
-      x_abs_max <- max(abs(all_x))
-      x_padding <- max(0.5, x_abs_max * 0.08)
-      x_limit <- ceiling(x_abs_max + x_padding)
-      if (x_limit < 1) x_limit <- 1
-      x_tick_optimal <- if (x_abs_max <= 2) 0.5 else if (x_abs_max <= 6) 1 else 2
-
-      y_min <- 0
-      y_max_raw <- max(all_y)
-      y_padding <- max(0.5, y_max_raw * 0.08)
-      y_max <- ceiling(y_max_raw + y_padding)
-      if (y_max < 2) y_max <- 2
-      y_tick_optimal <- calculate_nice_tick_spacing(y_max - y_min, target_ticks = 6)
-
-      list(
-        x_range = c(-x_limit, x_limit),
-        y_range = c(y_min, y_max),
-        x_tick = x_tick_optimal,
-        y_tick = y_tick_optimal
-      )
+      volcano_axis_settings_from_values(plot_df$x, plot_df$y, debug_log)
     }, error = function(e) {
       debug_log(paste("Error calculating selected-plot optimal range:", e$message), 1)
       calculate_optimal_ranges(data, data_def, debug_log, pairs = pairs)
@@ -162,21 +153,16 @@ register_volcano_plot_lifecycle_observers <- function(
     !isTRUE(all.equal(current_value, updated_value, check.attributes = FALSE))
   }
 
-  clamp_axis_slider_value <- function(value, bounds) {
-    if (is.null(value) || length(value) != 2L) return(value)
-    pmin(pmax(value, bounds[1]), bounds[2])
-  }
-
   update_axis_ui_controls <- function(optimal, reason = "", update_slider_bounds = FALSE) {
-    if (is.null(optimal)) return(invisible(FALSE))
+    if (!valid_axis_settings(optimal)) optimal <- safe_axis_fallback
 
     volcano_state$auto_axis_update_in_progress <- TRUE
     on.exit({ volcano_state$auto_axis_update_in_progress <- FALSE }, add = TRUE)
 
-    # Do not update slider min/max here. Keep the configured UI bounds stable and
-    # only move the selected handles, clamped to those fixed bounds.
-    x_slider_value <- clamp_axis_slider_value(optimal$x_range, c(-10, 10))
-    y_slider_value <- clamp_axis_slider_value(optimal$y_range, c(0, 50))
+    x_slider_value <- optimal$x_range
+    y_slider_value <- optimal$y_range
+    x_capacity <- max(10, max(abs(x_slider_value)) * 1.1)
+    y_capacity <- max(50, y_slider_value[2] * 1.1)
 
     suppress_next_axis_input_updates(c(
       if (axis_input_value_changed(isolate(input$xLimInput_Volcano), x_slider_value)) "xLimInput_Volcano",
@@ -185,13 +171,12 @@ register_volcano_plot_lifecycle_observers <- function(
       if (axis_input_value_changed(isolate(input$yTick_Volcano), optimal$y_tick)) "yTick_Volcano"
     ))
 
-    updateSliderInput(session, "xLimInput_Volcano", value = x_slider_value)
-    updateSliderInput(session, "yLimInput_Volcano", value = y_slider_value)
+    updateSliderInput(session, "xLimInput_Volcano", min = -x_capacity, max = x_capacity, value = x_slider_value)
+    updateSliderInput(session, "yLimInput_Volcano", min = 0, max = y_capacity, value = y_slider_value)
     updateNumericInput(session, "xTick_Volcano", value = optimal$x_tick)
     updateNumericInput(session, "yTick_Volcano", value = optimal$y_tick)
 
     volcano_state$auto_range_set <- TRUE
-    volcano_state$manual_axis_override <- FALSE
 
     debug_log(paste0("Axis UI updated",
                      if (nzchar(reason)) paste0(" (", reason, ")") else "",
@@ -226,8 +211,8 @@ register_volcano_plot_lifecycle_observers <- function(
         nzchar(selected_title) && selected_title != "none" &&
         is.list(volcano_state$plot_axis_settings) &&
         selected_title %in% names(volcano_state$plot_axis_settings)) {
-      optimal <- volcano_state$plot_axis_settings[[selected_title]]
-      debug_log(paste("Auto-range using stored axis settings for rendered plot:", selected_title), 2)
+      optimal <- effective_axis_settings(selected_title)
+      debug_log(paste("Using effective stored axis settings for rendered plot:", selected_title), 2)
     }
 
     if (is.null(optimal)) {
@@ -255,7 +240,6 @@ register_volcano_plot_lifecycle_observers <- function(
       return()
     }
     if (!isTRUE(volcano_state$auto_axis_update_in_progress)) {
-      volcano_state$manual_axis_override <- FALSE
       volcano_state$auto_range_set <- FALSE
       debug_log("Plot selection changed - axis auto mode reset", 2)
       if (!is.null(volcano_state$static_plots) && length(volcano_state$static_plots) > 0 &&
@@ -465,13 +449,12 @@ register_volcano_plot_lifecycle_observers <- function(
       tryCatch({
         pair <- pairing_result$pairs[[i]]
         plot_title <- generate_plot_title_from_pair(pair)
-        pair_optimal_settings <- if (isTRUE(force_optimal_axes)) {
-          calculate_optimal_ranges(data, data_def, debug_log, pairs = list(pair))
-        } else {
-          optimal_settings
-        }
+        # Automatic baselines always belong to the individual transformed pair.
+        pair_optimal_settings <- calculate_optimal_ranges(
+          data, data_def, debug_log, pairs = list(pair)
+        )
         plot_params <- extract_plot_parameters_safe(
-          input, debug_log, pair_optimal_settings, force_optimal_axes = force_optimal_axes
+          input, debug_log, pair_optimal_settings, force_optimal_axes = TRUE
         )
 
         plot <- create_single_volcano_plot_safe(
@@ -482,9 +465,18 @@ register_volcano_plot_lifecycle_observers <- function(
         )
 
         if (!is.null(plot)) {
+          plot_axis_settings[[plot_title]] <- pair_optimal_settings
+          effective <- effective_axis_settings(plot_title)
+          # The newly calculated baseline is not visible through reactive state
+          # until the loop completes, so use it unless this title has an override.
+          override <- (volcano_state$plot_axis_overrides %||% list())[[plot_title]]
+          if (valid_axis_settings(override)) effective <- override else effective <- pair_optimal_settings
+          plot_params$x_limits <- effective$x_range
+          plot_params$y_limits <- effective$y_range
+          plot_params$x_tick <- effective$x_tick
+          plot_params$y_tick <- effective$y_tick
           plot <- apply_live_styling_to_plot(plot, plot_params, debug_log, plot_title = plot_title)
           plot_list[[plot_title]] <- plot
-          plot_axis_settings[[plot_title]] <- pair_optimal_settings
         } else {
           debug_log(paste("Plot", i, "returned NULL"), 1)
         }
@@ -594,6 +586,7 @@ register_volcano_plot_lifecycle_observers <- function(
     on.exit(clear_plot_creation_guard_after_flush(), add = TRUE)
 
     volcano_state$manual_axis_override <- FALSE
+    volcano_state$plot_axis_overrides <- list()
     volcano_state$auto_range_set <- FALSE
     volcano_state$auto_axis_update_in_progress <- FALSE
     volcano_state$plot_axis_settings <- NULL
@@ -652,7 +645,7 @@ register_volcano_plot_lifecycle_observers <- function(
           selected_title <- resolve_plot_selection(volcano_state$plot_titles)
           if (is.list(volcano_state$plot_axis_settings) &&
               selected_title %in% names(volcano_state$plot_axis_settings)) {
-            selected_axis_settings <- volcano_state$plot_axis_settings[[selected_title]]
+            selected_axis_settings <- effective_axis_settings(selected_title)
           }
           suppress_plot_selection_update(selected_title)
           updateSelectInput(session, "PlotSelect_Volcano",
@@ -846,40 +839,46 @@ register_volcano_plot_lifecycle_observers <- function(
   # SECTION 8: Axis Override and Settings
   # ============================================================================
 
+  record_selected_axis_override <- function(description) {
+    if (isTRUE(volcano_state$auto_axis_update_in_progress)) return(invisible(FALSE))
+    title <- isolate(input$PlotSelect_Volcano)
+    settings <- list(
+      x_range = isolate(input$xLimInput_Volcano),
+      y_range = isolate(input$yLimInput_Volcano),
+      x_tick = isolate(input$xTick_Volcano),
+      y_tick = isolate(input$yTick_Volcano)
+    )
+    if (is.null(title) || identical(title, "none") || !valid_axis_settings(settings)) {
+      debug_log(paste("Ignored invalid or unscoped manual axis change:", description), 1)
+      return(invisible(FALSE))
+    }
+    overrides <- volcano_state$plot_axis_overrides %||% list()
+    overrides[[title]] <- settings
+    volcano_state$plot_axis_overrides <- overrides
+    volcano_state$manual_axis_override <- TRUE
+    volcano_state$auto_range_set <- TRUE
+    debug_log(paste("Stored manual axis override for", title, "-", description), 2)
+    invisible(TRUE)
+  }
+
   observeEvent(input$xLimInput_Volcano, {
     if (consume_axis_input_suppression("xLimInput_Volcano")) return()
-    if (!isTRUE(volcano_state$auto_axis_update_in_progress)) {
-      volcano_state$manual_axis_override <- TRUE
-      volcano_state$auto_range_set <- TRUE
-      debug_log("User manually changed X-axis range (auto-axis disabled)", 2)
-    }
+    record_selected_axis_override("X-axis range")
   }, ignoreInit = TRUE)
 
   observeEvent(input$yLimInput_Volcano, {
     if (consume_axis_input_suppression("yLimInput_Volcano")) return()
-    if (!isTRUE(volcano_state$auto_axis_update_in_progress)) {
-      volcano_state$manual_axis_override <- TRUE
-      volcano_state$auto_range_set <- TRUE
-      debug_log("User manually changed Y-axis range (auto-axis disabled)", 2)
-    }
+    record_selected_axis_override("Y-axis range")
   }, ignoreInit = TRUE)
 
   observeEvent(input$xTick_Volcano, {
     if (consume_axis_input_suppression("xTick_Volcano")) return()
-    if (!isTRUE(volcano_state$auto_axis_update_in_progress)) {
-      volcano_state$manual_axis_override <- TRUE
-      volcano_state$auto_range_set <- TRUE
-      debug_log("User manually changed X-axis tick spacing (auto-axis disabled)", 2)
-    }
+    record_selected_axis_override("X-axis tick spacing")
   }, ignoreInit = TRUE)
 
   observeEvent(input$yTick_Volcano, {
     if (consume_axis_input_suppression("yTick_Volcano")) return()
-    if (!isTRUE(volcano_state$auto_axis_update_in_progress)) {
-      volcano_state$manual_axis_override <- TRUE
-      volcano_state$auto_range_set <- TRUE
-      debug_log("User manually changed Y-axis tick spacing (auto-axis disabled)", 2)
-    }
+    record_selected_axis_override("Y-axis tick spacing")
   }, ignoreInit = TRUE)
 
   # Apply settings (labeling)
@@ -1222,8 +1221,14 @@ register_volcano_plot_lifecycle_observers <- function(
       if (!is.null(volcano_state$static_plots) && length(volcano_state$static_plots) > 0) {
         for (plot_name in names(volcano_state$static_plots)) {
           original_plot <- volcano_state$static_plots[[plot_name]]
+          plot_params <- current_params
+          axes <- effective_axis_settings(plot_name)
+          plot_params$x_limits <- axes$x_range
+          plot_params$y_limits <- axes$y_range
+          plot_params$x_tick <- axes$x_tick
+          plot_params$y_tick <- axes$y_tick
           updated_plot <- apply_live_styling_to_plot(
-            original_plot, current_params, debug_log, plot_title = plot_name
+            original_plot, plot_params, debug_log, plot_title = plot_name
           )
           volcano_state$static_plots[[plot_name]] <- updated_plot
         }
@@ -1248,10 +1253,18 @@ register_volcano_plot_lifecycle_observers <- function(
 
       volcano_state$static_plots <- generateVolcanoPlots_fixed(
         data = data_in(), data_def = data_def_in(),
-        input = input, debug_log = debug_log
+        input = input, debug_log = debug_log,
+        force_optimal_axes = TRUE
       )
 
       if (!is.null(volcano_state$static_plots) && length(volcano_state$static_plots) > 0) {
+        valid_titles <- names(volcano_state$static_plots)
+        volcano_state$plot_axis_overrides <-
+          (volcano_state$plot_axis_overrides %||% list())[valid_titles]
+        selected <- isolate(input$PlotSelect_Volcano)
+        if (selected %in% valid_titles) {
+          update_axis_ui_controls(effective_axis_settings(selected), reason = "data update")
+        }
         volcano_state$source_data_signature <- compute_data_signature(data_in(), data_def_in())
         volcano_state$plot_generation_counter <- (volcano_state$plot_generation_counter %||% 0L) + 1L
         store_original_plots()
@@ -1329,6 +1342,7 @@ register_volcano_plot_lifecycle_observers <- function(
     # --- Reset internal state flags ---
     volcano_state$auto_range_set <- TRUE
     volcano_state$manual_axis_override <- FALSE
+    volcano_state$plot_axis_overrides <- list()
     volcano_state$auto_axis_update_in_progress <- FALSE
 
     showNotification("Plot controls reset to defaults.", type = "message", duration = 3)
@@ -1338,6 +1352,8 @@ register_volcano_plot_lifecycle_observers <- function(
   list(
     calculate_optimal_ranges_for_selected_plot = calculate_optimal_ranges_for_selected_plot,
     store_original_plots = store_original_plots,
-    generateVolcanoPlots_fixed = generateVolcanoPlots_fixed
+    generateVolcanoPlots_fixed = generateVolcanoPlots_fixed,
+    effective_axis_settings = effective_axis_settings,
+    update_axis_ui_controls = update_axis_ui_controls
   )
 }

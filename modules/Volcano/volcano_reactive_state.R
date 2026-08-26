@@ -72,6 +72,7 @@ init_volcano_state <- function() {
     plot_titles                         = NULL,
     static_plots                        = NULL,
     plot_axis_settings                  = NULL,
+    plot_axis_overrides                 = list(),
     current_plotly_data                 = NULL,
     current_pairs                       = NULL,
     selected_genes                      = character(),
