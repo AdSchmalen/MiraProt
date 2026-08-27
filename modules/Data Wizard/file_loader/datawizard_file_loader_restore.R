@@ -391,7 +391,11 @@ register_datawizard_file_loader_restore <- function(loader_environment = parent.
           selected1 <- inputs$sheetDropdown
           if (length(sheets1) > 0) {
             if (is.null(selected1) || !selected1 %in% sheets1) selected1 <- sheets1[[1]]
-            skip_next_cached_sheet_apply_primary(TRUE)
+            # The restore guard normally blocks this replay. Keep a targeted
+            # fallback in case the client delivers it after restore settles:
+            # only the restored selection is skipped, never a different sheet
+            # chosen by the user in the meantime.
+            skip_next_sheet_change_primary(selected1)
             updateSelectInput(session, "sheetDropdown",
                               choices  = sheets1,
                               selected = selected1)
@@ -400,7 +404,7 @@ register_datawizard_file_loader_restore <- function(loader_environment = parent.
           selected2 <- inputs$sheetDropdown2
           if (length(sheets2) > 0) {
             if (is.null(selected2) || !selected2 %in% sheets2) selected2 <- sheets2[[1]]
-            skip_next_cached_sheet_apply_secondary(TRUE)
+            skip_next_sheet_change_secondary(selected2)
             updateSelectInput(session, "sheetDropdown2",
                               choices  = sheets2,
                               selected = selected2)
