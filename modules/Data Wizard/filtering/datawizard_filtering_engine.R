@@ -776,28 +776,54 @@ apply_custom_filters_batch <- function(data_df, custom_conditions, debug_level =
       }
 
       # Apply filter (multi-column or single-column)
-      filter_result <- if (length(condition_result$columns) > 1) {
-        apply_enhanced_multi_column_filter(
-          condition_result$data, condition_result$columns,
-          condition_result$condition, debug_level
+      filter_result <- tryCatch({
+        filtered_condition_data <- if (length(condition_result$columns) > 1) {
+          apply_enhanced_multi_column_filter(
+            condition_result$data,
+            condition_result$columns,
+            condition_result$condition,
+            debug_level
+          )
+        } else {
+          keep_rows <- apply_single_custom_filter(
+            condition_result$data,
+            condition_result$columns[[1]],
+            condition_result$condition
+          )
+          
+          if (!is.logical(keep_rows) ||
+              length(keep_rows) != nrow(condition_result$data)) {
+            stop("Single-column filter returned an invalid keep vector")
+          }
+          
+          keep_rows[is.na(keep_rows)] <- FALSE
+          condition_result$data[keep_rows, , drop = FALSE]
+        }
+        
+        list(
+          success = is.data.frame(filtered_condition_data),
+          data = if (is.data.frame(filtered_condition_data)) {
+            filtered_condition_data
+          } else {
+            condition_result$data
+          },
+          warnings = character(),
+          errors = if (is.data.frame(filtered_condition_data)) {
+            character()
+          } else {
+            "Custom filter failed"
+          }
         )
-      } else {
-        tryCatch({
-          single_result <- apply_single_custom_filter(
-            condition_result$data, condition_result$condition, debug_level
-          )
-          list(
-            success = !is.null(single_result) && is.data.frame(single_result),
-            data = if (is.data.frame(single_result)) single_result else condition_result$data,
-            warnings = character(),
-            errors = if (is.data.frame(single_result)) character() else "Single filter failed"
-          )
-        }, error = function(e) {
-          debug_log(paste("Error in single custom filter", i, ":", e$message), 1)
-          list(success = FALSE, data = condition_result$data,
-               warnings = character(), errors = paste("Single filter error:", e$message))
-        })
-      }
+        
+      }, error = function(e) {
+        debug_log(paste("Error in custom filter", i, ":", e$message), 1)
+        list(
+          success = FALSE,
+          data = condition_result$data,
+          warnings = character(),
+          errors = paste("Custom filter error:", e$message)
+        )
+      })
 
       if (filter_result$success && !is.null(filter_result$data) &&
           is.data.frame(filter_result$data)) {

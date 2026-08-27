@@ -67,6 +67,7 @@ register_edit_handlers <- function(ctx) {
     # but readiness logging is centralized so normal startup emits one pause
     # message instead of one per observer.
     edit_data_ready <- reactive({
+      data_revision_signature()
       if (is.function(has_data)) isTRUE(has_data()) else is.data.frame(get_data())
     })
 

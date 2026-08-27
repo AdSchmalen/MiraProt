@@ -71,7 +71,7 @@ register_annotation_observers_strategy <- function(input, output, session, ns,
         shinyjs::hide("from_keytype_annotation")
 
         shinyjs::hide("to_keytype_annotation")
-        shinyjs::hide("target_species_annotation")
+        shinyjs::hide("target_species_panel")
         shinyjs::hide("collapse_strategy_annotation")
         shinyjs::hide("ambiguous_mapping_info")
         shinyjs::hide("run_annotation")

@@ -237,10 +237,10 @@ modAnnotationServer <- function(id, data_def, get_data, set_data,
         species_annotation        = "selectInput",
         from_keytype_annotation   = "selectInput",
         to_keytype_annotation     = "selectInput",
-        annotation_strategy       = "radioButtons",
+        annotation_strategy       = "selectInput",
         target_species_annotation = "selectInput",
         collapse_strategy_annotation = "selectInput",
-        merge_behavior            = "radioButtons"
+        merge_behavior            = "selectInput"
       ),
       module_label    = "Annotation",
       restore_trigger = session_restore_trigger
