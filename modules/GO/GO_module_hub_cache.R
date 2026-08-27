@@ -331,6 +331,22 @@ save_organism_cache <- function(orgdb_name, org_db,
   })
 }
 
+# Decide how ordinary GO analysis should handle an organism cache.
+# Cache age is advisory: only a usable cache older than the threshold needs a
+# session-local decision. This pure helper keeps the boundary behavior testable.
+resolve_go_stale_cache_policy <- function(cache_age_days, decision = NULL,
+                                          cache_usable = FALSE,
+                                          max_cache_age_days = 7) {
+  if (is.null(cache_age_days) || length(cache_age_days) != 1L ||
+      is.na(cache_age_days) || !isTRUE(cache_usable) ||
+      cache_age_days <= max_cache_age_days) {
+    return("normal")
+  }
+  if (identical(decision, "use_old")) return("use_stale")
+  if (identical(decision, "update")) return("refresh")
+  "prompt"
+}
+
 #' Get the age of the organism cache in days.
 #'
 #' Returns the cache age as a numeric value (days since last update), or
@@ -388,10 +404,13 @@ get_organism_cache_age_days <- function(orgdb_name,
 #' @param ignore_ttl logical; when TRUE the cache is returned regardless of
 #'   age (used when the user has explicitly chosen to keep using a stale cache).
 #'   Defaults to FALSE.
+#' @param update_relocated_metadata whether a relocated SQLite path may be written
+#'   back to metadata; GO stale-cache acceptance sets this FALSE to remain read-only
 #' @param debug_log logging function (default: no-op)
 #' @return organism database object or NULL
 load_organism_cache <- function(orgdb_name, max_cache_age_days = 30,
                                 ignore_ttl = FALSE,
+                                update_relocated_metadata = TRUE,
                                 debug_log = function(message, level = 1) {}) {
 
   tryCatch({
@@ -443,8 +462,10 @@ load_organism_cache <- function(orgdb_name, max_cache_age_days = 30,
           sqlite_path <- canonical_path
 
           # Update the metadata so subsequent loads do not repeat the fallback
-          meta$sqlite_path <- if (is_portable) basename(canonical_path) else normalizePath(canonical_path, mustWork = FALSE)
-          .write_cache_metadata(orgdb_name, meta, debug_log = debug_log)
+          if (isTRUE(update_relocated_metadata)) {
+            meta$sqlite_path <- if (is_portable) basename(canonical_path) else normalizePath(canonical_path, mustWork = FALSE)
+            .write_cache_metadata(orgdb_name, meta, debug_log = debug_log)
+          }
         }
       }
 
