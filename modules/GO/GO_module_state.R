@@ -110,6 +110,10 @@ keytype_last_organism <- reactiveVal(NULL)
 cached_go_org_db   <- reactiveVal(NULL)
 cached_go_orgdb_name <- reactiveVal(NULL)
 
+# Organism-specific stale-cache choices live only for this Shiny session.
+go_stale_cache_decisions <- reactiveVal(list())
+go_pending_stale_cache   <- reactiveVal(NULL)
+
 # ------------------------------------------------------------------------------
 # 7. Download dimension state
 # ------------------------------------------------------------------------------

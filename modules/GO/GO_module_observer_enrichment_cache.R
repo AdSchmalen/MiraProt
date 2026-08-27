@@ -49,7 +49,8 @@ observeEvent(input$resetButton_GO, {
   })
 })
 
-observeEvent(input$createGO_button, {
+run_go_analysis <- function(cache_policy = c("normal", "use_stale", "refresh"), pending = NULL) {
+  cache_policy <- match.arg(cache_policy)
   debug_log("Starting GO analysis with direct approach", 1)
   go_analysis_status("running")
   go_results_ready_for_fallback(FALSE)
@@ -180,11 +181,29 @@ observeEvent(input$createGO_button, {
       if (is.null(annotations) || !identical(cached_go_orgdb_name(), orgdb_name_go)) {
         debug_log(paste("Session OrgDb cache miss for", orgdb_name_go,
                         "- resolving via GO annotation cache"), 1)
-        annotations <- load_annotation_hub_with_progress(
-          organism_display   = organism_display_go,
-          debug_log          = debug_log,
-          max_cache_age_days = 7
-        )
+        if (identical(cache_policy, "use_stale")) {
+          annotations <- pending$stale_db
+          debug_log("GO annotation cache loaded with ignore_ttl=TRUE", 1)
+        } else if (identical(cache_policy, "refresh")) {
+          refresh_result <- force_refresh_safe(orgdb_name_go, debug_log = debug_log)
+          if (isTRUE(refresh_result$success) && !is.null(refresh_result$data)) {
+            annotations <- refresh_result$data
+            debug_log("GO annotation cache refresh succeeded", 1)
+          } else {
+            debug_log("GO annotation cache refresh failed; falling back to existing stale cache", 1)
+            showNotification(
+              "Annotation update failed. The existing local cache is still available and will be used for this analysis.",
+              type = "warning", duration = 8
+            )
+            annotations <- pending$stale_db
+          }
+        } else {
+          annotations <- load_annotation_hub_with_progress(
+            organism_display   = organism_display_go,
+            debug_log          = debug_log,
+            max_cache_age_days = 7
+          )
+        }
         if (!is.null(annotations)) {
           cached_go_org_db(annotations)
           cached_go_orgdb_name(orgdb_name_go)
@@ -481,6 +500,81 @@ observeEvent(input$createGO_button, {
       showNotification(paste("GO analysis failed:", e$message), type = "error", duration = 8)
     })
   })
+}
+
+# The cache-age threshold is advisory at the GO level.  Only structurally usable
+# stale caches are offered to the user; corrupt caches continue through the
+# normal resolver path.
+observeEvent(input$createGO_button, {
+  organism_display <- input$OrgDb_GO %||% "Homo sapiens"
+  orgdb_name <- organism_to_orgdb(organism_display)
+
+  if (!is.null(cached_go_org_db()) && identical(cached_go_orgdb_name(), orgdb_name)) {
+    run_go_analysis("normal")
+    return()
+  }
+
+  cache_age <- get_organism_cache_age_days(orgdb_name, debug_log = debug_log)
+  if (!is.null(cache_age)) {
+    debug_log(sprintf("GO annotation cache age for %s: %.1f days", orgdb_name, cache_age), 1)
+  }
+  decision <- isolate(go_stale_cache_decisions())[[orgdb_name]]
+  stale_db <- NULL
+  if (!is.null(cache_age) && cache_age > 7) {
+    stale_db <- load_organism_cache(
+      orgdb_name, max_cache_age_days = 7, ignore_ttl = TRUE,
+      update_relocated_metadata = FALSE, debug_log = debug_log
+    )
+  }
+  policy <- resolve_go_stale_cache_policy(cache_age, decision, !is.null(stale_db))
+  if (!identical(policy, "normal")) {
+    pending <- list(orgdb_name = orgdb_name, organism_display = organism_display,
+                    cache_age = cache_age, stale_db = stale_db)
+    if (identical(policy, "use_stale")) {
+      run_go_analysis("use_stale", pending)
+    } else if (identical(policy, "refresh")) {
+      run_go_analysis("refresh", pending)
+    } else {
+      go_pending_stale_cache(pending)
+      debug_log("GO annotation cache older than 7 days - awaiting user decision", 1)
+      showModal(modalDialog(
+          title = "Annotation Cache Outdated",
+          tags$p("The local annotation cache for ", tags$b(organism_display),
+                 sprintf(" is %.1f days old.", cache_age)),
+          tags$p("Would you like to update the annotation database now or continue using the existing cache?"),
+          footer = tagList(
+            actionButton(session$ns("go_stale_cache_update"), "Update Cache", class = "btn-primary"),
+            actionButton(session$ns("go_stale_cache_use_old"), "Use Existing Cache", class = "btn-default")
+          ), easyClose = FALSE
+        ))
+    }
+    return()
+  }
+  run_go_analysis("normal")
+})
+
+observeEvent(input$go_stale_cache_use_old, {
+  pending <- isolate(go_pending_stale_cache())
+  if (is.null(pending)) return()
+  removeModal()
+  decisions <- isolate(go_stale_cache_decisions())
+  decisions[[pending$orgdb_name]] <- "use_old"
+  go_stale_cache_decisions(decisions)
+  go_pending_stale_cache(NULL)
+  debug_log(sprintf("GO stale cache decision: use existing cache for %s", pending$orgdb_name), 1)
+  run_go_analysis("use_stale", pending)
+})
+
+observeEvent(input$go_stale_cache_update, {
+  pending <- isolate(go_pending_stale_cache())
+  if (is.null(pending)) return()
+  removeModal()
+  decisions <- isolate(go_stale_cache_decisions())
+  decisions[[pending$orgdb_name]] <- "update"
+  go_stale_cache_decisions(decisions)
+  go_pending_stale_cache(NULL)
+  debug_log(sprintf("GO stale cache decision: update %s", pending$orgdb_name), 1)
+  run_go_analysis("refresh", pending)
 })
 
 # ==============================================================================
