@@ -30,7 +30,8 @@
 
 create_datawizard_file_loader_context <- function(input, output, session, rv = NULL,
                                                   debug_level = 0, debug_log,
-                                                  safe_error_message, primary_data_state) {
+                                                  safe_error_message, primary_data_state,
+                                                  core_values = NULL) {
     # Core data storage
     data_fixed  <- reactiveVal(NULL)
     data2_fixed <- reactiveVal(NULL)
@@ -908,7 +909,8 @@ create_datawizard_file_loader_context <- function(input, output, session, rv = N
     context_exports <- setdiff(
       ls(envir = context_environment, all.names = TRUE),
       c("input", "output", "session", "rv", "debug_level", "debug_log",
-        "safe_error_message", "primary_data_state", "context_environment", "context_exports")
+        "safe_error_message", "primary_data_state", "core_values",
+        "context_environment", "context_exports")
     )
     attr(context_environment, "exports") <- context_exports
     context_environment

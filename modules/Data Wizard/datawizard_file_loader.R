@@ -111,7 +111,8 @@ modFileLoaderServer <- function(id, rv = NULL, core_values = NULL, debug_level =
       debug_level = debug_level,
       debug_log = debug_log,
       safe_error_message = safe_error_message,
-      primary_data_state = primary_data_state
+      primary_data_state = primary_data_state,
+      core_values = core_values
     )
     loader_context_exports <- attr(loader_context, "exports")
     loader_context_binding_environment <- environment()
