@@ -104,7 +104,29 @@ register_core_data_lifecycle_observers <- function(loader_out, core_values, rv, 
     loader_data <- validate_reactive_value(loader_out$primary, "loader_primary")
 
     if (!is.null(loader_data)) {
-      current_data <- core_values$primary_data_raw()
+            # During session restore the canonical raw/working datasets are restored
+            # explicitly. The loader state is replayed only to reconstruct loader-local
+            # state and must not republish its raw sheet over restored working data.
+            if (restore_guard_active()) {
+                debug_log(
+                    "Observer 1 BLOCKED - session restore replay active",
+                    level = 1
+                  )
+                return(invisible(NULL))
+              }
+        
+        current_data <- core_values$primary_data_raw()
+          
+            # Restored RDS data and loader-local data can be semantically identical
+            # while differing in non-essential attributes. Do not treat that as a
+            # fresh raw import after restore settles.
+            same_raw_data <- !is.null(current_data) &&
+                isTRUE(all.equal(
+                    current_data,
+                    loader_data,
+                    check.attributes = FALSE
+                  ))
+      
 
       should_update <- TRUE
       if (!is.null(current_data) && !is.null(loader_data)) {
@@ -114,7 +136,7 @@ register_core_data_lifecycle_observers <- function(loader_out, core_values, rv, 
         }
       }
 
-      if (should_update && (is.null(current_data) || !identical(current_data, loader_data))) {
+      if (should_update && (is.null(current_data) || !same_raw_data)) {
         debug_log(paste("Observer 1: Loading primary data:", nrow(loader_data), "rows"), level = 1)
 
         primary_data_state$set_raw_imported_data(loader_data, "loader primary observer")
@@ -190,7 +212,28 @@ register_core_data_lifecycle_observers <- function(loader_out, core_values, rv, 
       if (!identical(rv$data_def, current_metadata) &&
           !isTRUE(loader_out$loading_active()) &&
           !in_critical_loading_window()) {
-
+        
+        current_primary <- tryCatch(
+          resolve_datawizard_dataset(
+            "primary_working",
+            core_values = core_values,
+            rv = rv
+          )$data,
+          error = function(e) NULL
+        )
+        
+        if (is.data.frame(current_primary) &&
+            !metadata_matches_dataset(current_metadata, current_primary)) {
+          debug_log(
+            paste(
+              "Metadata lifecycle: transient data/metadata mismatch;",
+              "deferring synchronization"
+            ),
+            level = 1
+          )
+          return()
+        }
+        
         if (restore_guard_active()) {
           current_primary <- tryCatch(
             resolve_datawizard_dataset(

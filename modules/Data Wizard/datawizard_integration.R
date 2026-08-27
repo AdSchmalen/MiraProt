@@ -444,7 +444,11 @@ initialize_submodules <- function(session, loader_out, core_values, ui_config_va
     modFilteringServer(
       id = "filtering_ui",
       data = reactive({
-        return(get_primary_or_processed_data("FILTERING"))
+        # get_primary_or_processed_data() is an imperative isolated snapshot.
+        # Depend explicitly on the committed revision so this reactive does
+        # not retain a startup NULL value after primary data becomes available.
+        data_revision_signature()
+        get_primary_or_processed_data("FILTERING")
       }),
       metadata_def = reactive({
         raw_metadata <- resolve_current_metadata("primary_working")
@@ -477,7 +481,8 @@ initialize_submodules <- function(session, loader_out, core_values, ui_config_va
       modFilteringServer(
         id = "filtering_ui",
         data = reactive({
-          return(get_primary_or_processed_data("FILTERING"))
+          data_revision_signature()
+          get_primary_or_processed_data("FILTERING")
         }),
         metadata_def = reactive({
           resolve_current_metadata("primary_working")
