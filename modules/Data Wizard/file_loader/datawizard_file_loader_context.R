@@ -203,6 +203,12 @@ create_datawizard_file_loader_context <- function(input, output, session, rv = N
     # second revision/rerender with no user action.
     skip_next_sheet_change_primary <- reactiveVal(NULL)
     skip_next_sheet_change_secondary <- reactiveVal(NULL)
+    # One-shot guard: after session-restore replay updates sheetDropdown,
+    # skip the first cache-based sheet handler run so restored rv$data_mod
+    # is not overwritten by cached loader data.
+    skip_next_cached_sheet_apply_primary <- reactiveVal(FALSE)
+    skip_next_cached_sheet_apply_secondary <- reactiveVal(FALSE)
+
     set_header_reprocess_active <- function(active) {
       active <- isTRUE(active)
       header_reprocess_active(active)

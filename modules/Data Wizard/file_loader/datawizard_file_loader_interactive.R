@@ -383,6 +383,12 @@ register_datawizard_file_loader_interactive <- function(loader_environment = par
         # in-memory cache and skip the file-reload branch.
         file_available <- is_live_excel_upload(input$file)
         if (!file_available) {
+          if (isTRUE(skip_next_cached_sheet_apply_primary())) {
+            skip_next_cached_sheet_apply_primary(FALSE)
+            debug_log("Sheet cache apply skipped once after session restore", 1)
+            return()
+          }
+
           cached <- sheet_cache_primary()
           cached_data <- get_cached_sheet_data(cached, input$sheetDropdown)
           if (!is.null(cached_data)) {
@@ -659,6 +665,12 @@ register_datawizard_file_loader_interactive <- function(loader_environment = par
         if (!file2_available) {
           cached2 <- sheet_cache_secondary()
           cached2_data <- get_cached_sheet_data(cached2, input$sheetDropdown2)
+          if (isTRUE(skip_next_cached_sheet_apply_secondary())) {
+            skip_next_cached_sheet_apply_secondary(FALSE)
+            debug_log("Additional sheet cache apply skipped once after session restore", 1)
+            return()
+          }
+
           if (!is.null(cached2_data)) {
             result <- normalize_cached_sheet_data(
               cached2_data,
