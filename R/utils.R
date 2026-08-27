@@ -328,13 +328,13 @@ performGenericImputation <- function(data,
 performLeftCensoredImputation <- function(data) {
   # Speichere die Originaldaten (vor der Imputation)
   original_data <- data
-
+  
   # 1) Log-Likelihood für links-zen­sierte Lognormal-Verteilung
   left_censored_log_normal_log_likelihood <- function(mu, sigma, x, lloq) {
     sum(dlnorm(na.omit(x), mu, sigma, log = TRUE)) +
       sum(is.na(x)) * plnorm(lloq, mu, sigma, log = TRUE)
   }
-
+  
   # 2) Safe-Wrapper fürs Optim, der Inf/NaN auf hohe Strafwerte mapped
   safe_neg_loglik <- function(theta, x, lloq) {
     mu    <- theta[1]
@@ -349,18 +349,18 @@ performLeftCensoredImputation <- function(data) {
     if (!is.finite(nll)) return(1e10)
     nll
   }
-
+  
   # Hilfsfunktion für Startwerte
   mean_sd <- function(x, ...) c(mean(x, ...), sd(x, ...))
-
+  
   # 3) Imputation je Spalte
   impute_column <- function(col, col_name = "Spalte") {
     orig_col <- col
-
+    
     # a) Überspringen, wenn komplett NA oder zu wenige Werte
     if (all(is.na(col)))       return(col)
     if (sum(!is.na(col)) < 2)  return(col)
-
+    
     # b) Harte Fehler bei negativen Werten → gesamter Prozess stoppt
     if (any(col < 0, na.rm = TRUE)) {
       showNotification(
@@ -372,7 +372,7 @@ performLeftCensoredImputation <- function(data) {
       )
       stop("Negative values in column ‘", col_name, "’, aborting imputation.")
     }
-
+    
     # c) Null-Werte als links-zen­siert markieren
     if (any(col == 0, na.rm = TRUE)) {
       showNotification(
@@ -383,13 +383,39 @@ performLeftCensoredImputation <- function(data) {
       )
       col[col == 0] <- NA
     }
-
-    # nun nur positive, beobachtete Werte
+    
+    # Only strictly positive observed values can define the log-normal fit.
+    # Re-check after converting zeros to censored values: the earlier
+    # observation-count check happened before zeros were converted to NA.
     observed <- na.omit(col)
+    
+    if (length(observed) < 2L) {
+      warning(
+        sprintf(
+          "Column '%s': fewer than two positive observed values remain after treating zeros as censored; imputation skipped.",
+          col_name
+        ),
+        call. = FALSE
+      )
+      return(orig_col)
+    }
+    
     theta0   <- mean_sd(log(observed))
     lloq     <- min(observed)
-    q05      <- quantile(observed, 0.05)
-
+    
+    # A log-normal distribution cannot be estimated robustly without
+    # variation among the observed log-values.
+    if (any(!is.finite(theta0)) || theta0[2] <= 0) {
+      warning(
+        sprintf(
+          "Column '%s': insufficient variation in positive observed values for left-censored log-normal imputation; imputation skipped.",
+          col_name
+        ),
+        call. = FALSE
+      )
+      return(orig_col)
+    }
+    
     # d) Robust fitten mit Grenzen und Safe-Zielfunktion
     fit <- tryCatch({
       optim(
@@ -411,15 +437,53 @@ performLeftCensoredImputation <- function(data) {
         lower  = c(-Inf, 1e-6)
       )
     })
-
+    
+    
+    # Do not draw from a failed or invalid fit.
+    if (is.null(fit$par) ||
+        length(fit$par) < 2L ||
+        !isTRUE(fit$convergence == 0L) ||
+        any(!is.finite(fit$par)) ||
+        fit$par[2] <= 0) {
+      warning(
+        sprintf(
+          "Column '%s': left-censored log-normal fit did not converge; imputation skipped.",
+          col_name
+        ),
+        call. = FALSE
+      )
+      return(orig_col)
+    }
+    
     # e) Imputation der fehlenden Werte (inkl. ehemals Null-Werte)
     n_miss <- sum(is.na(col))
-    p       <- runif(n_miss, 0, plnorm(q05, fit$par[1], fit$par[2]))
-    y       <- qlnorm(p, fit$par[1], fit$par[2])
-    y       <- pmin(y, q05)
-    y       <- pmax(y, lloq)
+    
+    # Draw from the fitted log-normal distribution conditional on X <= LLOQ.
+    # This matches the censoring assumption used by safe_neg_loglik().
+    cdf_lloq <- plnorm(lloq, fit$par[1], fit$par[2])
+    
+    if (!is.finite(cdf_lloq) || cdf_lloq <= 0) {
+      warning(
+        sprintf(
+          "Column '%s': fitted probability below the LLOQ is invalid; imputation skipped.",
+          col_name
+        ),
+        call. = FALSE
+      )
+      return(orig_col)
+    }
+    
+    p <- runif(n_miss, 0, cdf_lloq)
+    p <- pmax(p, .Machine$double.xmin)
+    
+    y <- qlnorm(p, fit$par[1], fit$par[2])
+    
+    # Numerical safeguard only. By construction these draws should already
+    # lie at or below the censoring threshold.
+    y <- pmin(y, lloq)
+    
     col[is.na(col)] <- y
-
+    
     col
   }
 
