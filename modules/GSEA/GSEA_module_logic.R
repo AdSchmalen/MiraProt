@@ -1458,13 +1458,14 @@ validate_abundance_type <- function(abundance_type) {
   if (is.null(abundance_type) || length(abundance_type) == 0 || abundance_type == "") {
     return(FALSE)
   }
-  allowed_pattern <- paste0(
-    "^(Normalized Abundance|Imputed Raw Abundance|",
-    "Imputed Normalized Abundance|Imputed Batch Corrected Normalized Abundance|",
-    "Imputed Batch Corrected Raw Abundance|Batch Corrected Raw Abundance|",
-    "Batch Corrected Normalized Abundance|Raw Abundance)$"
+  abundance_type %in% c(
+    "Raw Abundance", "Normalized Abundance", "Batch Corrected Abundance",
+    "Batch Corrected Raw Abundance", "Batch Corrected Normalized Abundance",
+    "Imputed Raw Abundance", "Imputed Normalized Abundance",
+    "Imputed Batch Corrected Abundance",
+    "Imputed Batch Corrected Raw Abundance",
+    "Imputed Batch Corrected Normalized Abundance"
   )
-  grepl(allowed_pattern, abundance_type, ignore.case = FALSE)
 }
 
 #' Normalise a validation logic string to a canonical key

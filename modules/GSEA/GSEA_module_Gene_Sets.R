@@ -68,7 +68,8 @@ gsea_get_rank_methods <- function() {
 #' @param def Data frame; the data definition (metadata).
 #' @return Character vector of identifier options.
 gsea_get_identifier_choices <- function(def) {
-  if (is.null(def) || nrow(def) == 0) return(character(0))
+  if (is.null(def) || nrow(def) == 0 ||
+      !all(c("Content", "Options") %in% names(def))) return(character(0))
   def_filtered <- def[def$Content == "Identifier", ]
   id_options   <- unique(def_filtered$Options[!is.na(def_filtered$Options) & def_filtered$Options != ""])
   id_options
@@ -80,11 +81,36 @@ gsea_get_identifier_choices <- function(def) {
 #' @param ref_val Character; the selected reference / abundance type.
 #' @return Character vector of sample names.
 gsea_get_sample_choices <- function(def, ref_val) {
-  if (is.null(def) || nrow(def) == 0 || is.null(ref_val)) return(character(0))
+  if (is.null(def) || nrow(def) == 0 || is.null(ref_val) ||
+      !all(c("Content", "Sample") %in% names(def))) return(character(0))
   ref_indices  <- which(def$Content == ref_val)
   sample_names <- unique(def$Sample[ref_indices])
   sample_names <- sample_names[!is.na(sample_names) & sample_names != ""]
   sample_names
+}
+
+#' Extract canonical abundance types that are present in the data definition
+#'
+#' @param def Data frame; the current data definition.
+#' @return Character vector in metadata order.
+gsea_get_reference_choices <- function(def) {
+  if (is.null(def) || nrow(def) == 0 || !"Content" %in% names(def)) {
+    return(character(0))
+  }
+  canonical <- c(
+    "Raw Abundance", "Normalized Abundance", "Batch Corrected Abundance",
+    "Batch Corrected Raw Abundance", "Batch Corrected Normalized Abundance",
+    "Imputed Raw Abundance", "Imputed Normalized Abundance",
+    "Imputed Batch Corrected Abundance",
+    "Imputed Batch Corrected Raw Abundance",
+    "Imputed Batch Corrected Normalized Abundance"
+  )
+  datawizard_vocabulary <- get0("datawizard_metadata_content_choices", mode = "function", inherits = TRUE)
+  if (is.function(datawizard_vocabulary)) {
+    canonical <- intersect(canonical, datawizard_vocabulary(include_blank = FALSE))
+  }
+  content <- trimws(as.character(def$Content))
+  unique(content[!is.na(content) & nzchar(content) & content %in% canonical])
 }
 
 #' Extract abundance ratio column choices from the data definition
