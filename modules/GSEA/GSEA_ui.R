@@ -202,7 +202,7 @@ GSEA_ui_definition <- function(ns) {
                   width = 6,
                   checkboxInput(
                     ns("dotplot_swap_panels"),
-                    "Swap Activated/Suppressed panels",
+                    "Positively Enriched first",
                     value = FALSE
                   )
                 ),
