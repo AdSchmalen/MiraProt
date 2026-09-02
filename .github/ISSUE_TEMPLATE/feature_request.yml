@@ -1,0 +1,63 @@
+name: Feature request
+description: Suggest an improvement or new capability for MiraProt
+title: "[Feature]: "
+labels: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for suggesting an improvement. Please describe the problem or research workflow need as clearly as possible.
+
+  - type: dropdown
+    id: category
+    attributes:
+      label: Type of request
+      options:
+        - User interface or usability
+        - Data import or export
+        - Visualization
+        - New analysis capability
+        - Change to scientific or statistical behavior
+        - Portable build or launcher
+        - Documentation
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or need
+      description: What problem would this feature solve?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: Describe the behavior or workflow you would like to see.
+    validations:
+      required: true
+
+  - type: textarea
+    id: scientific_impact
+    attributes:
+      label: Scientific or statistical impact
+      description: If this could change numerical results, statistical interpretation, filtering, normalization, enrichment, or other scientific output, explain how and provide relevant references when appropriate.
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Are there existing MiraProt workflows or other approaches that partly solve the problem?
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checklist
+      options:
+        - label: I searched the existing Issues for a similar request.
+          required: true
+        - label: I understand that feature requests are considered on a best-effort basis.
+          required: true

@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: MiraProt documentation
+    url: https://github.com/AdSchmalen/MiraProt#readme
+    about: Check the README and documentation before opening an issue.
+  - name: Security vulnerability
+    url: https://github.com/AdSchmalen/MiraProt/security/advisories/new
+    about: Report suspected security vulnerabilities privately. Do not open a public issue.
