@@ -684,14 +684,14 @@ create_enrichment_dotplot <- function(gsea_results, selected_pathways, colors, t
 
   # Keep clusterProfiler-like facet semantics
   category_levels <- if (isTRUE(swap_panels)) {
-    c("Suppressed", "Activated")
+    c("Positively Enriched", "Negatively Enriched")
   } else {
-    c("Activated", "Suppressed")
+    c("Negatively Enriched", "Positively Enriched")
   }
 
   df <- df %>%
     mutate(
-      Category = ifelse(NES > 0, "Activated", "Suppressed"),
+      Category = ifelse(NES > 0, "Positively Enriched", "Negatively Enriched"),
       Category = factor(Category, levels = category_levels),
       wrapped = factor(wrapped, levels = rev(unique(wrapped)))
     )
