@@ -587,7 +587,9 @@ GSEA_ui_definition <- function(ns) {
               "Fold Change Rank Ordering Statistics" = "Fold Change Rank Ordering Statistics",
               "MWT" = "MWT",
               "Minimum Significant Difference" = "Minimum Significant Difference",
-              "Precalculated statistics" = "Precalculated statistics"
+              "log2(FC)" = "log2(FC)",
+              "log2(FC) x -log10(p)" = "log2(FC) x -log10(p)",
+              "-log10(p)" = "-log10(p)"
             ),
             selected = "MWT",
             width = "100%"
@@ -624,7 +626,7 @@ GSEA_ui_definition <- function(ns) {
         br(),
         # Sample-derived Ranking Parameters
         conditionalPanel(
-          condition = paste0("input['", ns("RankinkMethod_GSEA"), "'] != 'Precalculated statistics'"),
+          condition = paste0("!['log2(FC)', 'log2(FC) x -log10(p)', '-log10(p)'].includes(input['", ns("RankinkMethod_GSEA"), "'])"),
 
           wellPanel(
             h4("Ranking Parameters"),
@@ -723,7 +725,7 @@ GSEA_ui_definition <- function(ns) {
 
         # Precalculated Statistics Parameters
         conditionalPanel(
-          condition = paste0("input['", ns("RankinkMethod_GSEA"), "'] == 'Precalculated statistics'"),
+          condition = paste0("['log2(FC)', 'log2(FC) x -log10(p)', '-log10(p)'].includes(input['", ns("RankinkMethod_GSEA"), "'])"),
 
           wellPanel(
             h4("Ranking Parameters"),
@@ -741,19 +743,6 @@ GSEA_ui_definition <- function(ns) {
               ns("pVal_GSEA_precalc"),
               "P-value Column:",
               choices = NULL,
-              width = "100%"
-            ),
-
-            # Ranking Metric
-            selectInput(
-              ns("RankingMetric_GSEA_precalc"),
-              "Ranking Metric:",
-              choices = c(
-                "log2(FC)" = "log2(FC)",
-                "log2(FC) x -log10(p)" = "log2(FC) x -log10(p)",
-                "-log10(p)" = "-log10(p)"
-              ),
-              selected = "log2(FC) x -log10(p)",
               width = "100%"
             ),
 

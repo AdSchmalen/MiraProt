@@ -65,13 +65,13 @@ render_GSEA_tech_functions_content_GSEA_v2 <- function() {
     h4("Core analysis inputs"),
     tags$ul(
       tags$li(code("createGSEA"), ": start analysis."),
-      tags$li(code("RankinkMethod_GSEA"), ": single ranking dispatch control. Ordinary values use ", code("compute_custom_ranks_GSEA()"), " with ", code("Identifier_GSEA"), ", ", code("RefenceValues_GSEA"), " and sample groups; ", code("Precalculated statistics"), " uses ", code("compute_precalculated_ranks_GSEA()"), " with existing statistics columns."),
+      tags$li(code("RankinkMethod_GSEA"), ": single ranking dispatch control. Ordinary values use ", code("compute_custom_ranks_GSEA()"), " with ", code("Identifier_GSEA"), ", ", code("RefenceValues_GSEA"), " and sample groups. The values ", code("log2(FC)"), ", ", code("log2(FC) x -log10(p)"), ", and ", code("-log10(p)"), " use ", code("compute_precalculated_ranks_GSEA()"), " and are passed directly as its ", code("metric"), "."),
       tags$li(code("fileSelector_GSEA"), ": selected GMT file."),
       tags$li(code("numeratorSel_GSEA"), ", ", code("denominatorSel_GSEA"), ": sample-derived ranking groups."),
       tags$li(code("AbundanceRatio_GSEA_precalc"), ", ", code("pVal_GSEA_precalc"), ": Precalculated statistics selectors."),
       tags$li(code("custom_Enrich_select"), ": selected pathways."),
       tags$li(code("numPermutations_GSEA"), ": defaults to 10,000 and is passed to ", code("run_gsea_analysis()"), " as ", code("nPermSimple"), "."),
-      tags$li("Legacy session restore maps the former Precalculated Ranking mode to ", code("Precalculated statistics"), "; former Custom Ranking sessions retain their saved method.")
+      tags$li("Legacy restore reads ", code("RankingMetric_GSEA_precalc"), " when ", code("GSEA_type_select == \"Precalculated Ranking\""), " or ", code("RankinkMethod_GSEA == \"Precalculated statistics\""), "; sample-derived sessions retain their saved method.")
     ),
     h4("Plot controls"),
     tags$ul(
