@@ -272,7 +272,6 @@ GSEA_module_server <- function(id, rv, debug_level = 0, modEnv = new.env()) {
             LabelSize_GSEA = tryCatch(input$LabelSize_GSEA, error = function(e) NULL),
             dotplot_swap_panels = tryCatch(input$dotplot_swap_panels, error = function(e) NULL),
             dotplot_y_ticks_right = tryCatch(input$dotplot_y_ticks_right, error = function(e) NULL),
-            GSEA_type_select = tryCatch(input$GSEA_type_select, error = function(e) NULL),
             RefenceValues_GSEA = tryCatch(input$RefenceValues_GSEA, error = function(e) NULL),
             RankinkMethod_GSEA = tryCatch(input$RankinkMethod_GSEA, error = function(e) NULL),
             numeratorSel_GSEA = tryCatch(input$numeratorSel_GSEA, error = function(e) NULL),
@@ -368,9 +367,14 @@ GSEA_module_server <- function(id, rv, debug_level = 0, modEnv = new.env()) {
           restore_select("LegendPosition_GSEA", restored_inputs$LegendPosition_GSEA)
           if (!is.null(restored_inputs$dotplot_swap_panels)) tryCatch(updateCheckboxInput(session, "dotplot_swap_panels", value = isTRUE(restored_inputs$dotplot_swap_panels)), error = function(e) NULL)
           if (!is.null(restored_inputs$dotplot_y_ticks_right)) tryCatch(updateCheckboxInput(session, "dotplot_y_ticks_right", value = isTRUE(restored_inputs$dotplot_y_ticks_right)), error = function(e) NULL)
-          restore_select("GSEA_type_select", restored_inputs$GSEA_type_select)
+          # Legacy sessions used GSEA_type_select as a separate dispatch control.
+          restored_ranking_method <- if (identical(restored_inputs$GSEA_type_select, "Precalculated Ranking")) {
+            "Precalculated statistics"
+          } else {
+            restored_inputs$RankinkMethod_GSEA
+          }
           # restore_select("RefenceValues_GSEA", restored_inputs$RefenceValues_GSEA)
-          restore_select("RankinkMethod_GSEA", restored_inputs$RankinkMethod_GSEA)
+          restore_select("RankinkMethod_GSEA", restored_ranking_method)
           # if (!is.null(restored_inputs$numeratorSel_GSEA)) tryCatch(updateSelectizeInput(session, "numeratorSel_GSEA", selected = restored_inputs$numeratorSel_GSEA, server = TRUE), error = function(e) NULL)
           # if (!is.null(restored_inputs$denominatorSel_GSEA)) tryCatch(updateSelectizeInput(session, "denominatorSel_GSEA", selected = restored_inputs$denominatorSel_GSEA, server = TRUE), error = function(e) NULL)
           if (!is.null(restored_inputs$absolute_GSEA)) tryCatch(updateCheckboxInput(session, "absolute_GSEA", value = isTRUE(restored_inputs$absolute_GSEA)), error = function(e) NULL)
@@ -501,11 +505,11 @@ GSEA_module_server <- function(id, rv, debug_level = 0, modEnv = new.env()) {
               meta_l0$analysis_params$numPermutations
           ), error = function(e) NA_character_)
           n_input_l0   <- tryCatch(length(results$GeneList), error = function(e) NA_integer_)
-          ranking_desc_l0 <- if (isTRUE(type_l0 == "Custom Ranking")) {
-            sprintf("Ranking: Custom Ranking | Method: %s",
+          ranking_desc_l0 <- if (isTRUE(type_l0 == "Sample-derived")) {
+            sprintf("Ranking method: %s",
                     tryCatch(meta_l0$ranking_method_name, error = function(e) NA_character_))
-          } else if (isTRUE(type_l0 == "Precalculated Ranking")) {
-            sprintf("Ranking: Precalculated Ranking | Abundance ratio column: %s | p-value column: %s | Ranking metric: %s",
+          } else if (isTRUE(type_l0 == "Precalculated statistics")) {
+            sprintf("Ranking: Precalculated statistics | Abundance ratio column: %s | p-value column: %s | Ranking metric: %s",
                     tryCatch(meta_l0$ab_ratio_col,   error = function(e) NA_character_),
                     tryCatch(meta_l0$pval_col,       error = function(e) NA_character_),
                     tryCatch(meta_l0$ranking_metric, error = function(e) NA_character_))

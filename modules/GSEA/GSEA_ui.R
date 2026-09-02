@@ -571,12 +571,26 @@ GSEA_ui_definition <- function(ns) {
 
           hr(),
 
-          # Ranking Type Selection
-          radioButtons(
-            ns("GSEA_type_select"),
+          # Ranking Method Selection
+          selectInput(
+            ns("RankinkMethod_GSEA"),
             "Ranking Method:",
-            choices = c("Custom Ranking", "Precalculated Ranking"),
-            selected = "Custom Ranking"
+            choices = c(
+              "Signal-to-Noise" = "Signal-to-Noise",
+              "T-Test" = "T-Test",
+              "Ratio" = "Ratio",
+              "Difference of Expression Means Between Classes" = "Difference of Expression Means Between Classes",
+              "log2 Ratio" = "log2 Ratio",
+              "Sum of Ranks" = "Sum of Ranks",
+              "Baumgartner-Weiss-Schinder" = "Baumgartner-Weiss-Schinder",
+              "Weighted Average Difference" = "Weighted Average Difference",
+              "Fold Change Rank Ordering Statistics" = "Fold Change Rank Ordering Statistics",
+              "MWT" = "MWT",
+              "Minimum Significant Difference" = "Minimum Significant Difference",
+              "Precalculated statistics" = "Precalculated statistics"
+            ),
+            selected = "MWT",
+            width = "100%"
           ),
 
           hr(),
@@ -600,7 +614,7 @@ GSEA_ui_definition <- function(ns) {
           numericInput(
             ns("numPermutations_GSEA"),
             "Number of Permutations:",
-            value = 1000,
+            value = 10000,
             min = 100,
             max = 10000,
             step = 100,
@@ -608,39 +622,18 @@ GSEA_ui_definition <- function(ns) {
           )
         ),
         br(),
-        # Custom Ranking Parameters
+        # Sample-derived Ranking Parameters
         conditionalPanel(
-          condition = paste0("input['", ns("GSEA_type_select"), "'] == 'Custom Ranking'"),
+          condition = paste0("input['", ns("RankinkMethod_GSEA"), "'] != 'Precalculated statistics'"),
 
           wellPanel(
-            h4("Custom Ranking Parameters"),
+            h4("Ranking Parameters"),
 
             # Reference Values Selection
             selectInput(
               ns("RefenceValues_GSEA"),
               "Reference Values:",
               choices = NULL,
-              width = "100%"
-            ),
-
-            # Ranking Method Selection
-            selectInput(
-              ns("RankinkMethod_GSEA"),
-              "Ranking Method:",
-              choices = c(
-                "Signal-to-Noise" = "Signal-to-Noise",
-                "T-Test" = "T-Test",
-                "Ratio" = "Ratio",
-                "Difference of Expression Means Between Classes" = "Difference of Expression Means Between Classes",
-                "log2 Ratio" = "log2 Ratio",
-                "Sum of Ranks" = "Sum of Ranks",
-                "Baumgartner-Weiss-Schinder" = "Baumgartner-Weiss-Schinder",
-                "Weighted Average Difference" = "Weighted Average Difference",
-                "Fold Change Rank Ordering Statistics" = "Fold Change Rank Ordering Statistics",
-                "MWT" = "MWT",
-                "Minimum Significant Difference" = "Minimum Significant Difference"
-              ),
-              selected = "MWT",
               width = "100%"
             ),
 
@@ -728,12 +721,12 @@ GSEA_ui_definition <- function(ns) {
           )
         ),
 
-        # Precalculated Ranking Parameters
+        # Precalculated Statistics Parameters
         conditionalPanel(
-          condition = paste0("input['", ns("GSEA_type_select"), "'] == 'Precalculated Ranking'"),
+          condition = paste0("input['", ns("RankinkMethod_GSEA"), "'] == 'Precalculated statistics'"),
 
           wellPanel(
-            h4("Precalculated Ranking Parameters"),
+            h4("Ranking Parameters"),
 
             # Ratio Column Selection
             selectInput(

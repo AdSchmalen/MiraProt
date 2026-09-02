@@ -80,14 +80,14 @@ render_GSEA_tech_core_dataproc_content_GSEA <- function() {
         tags$tr(
           tags$td("Ranking construction"),
           tags$td(code("compute_custom_ranks_GSEA()"), tags$br(), code("compute_precalculated_ranks_GSEA()"), tags$br(), code("validate_ranking_vector()")),
-          tags$td("Identifier + ranking method + sample groups or precomputed metrics"),
+          tags$td(code("RankinkMethod_GSEA"), " dispatches to sample groups or precalculated-statistics columns"),
           tags$td("Creates ranked vector payload written to ", code("current_rankings"), "."),
           tags$td("Validation blocks enrichment for invalid or low-variance ranking vectors.")
         ),
         tags$tr(
           tags$td("Enrichment execution"),
           tags$td(code("run_gsea_analysis()")),
-          tags$td("Ranked gene list, selected GMT path, permutation count, p-value cutoff"),
+          tags$td("Ranked gene list, selected GMT path, permutation count (default 10,000), p-value cutoff"),
           tags$td("Produces enrichment result object and updates ", code("res_GSEA"), "."),
           tags$td("Missing prerequisites short-circuit with user-facing notification.")
         ),
@@ -111,7 +111,8 @@ render_GSEA_tech_core_dataproc_content_GSEA <- function() {
       tags$li(code("rv$data_mod"), " and ", code("rv$data_def"), " are the required shared app inputs."),
       tags$li(code("input$fileSelector_GSEA"), ": selected GMT file name used to construct the local gene set path."),
       tags$li(code("input$Identifier_GSEA"), ": selected identifier column used by ranking functions."),
-      tags$li(code("input$RankinkMethod_GSEA"), ": ranking method key used to resolve ", code("rank_methods"), ".")
+      tags$li(code("input$RankinkMethod_GSEA"), ": single dispatch control; ", code("Precalculated statistics"), " selects ", code("compute_precalculated_ranks_GSEA()"), ", while all other values resolve through ", code("rank_methods"), " and select ", code("compute_custom_ranks_GSEA()"), "."),
+      tags$li("Session restore maps legacy ", code("GSEA_type_select == \"Precalculated Ranking\""), " to ", code("RankinkMethod_GSEA == \"Precalculated statistics\""), " while restoring legacy custom-method selections normally.")
     )
   )
 }
