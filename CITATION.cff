@@ -1,8 +1,9 @@
 cff-version: 1.2.0
 
 message: >-
-  If you use MiraProt in your research, please cite the MiraProt software
-  release used for your analysis and the associated publication when available.
+  If you use MiraProt in your research, please cite both the MiraProt software
+  release used for your analysis and the associated publication listed under
+  preferred-citation.
 
 title: "MiraProt"
 
@@ -18,35 +19,33 @@ authors:
     orcid: "https://orcid.org/0000-0003-2462-2675"
 
 abstract: >-
-  MiraProt is a modular R Shiny-based platform for integrated downstream analysis
-  of processed protein-level proteomics data. It combines metadata-aware data
-  preparation with differential abundance analysis, dimensionality reduction,
-  functional enrichment and gene set enrichment analysis, protein interaction
-  analysis, protein set comparison, and visualization within a connected
-  interactive workflow. By retaining structured metadata across analysis steps,
-  MiraProt facilitates consistent reuse of prepared datasets and reduces
-  repeated restructuring and manual transfer of intermediate results between
-  separate tools.
+  MiraProt is a modular R Shiny-based platform for integrated downstream
+  analysis of processed protein-level proteomics data. It combines
+  metadata-aware data preparation with differential abundance analysis,
+  dimensionality reduction, functional enrichment and gene set enrichment
+  analysis, protein interaction analysis, protein set comparison, and
+  visualization within a connected interactive workflow. By retaining
+  structured metadata across analysis steps, MiraProt facilitates consistent
+  reuse of prepared datasets and reduces repeated restructuring and manual
+  transfer of intermediate results between separate tools.
 
 repository-code: "https://github.com/AdSchmalen/MiraProt"
 
 license: MIT
 
-keywords:
-  - proteomics
-  - R Shiny
-  - downstream proteomics analysis
-  - differential abundance
-  - functional enrichment
-  - data visualization
-  - research software
-  - metadata-aware data analysis
-
-# Zenodo software archive
-
 doi: "10.5281/zenodo.22110860"
 
-# Associated MiraProt publication
+keywords:
+  - "proteomics"
+  - "R Shiny"
+  - "downstream proteomics analysis"
+  - "differential abundance"
+  - "functional enrichment"
+  - "gene set enrichment analysis"
+  - "protein interaction analysis"
+  - "data visualization"
+  - "research software"
+  - "metadata-aware data analysis"
 
 preferred-citation:
   type: article
@@ -65,6 +64,9 @@ preferred-citation:
     - family-names: "Deeg"
       given-names: "Cornelia A."
       orcid: "https://orcid.org/0000-0003-0375-3190"
-  doi: "10.64898/2026.08.27.747296"
-  journal: "bioRxiv"
+  publisher:
+    name: "bioRxiv"
+  status: preprint
+  year: 2026
   date-published: "2026-09-02"
+  doi: "10.64898/2026.08.27.747296"
