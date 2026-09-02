@@ -115,6 +115,11 @@ render_GSEA_overview_content_GSEA <- function() {
       )
     ),
 
+    p(
+      strong("Random seed: "),
+      "Keep the same seed to help reproduce calculations involving randomness, particularly GSEA permutation and random tie-breaking steps. Change it when you intentionally want a different random realization."
+    ),
+
     h3("Quick Steps — Sample-derived Methods"),
     div(
       class = "alert alert-success",

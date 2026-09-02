@@ -118,6 +118,11 @@ render_GO_overview_content_GO <- function() {
       )
     ),
 
+    p(
+      strong("Random seed: "),
+      "Keep the same seed to reproduce any random operations used during GO analysis. The core over-representation test itself is deterministic, so changing the seed does not by itself change that test."
+    ),
+
     h3("Key Features"),
     tags$ul(
       tags$li(

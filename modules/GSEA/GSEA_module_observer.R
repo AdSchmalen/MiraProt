@@ -590,6 +590,8 @@ init_gsea_observers <- function(input, output, session, rv, ns, state,
 
       setProgress(value = 0.2, detail = "Computing rankings...")
 
+      random_seed <- as.integer(input$randomSeed_GSEA %||% 12345)
+
       if (isTRUE(input$RankinkMethod_GSEA %in% precalculated_metrics)) {
         debug_log("Using precalculated ranking method", 2)
         req(input$AbundanceRatio_GSEA_precalc, input$pVal_GSEA_precalc,
@@ -605,7 +607,8 @@ init_gsea_observers <- function(input, output, session, rv, ns, state,
           input$ties_GSEA_precalc,
           input$PADOG_GSEA_precalc,
           file.path("./GSEA", input$fileSelector_GSEA),
-          DEBUG_LEVEL
+          random_seed = random_seed,
+          DEBUG_LEVEL = DEBUG_LEVEL
         )
 
       } else {
@@ -659,7 +662,8 @@ init_gsea_observers <- function(input, output, session, rv, ns, state,
           valid_n_num,
           valid_g_val,
           impute_arg,
-          DEBUG_LEVEL
+          random_seed = random_seed,
+          DEBUG_LEVEL = DEBUG_LEVEL
         )
       }
 
@@ -703,6 +707,7 @@ init_gsea_observers <- function(input, output, session, rv, ns, state,
         p_value_cutoff   = 0.05,
         DEBUG_LEVEL      = DEBUG_LEVEL,
         requested_cores  = requested_cores,
+        random_seed      = random_seed,
         debug_log        = debug_log
       )
 
@@ -734,7 +739,8 @@ init_gsea_observers <- function(input, output, session, rv, ns, state,
             minGSSize      = 10,
             maxGSSize      = 500,
             eps            = 0,
-            nPermSimple     = input$numPermutations_GSEA %||% 10000
+            nPermSimple     = input$numPermutations_GSEA %||% 10000,
+            random_seed     = random_seed
           ),
           analysis_timestamp = Sys.time(),
           analysis_type      = "original_calculation"
@@ -916,6 +922,7 @@ init_gsea_observers <- function(input, output, session, rv, ns, state,
 
       # Right-side GSEA configuration controls with non-NULL static defaults.
       updateNumericInput(session, "numPermutations_GSEA", value = 10000)
+      updateNumericInput(session, "randomSeed_GSEA", value = 12345)
       updateSelectInput(session, "RankinkMethod_GSEA", selected = "MWT")
       updateCheckboxInput(session, "absolute_GSEA", value = FALSE)
       updateCheckboxInput(session, "ties_GSEA", value = FALSE)

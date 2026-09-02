@@ -211,6 +211,7 @@ gsea_notify_sequential_fallback <- function(message, debug_level = 0) {
 #' @param p_value_cutoff Numeric; p-value threshold passed to GSEA().
 #' @param DEBUG_LEVEL Integer; logging verbosity.
 #' @param requested_cores Optional integer; forwarded to gsea_get_bpparam().
+#' @param random_seed Integer seed applied immediately before each GSEA attempt.
 #' @param debug_log Optional function(message, level); if provided, used for
 #'   high-level log messages instead of the module-level gsea_debug_log.
 #' @return A gseaResult S4 object with attribute "gsea_workers_used", or NULL.
@@ -220,6 +221,7 @@ run_gsea_analysis <- function(gene_list,
                                p_value_cutoff    = 0.05,
                                DEBUG_LEVEL       = 1,
                                requested_cores   = NULL,
+                               random_seed       = 12345,
                                debug_log         = NULL) {
 
   log <- if (is.function(debug_log)) {
@@ -316,6 +318,7 @@ run_gsea_analysis <- function(gene_list,
 
   t_gsea   <- proc.time()[3]
   gsea_res <- tryCatch({
+    set.seed(as.integer(random_seed))
     gsea_execute(
       geneList       = gene_list,
       TERM2GENE      = gene_sets,
@@ -340,6 +343,7 @@ run_gsea_analysis <- function(gene_list,
       fallback_reason <<- conditionMessage(e)
       tryCatch({
         fallback_bp <- gsea_bp_serial()
+        set.seed(as.integer(random_seed))
         fallback_result <- gsea_execute(
           geneList      = gene_list,
           TERM2GENE     = gene_sets,
@@ -388,6 +392,7 @@ run_gsea_analysis <- function(gene_list,
     execution_mode = execution_mode,
     backend_class = backend_class,
     nPermSimple = as.integer(num_permutations),
+    random_seed = as.integer(random_seed),
     setup_start_duration_seconds = as.numeric(setup_duration),
     gsea_duration_seconds = as.numeric(gsea_elapsed),
     fallback_occurred = fallback_occurred,
