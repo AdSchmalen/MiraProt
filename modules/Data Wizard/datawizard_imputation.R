@@ -32,7 +32,7 @@ modImputationUI <- function(id) {
                column(6,
                       selectInput(
                         ns("imputation_method_select"),
-                        "Imputation Method:",
+                        "Imputation method:",
                         choices = c(
                           "None" = "None",
                           "Left-censored imputation" = "left-censored",
@@ -45,12 +45,22 @@ modImputationUI <- function(id) {
                column(6,
                       selectInput(
                         ns("imputation_column_select"),
-                        "Data Types to Impute:",
+                        "Data type:",
                         choices = character(0),
                         selected = character(0),
                         multiple = TRUE,
                         width = "100%"
                       ))
+             ),
+
+             numericInput(
+               ns("randomSeed_Imputation"),
+               "Random seed:",
+               value = 12345,
+               min = 1,
+               max = .Machine$integer.max,
+               step = 1,
+               width = "100%"
              ),
 
              # Method descriptions

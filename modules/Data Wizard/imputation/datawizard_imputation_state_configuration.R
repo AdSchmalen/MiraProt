@@ -209,6 +209,13 @@
             }
           }
 
+          updateNumericInput(
+            session,
+            "randomSeed_Imputation",
+            value = safe_numeric_check(config$randomSeed_Imputation, 12345)
+          )
+          config$randomSeed_Imputation <- safe_numeric_check(config$randomSeed_Imputation, 12345)
+
           # Update column selection if specified
           if (!is.null(config$imputation_column_select)) {
             column_values <- safe_list_check(config$imputation_column_select, character(0))
@@ -267,6 +274,12 @@
       if (is.null(value) || length(value) == 0) return(default_val)
       if (is.logical(value)) return(value[1])
       return(isTRUE(value))
+    }
+
+    safe_numeric_check <- function(value, default_val = 12345) {
+      value <- suppressWarnings(as.numeric(value)[1])
+      if (!is.finite(value) || value < 1 || value > .Machine$integer.max) return(default_val)
+      as.integer(value)
     }
 
     safe_list_check <- function(value, default_val = character(0)) {
@@ -405,7 +418,8 @@
       tryCatch({
         ui_values <- list(
           imputation_method_select = safe_character_check(input$imputation_method_select, "None"),
-          imputation_column_select = safe_list_check(input$imputation_column_select, character(0))
+          imputation_column_select = safe_list_check(input$imputation_column_select, character(0)),
+          randomSeed_Imputation = safe_numeric_check(input$randomSeed_Imputation, 12345)
         )
 
         debug_log("Extracted UI values for export", 2)
@@ -417,7 +431,8 @@
         # Fallback to internal state
         fallback_values <- list(
           imputation_method_select = last_imputation_method(),
-          imputation_column_select = last_imputation_columns()
+          imputation_column_select = last_imputation_columns(),
+          randomSeed_Imputation = 12345
         )
 
         return(fallback_values)
@@ -431,6 +446,7 @@
           # Standard UI settings with robust extraction
           imputation_method_select = safe_character_check(input$imputation_method_select, "None"),
           imputation_column_select = safe_list_check(input$imputation_column_select, character(0)),
+          randomSeed_Imputation = safe_numeric_check(input$randomSeed_Imputation, 12345),
 
           # Metadata for tracking
           export_timestamp = Sys.time(),
@@ -452,6 +468,7 @@
         return(list(
           imputation_method_select = "None",
           imputation_column_select = character(0),
+          randomSeed_Imputation = 12345,
           export_error = TRUE,
           error_message = e$message
         ))
@@ -466,6 +483,7 @@
           ui_values <- list(
             method = safe_character_check(input$imputation_method_select, "None"),
             columns = safe_list_check(input$imputation_column_select, character(0)),
+            randomSeed_Imputation = safe_numeric_check(input$randomSeed_Imputation, 12345),
             applied = imputation_applied(),
             last_processing_time = last_processing_time(),
             has_results = !is.null(imputation_result())
@@ -481,6 +499,7 @@
           return(list(
             method = last_imputation_method(),
             columns = last_imputation_columns(),
+            randomSeed_Imputation = 12345,
             applied = imputation_applied()
           ))
         })
@@ -502,6 +521,12 @@
         if (isTRUE(config$export_error)) {
           debug_log("Imported configuration has export errors - using partial import", 2)
         }
+
+        updateNumericInput(
+          session,
+          "randomSeed_Imputation",
+          value = safe_numeric_check(config$randomSeed_Imputation, 12345)
+        )
 
         # Safe import with validation for method
         if (!is.null(config$imputation_method_select)) {
@@ -598,6 +623,7 @@
               "current_ui_config"
             )
           }
+          config$randomSeed_Imputation <- safe_numeric_check(config$randomSeed_Imputation, 12345)
           current_ui_config(config)
 
           # Reset flag after processing

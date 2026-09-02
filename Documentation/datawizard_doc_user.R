@@ -1956,16 +1956,17 @@ render_imputation_content <- function() {
       class = "alert alert-info",
       h4("What this module does"),
       p(
-        "Fill missing numeric values for a chosen metadata ", code("Content"), " group (\"Data Types to Impute\"). ",
+        "Fill missing numeric values for a chosen metadata ", code("Content"), " group (\"Data type\"). ",
         "You select a method, pick the group, and run the imputation."
       )
     ),
 
     h3("Workflow"),
     tags$ol(
-      tags$li("Pick an ", strong("Imputation Method"), ": ", code("Left-censored"), ", ", code("Random forest"), ", ", code("MICE - CART"), "."),
+      tags$li("Pick an ", strong("Imputation method"), ": ", code("Left-censored"), ", ", code("Random forest"), ", ", code("MICE - CART"), "."),
       tags$li("Choose the ", strong("Data Type to Impute"), " (a metadata ", code("Content"),
               " with numeric columns that currently have missing values)."),
+      tags$li("Keep the same ", strong("Random seed"), " to reproduce stochastic imputation results; changing it may produce different plausible imputed values."),
       tags$li("Click ", strong("Apply Imputation"), ".")
     ),
 
@@ -1977,9 +1978,10 @@ render_imputation_content <- function() {
       div(
         class = "panel-body",
         tags$ul(
-          tags$li(strong("Imputation Method:"), " ", code("Left-censored"), " | ", code("Random forest"), " | ", code("MICE - CART"), "."),
-          tags$li(strong("Data Types to Impute:"), " dropdown of metadata ", code("Content"),
+          tags$li(strong("Imputation method:"), " ", code("Left-censored"), " | ", code("Random forest"), " | ", code("MICE - CART"), "."),
+          tags$li(strong("Data type:"), " dropdown of metadata ", code("Content"),
                   " groups with numeric missing values."),
+          tags$li(strong("Random seed:"), " defaults to ", code("12345"), " and controls reproducible random draws."),
           tags$li(strong("Apply Imputation:"), " runs the selected method on the selected group.")
         )
       )
