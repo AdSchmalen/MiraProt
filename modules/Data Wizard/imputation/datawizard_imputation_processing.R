@@ -234,9 +234,19 @@
 
           # Update data
           data_success <- FALSE
+          metadata_published_with_data <- FALSE
           tryCatch({
             if (!is.null(set_data) && is.function(set_data)) {
-              data_success <- set_data(result$data)
+              # The generic imputation result is already an exactly ordered,
+              # aligned data/metadata pair. Publish it atomically so observers
+              # can never see the new data with the preceding metadata revision.
+              setter_formals <- names(formals(set_data))
+              metadata_published_with_data <- "metadata" %in% setter_formals || "..." %in% setter_formals
+              data_success <- if (metadata_published_with_data) {
+                set_data(result$data, metadata = result$data_def)
+              } else {
+                set_data(result$data)
+              }
               debug_log(paste("Data update via set_data():", if (data_success) "SUCCESS" else "FAILED"), 1)
             } else if (!is.null(data) && is.reactive(data)) {
               # Direct reactive update
@@ -264,18 +274,17 @@
             stop("Failed to update data - imputation results not saved")
           }
 
-          # Update metadata with enhanced preservation
-          metadata_for_sync <- if (!is.null(result$data_def)) result$data_def else current_data_def
-          synced_metadata <- sync_metadata_to_data_columns(metadata_for_sync, result$data, "Imputed ")
-
-          if (!is.null(synced_metadata)) {
-            result$data_def <- synced_metadata
-            tryCatch({
-              data_def(synced_metadata)
-              debug_log("Metadata synced and updated via data_def()", 2)
-            }, error = function(e) {
-              debug_log(paste("Metadata sync ready but could not update data_def directly:", e$message), 2)
-            })
+          # Preserve the standalone module contract for legacy one-argument
+          # setters. The Data Wizard integration uses the authoritative paired
+          # publication path above and must not independently rebuild metadata.
+          if (!metadata_published_with_data) {
+            synced_metadata <- sync_metadata_to_data_columns(result$data_def, result$data, "Imputed ")
+            if (!is.null(synced_metadata)) {
+              result$data_def <- synced_metadata
+              tryCatch(data_def(synced_metadata), error = function(e) {
+                debug_log(paste("Metadata sync ready but could not update data_def directly:", e$message), 2)
+              })
+            }
           }
 
           debug_log("Metadata handling completed", 2)

@@ -1130,7 +1130,7 @@ initialize_submodules <- function(session, loader_out, core_values, ui_config_va
     get_data = function() {
       return(get_primary_or_processed_data("IMPUTATION"))
     },
-    set_data = function(new_data) {
+    set_data = function(new_data, metadata = NULL) {
       tryCatch({
         # Step 1: Suppress metadata observer during processing
         core_values$metadata_observer_active(FALSE)
@@ -1155,17 +1155,10 @@ initialize_submodules <- function(session, loader_out, core_values, ui_config_va
 
         # Step 3: Update rv$data_mod for table rendering
         if (!is.null(rv) && !is.null(new_data)) {
-          if (!publish_primary_data(new_data, "integration set_data")) return(FALSE)
-          debug_log("IMPUTATION: Updated rv$data_mod directly", level = 1)
+          if (!publish_primary_data(new_data, "integration set_data", metadata = metadata)) return(FALSE)
+          debug_log("IMPUTATION: Published working data and metadata", level = 1)
           debug_log(paste("IMPUTATION: rv$data_mod updated to dimensions:", nrow(new_data), "x", ncol(new_data)), level = 2)
         }
-
-        # Step 4: Update metadata (existing function already works correctly)
-        metadata_functions$update_metadata_for_imputed_columns(new_data)
-        debug_log("IMPUTATION: Metadata updated for new imputed columns", level = 1)
-
-        # Step 5: Sync enhanced metadata to rv$data_def for other modules
-        sync_enhanced_metadata_for_current_data(new_data, "IMPUTATION")
 
         if (core_values$filter_applied()) {
           core_values$filtered_data(NULL)

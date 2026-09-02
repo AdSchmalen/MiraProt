@@ -252,7 +252,11 @@ create_metadata_update_functions <- function(core_values) {
               if (length(original_idx) > 0) {
                 # Copy metadata from original column
                 original_content <- current_meta$Content[original_idx[1]]
-                new_metadata_rows$Content[i] <- paste("Imputed", original_content)
+                if (is.na(original_content) || !nzchar(trimws(original_content))) {
+                  new_metadata_rows$Content[i] <- "Imputed Data"
+                } else {
+                  new_metadata_rows$Content[i] <- paste("Imputed", original_content)
+                }
                 new_metadata_rows$Options[i] <- current_meta$Options[original_idx[1]]
                 # Append the dup suffix to the Sample entry so it remains unique
                 # across repeated imputations of the same abundance type.

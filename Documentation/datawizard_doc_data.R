@@ -653,8 +653,9 @@ render_tech_imputation_content <- function() {
         "The mapping is used by ", tags$code("performGenericImputation()"), " to determine concrete columns."
       ),
       tags$li(
-        "If metadata updates are required downstream, consume ", tags$code("result$data_def"),
-        " from ", tags$code("performGenericImputation()"), " at the integration layer to persist the extended metadata."
+        "Publish ", tags$code("result$data"), " and ", tags$code("result$data_def"),
+        " from ", tags$code("performGenericImputation()"),
+        " together through the integration state adapter. This keeps the canonical working data, metadata, and legacy mirrors on one revision boundary."
       ),
       tags$li(
         "Avoid concurrent runs: the module guards via ", tags$code("processing_active()"),
