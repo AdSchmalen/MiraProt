@@ -87,7 +87,8 @@ safe_go_enrich_slot <- function(obj, slot_name, default = NA) {
       pvalueCutoff = safe_go_enrich_slot(edo, "pvalueCutoff", default = NA),
       qvalueCutoff = safe_go_enrich_slot(edo, "qvalueCutoff", default = NA),
       minGSSize = safe_go_enrich_slot(edo, "minGSSize", default = NA),
-      maxGSSize = safe_go_enrich_slot(edo, "maxGSSize", default = NA)
+      maxGSSize = safe_go_enrich_slot(edo, "maxGSSize", default = NA),
+      random_seed = tryCatch(results$parameters$random_seed, error = function(e) NULL)
     )
   )
 }
@@ -359,6 +360,7 @@ modGOServer <- function(id, rv, debug_level = 0) {
           qvalueCutoff_GO            = tryCatch(input$qvalueCutoff_GO, error = function(e) NULL),
           minGSSize_GO               = tryCatch(input$minGSSize_GO, error = function(e) NULL),
           maxGSSize_GO               = tryCatch(input$maxGSSize_GO, error = function(e) NULL),
+          randomSeed_GO              = tryCatch(input$randomSeed_GO, error = function(e) NULL),
           universe_GO                = tryCatch(input$universe_GO, error = function(e) NULL),
           downloadFormat_GO          = tryCatch(input$downloadFormat_GO, error = function(e) NULL),
           grid_label                 = tryCatch(input$grid_label, error = function(e) NULL)
@@ -530,6 +532,7 @@ modGOServer <- function(id, rv, debug_level = 0) {
           restore_numeric_input("qvalueCutoff_GO", restored_inputs$qvalueCutoff_GO)
           restore_numeric_input("minGSSize_GO", restored_inputs$minGSSize_GO)
           restore_numeric_input("maxGSSize_GO", restored_inputs$maxGSSize_GO)
+          restore_numeric_input("randomSeed_GO", restored_inputs$randomSeed_GO)
         }
 
         restore_scalar_input <- function(id, value, updater = updateSelectInput) {
@@ -573,6 +576,7 @@ modGOServer <- function(id, rv, debug_level = 0) {
           restore_numeric_input("qvalueCutoff_GO", restored_inputs$qvalueCutoff_GO)
           restore_numeric_input("minGSSize_GO", restored_inputs$minGSSize_GO)
           restore_numeric_input("maxGSSize_GO", restored_inputs$maxGSSize_GO)
+          restore_numeric_input("randomSeed_GO", restored_inputs$randomSeed_GO)
           if (!is.null(restored_inputs$universe_GO)) tryCatch(updateTextAreaInput(session, "universe_GO", value = restored_inputs$universe_GO), error = function(e) NULL)
           restore_scalar_input("downloadFormat_GO", restored_inputs$downloadFormat_GO)
           if (!is.null(restored_inputs$grid_label)) tryCatch(updateTextInput(session, "grid_label", value = restored_inputs$grid_label), error = function(e) NULL)

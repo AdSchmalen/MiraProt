@@ -610,9 +610,11 @@ MSD <- function(data, group, DEBUG_LEVEL = 1) {
 #' @param abs_f Logical; take absolute values of ranking scores.
 #' @param ties_f Logical; apply automatic tie resolution.
 #' @param DEBUG_LEVEL Integer; logging verbosity.
+#' @param random_seed Optional integer seed for random tie resolution.
 #' @return Data frame with columns Gene, Rank, FoldChange, sorted descending
 #'   by Rank, or NULL on error.
-calc_ranks_GSEA <- function(df, group, method, abs_f = FALSE, ties_f = FALSE, DEBUG_LEVEL = 1) {
+calc_ranks_GSEA <- function(df, group, method, abs_f = FALSE, ties_f = FALSE,
+                            DEBUG_LEVEL = 1, random_seed = NULL) {
   tryCatch({
     gsea_debug_log(paste("Calculating ranks with method:", method), 1, DEBUG_LEVEL)
 
@@ -668,7 +670,7 @@ calc_ranks_GSEA <- function(df, group, method, abs_f = FALSE, ties_f = FALSE, DE
       } else {
         abs(log2(fold_changes))
       }
-      ranking_vals <- resolve_ties_automatic(ranking_vals, secondary_metrics, gene_names, DEBUG_LEVEL)
+      ranking_vals <- resolve_ties_automatic(ranking_vals, secondary_metrics, gene_names, DEBUG_LEVEL = DEBUG_LEVEL, random_seed = random_seed)
     }
 
     ranks_df <- data.frame(
@@ -796,11 +798,12 @@ apply_padog_weighting <- function(ranks_df, gene_set_file, DEBUG_LEVEL = 1) {
 #' @param valid_g Character; validation logic string.
 #' @param impute_list Named list; optional imputation values.
 #' @param DEBUG_LEVEL Integer; logging verbosity.
+#' @param random_seed Optional integer seed for random tie resolution.
 #' @return Named list with elements Ranks and FC (named numeric vectors), or NULL.
 compute_custom_ranks_GSEA <- function(raw, def, nums, dens, id_col, ref_val, method,
                                        abs_f, ties_f, padog_f, gene_set_file,
                                        valid_n, valid_g, impute_list = NULL,
-                                       DEBUG_LEVEL = 1) {
+                                       DEBUG_LEVEL = 1, random_seed = NULL) {
   tryCatch({
     gsea_debug_log("Starting custom rank computation", 1, DEBUG_LEVEL)
 
@@ -847,7 +850,7 @@ compute_custom_ranks_GSEA <- function(raw, def, nums, dens, id_col, ref_val, met
     }
 
     ranks_df <- calc_ranks_GSEA(gsea_data$df, gsea_data$group, method,
-                                 abs_f, ties_f, DEBUG_LEVEL)
+                                 abs_f, ties_f, DEBUG_LEVEL = DEBUG_LEVEL, random_seed = random_seed)
     if (is.null(ranks_df)) {
       gsea_debug_log("Failed to calculate ranks", 1, DEBUG_LEVEL)
       return(NULL)
@@ -907,10 +910,11 @@ compute_custom_ranks_GSEA <- function(raw, def, nums, dens, id_col, ref_val, met
 #' @param padog_f Logical; apply PADOG weighting.
 #' @param gene_set_file Character or NULL; path to GMT file for PADOG.
 #' @param DEBUG_LEVEL Integer; logging verbosity.
+#' @param random_seed Optional integer seed for random tie resolution.
 #' @return Named list with elements Ranks and FC (named numeric vectors), or NULL.
 compute_precalculated_ranks_GSEA <- function(raw, def, ab_ratio_col, pval_col, id_col,
                                               metric, abs_f, ties_f, padog_f = FALSE,
-                                              gene_set_file = NULL, DEBUG_LEVEL = 1) {
+                                              gene_set_file = NULL, DEBUG_LEVEL = 1, random_seed = NULL) {
   tryCatch({
     gsea_debug_log("Starting precalculated rank computation", 1, DEBUG_LEVEL)
 
@@ -969,7 +973,7 @@ compute_precalculated_ranks_GSEA <- function(raw, def, ab_ratio_col, pval_col, i
         "log2 Ratio x -log10(p-Value)" = pmax(df$log2FC, df$negLogP),
         df$negLogP
       )
-      ranking_vals <- resolve_ties_automatic(ranking_vals, secondary_metrics, df$Gene, DEBUG_LEVEL)
+      ranking_vals <- resolve_ties_automatic(ranking_vals, secondary_metrics, df$Gene, DEBUG_LEVEL = DEBUG_LEVEL, random_seed = random_seed)
     }
 
     ranks_df <- data.frame(
@@ -1077,9 +1081,10 @@ generate_safe_seed <- function(gene_names = NULL, fallback_seed = 12345) {
 #' @param secondary_values Numeric vector of same length, or NULL.
 #' @param gene_names Character vector or NULL; used for reproducible jitter seed.
 #' @param DEBUG_LEVEL Integer; logging verbosity.
+#' @param random_seed Optional explicit integer seed.
 #' @return Numeric vector with ties resolved.
 resolve_ties_hierarchical <- function(primary_values, secondary_values = NULL,
-                                       gene_names = NULL, DEBUG_LEVEL = 1) {
+                                       gene_names = NULL, DEBUG_LEVEL = 1, random_seed = NULL) {
   gsea_debug_log("Resolving ties using hierarchical method", 2, DEBUG_LEVEL)
 
   result_values <- primary_values
@@ -1104,7 +1109,7 @@ resolve_ties_hierarchical <- function(primary_values, secondary_values = NULL,
 
   remaining_tied <- duplicated(result_values) | duplicated(result_values, fromLast = TRUE)
   if (any(remaining_tied)) {
-    seed_value <- generate_safe_seed(gene_names, 12345)
+    seed_value <- if (is.null(random_seed)) generate_safe_seed(gene_names, 12345) else as.integer(random_seed)
     set.seed(seed_value)
     tied_values <- unique(result_values[remaining_tied])
     for (tied_val in tied_values) {
@@ -1126,11 +1131,12 @@ resolve_ties_hierarchical <- function(primary_values, secondary_values = NULL,
 #' @param primary_values Numeric vector.
 #' @param gene_names Character vector or NULL; used for reproducible seed.
 #' @param DEBUG_LEVEL Integer; logging verbosity.
+#' @param random_seed Optional explicit integer seed.
 #' @return Numeric vector with ties resolved.
-resolve_ties_reproducible_jitter <- function(primary_values, gene_names = NULL, DEBUG_LEVEL = 1) {
+resolve_ties_reproducible_jitter <- function(primary_values, gene_names = NULL, DEBUG_LEVEL = 1, random_seed = NULL) {
   gsea_debug_log("Resolving ties using reproducible jitter", 2, DEBUG_LEVEL)
 
-  seed_value <- generate_safe_seed(gene_names, 12345)
+  seed_value <- if (is.null(random_seed)) generate_safe_seed(gene_names, 12345) else as.integer(random_seed)
   set.seed(seed_value)
 
   result_values <- primary_values
@@ -1163,9 +1169,10 @@ resolve_ties_reproducible_jitter <- function(primary_values, gene_names = NULL, 
 #' @param secondary_values Numeric vector of same length, or NULL.
 #' @param gene_names Character vector or NULL.
 #' @param DEBUG_LEVEL Integer; logging verbosity.
+#' @param random_seed Optional explicit integer seed.
 #' @return Numeric vector with ties resolved.
 resolve_ties_automatic <- function(primary_values, secondary_values = NULL,
-                                    gene_names = NULL, DEBUG_LEVEL = 1) {
+                                    gene_names = NULL, DEBUG_LEVEL = 1, random_seed = NULL) {
   gsea_debug_log("Automatic tie resolution method selection", 2, DEBUG_LEVEL)
 
   has_secondary <- !is.null(secondary_values) &&
@@ -1174,11 +1181,11 @@ resolve_ties_automatic <- function(primary_values, secondary_values = NULL,
 
   if (has_secondary) {
     gsea_debug_log("Using hierarchical method (secondary metrics available)", 2, DEBUG_LEVEL)
-    return(resolve_ties_hierarchical(primary_values, secondary_values, gene_names, DEBUG_LEVEL))
+    return(resolve_ties_hierarchical(primary_values, secondary_values, gene_names, DEBUG_LEVEL = DEBUG_LEVEL, random_seed = random_seed))
   }
 
   gsea_debug_log("Using reproducible jitter (no secondary metrics)", 2, DEBUG_LEVEL)
-  resolve_ties_reproducible_jitter(primary_values, gene_names, DEBUG_LEVEL)
+  resolve_ties_reproducible_jitter(primary_values, gene_names, DEBUG_LEVEL = DEBUG_LEVEL, random_seed = random_seed)
 }
 
 #' Resolve ties in ranking values for display purposes only

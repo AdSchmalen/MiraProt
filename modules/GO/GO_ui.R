@@ -407,6 +407,14 @@ GO_UI <- function(ns) {
                )
              ),
 
+             numericInput(ns("randomSeed_GO"),
+                          "Random seed:",
+                          value = 12345,
+                          min = 1,
+                          max = 2147483647,
+                          step = 1,
+                          width = "100%"),
+
              # Organism and Key Type
              selectInput(ns("keyType_GO"),
                          "Key type:",

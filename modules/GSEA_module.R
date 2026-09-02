@@ -287,6 +287,7 @@ GSEA_module_server <- function(id, rv, debug_level = 0, modEnv = new.env()) {
             ties_GSEA_precalc = tryCatch(input$ties_GSEA_precalc, error = function(e) NULL),
             PADOG_GSEA_precalc = tryCatch(input$PADOG_GSEA_precalc, error = function(e) NULL),
             numPermutations_GSEA = tryCatch(input$numPermutations_GSEA, error = function(e) NULL),
+            randomSeed_GSEA = tryCatch(input$randomSeed_GSEA, error = function(e) NULL),
             cnet_layout_method = tryCatch(input$cnet_layout_method, error = function(e) NULL),
             cnet_node_size = tryCatch(input$cnet_node_size, error = function(e) NULL),
             emap_layout = tryCatch(input$emap_layout, error = function(e) NULL),
@@ -394,6 +395,7 @@ GSEA_module_server <- function(id, rv, debug_level = 0, modEnv = new.env()) {
           if (!is.null(restored_inputs$ties_GSEA_precalc)) tryCatch(updateCheckboxInput(session, "ties_GSEA_precalc", value = isTRUE(restored_inputs$ties_GSEA_precalc)), error = function(e) NULL)
           if (!is.null(restored_inputs$PADOG_GSEA_precalc)) tryCatch(updateCheckboxInput(session, "PADOG_GSEA_precalc", value = isTRUE(restored_inputs$PADOG_GSEA_precalc)), error = function(e) NULL)
           restore_numeric("numPermutations_GSEA", restored_inputs$numPermutations_GSEA)
+          restore_numeric("randomSeed_GSEA", restored_inputs$randomSeed_GSEA)
           restore_numeric("cnet_layout_method", restored_inputs$cnet_layout_method)
           restore_numeric("cnet_node_size", restored_inputs$cnet_node_size)
           restore_numeric("emap_layout", restored_inputs$emap_layout)

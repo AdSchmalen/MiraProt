@@ -71,6 +71,7 @@ render_GSEA_tech_functions_content_GSEA_v2 <- function() {
       tags$li(code("AbundanceRatio_GSEA_precalc"), ", ", code("pVal_GSEA_precalc"), ": Precalculated statistics selectors."),
       tags$li(code("custom_Enrich_select"), ": selected pathways."),
       tags$li(code("numPermutations_GSEA"), ": defaults to 10,000 and is passed to ", code("run_gsea_analysis()"), " as ", code("nPermSimple"), "."),
+      tags$li(code("randomSeed_GSEA"), ": integer input (default 12345). It is threaded into random tie resolution and ", code("run_gsea_analysis()"), ", which resets the RNG immediately before both the primary clusterProfiler/fgsea call and sequential fallback. ", code("seed = TRUE"), " remains enabled so clusterProfiler derives and reapplies its internal fgsea seed reproducibly from the selected RNG state. The effective seed is retained in analysis/execution metadata and the input is saved/restored through the module session contract."),
       tags$li("Legacy restore reads ", code("RankingMetric_GSEA_precalc"), " when ", code("GSEA_type_select == \"Precalculated Ranking\""), " or ", code("RankinkMethod_GSEA == \"Precalculated statistics\""), "; sample-derived sessions retain their saved method.")
     ),
     h4("Plot controls"),

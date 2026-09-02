@@ -81,6 +81,12 @@ render_GO_tech_overview_content_GO <- function() {
         )
       )
     ),
+    h3("Random-seed execution"),
+    tags$ul(
+      tags$li(code("randomSeed_GO"), " is an integer input with default 12345."),
+      tags$li(code("run_go_analysis()"), " calls ", code("set.seed()"), " immediately before ", code("perform_go_enrichment()"), "; subsequent automatic result preparation, tree construction, and initial plotting therefore inherit that analysis RNG stream unless a downstream library manages its own RNG."),
+      tags$li("The effective seed is stored in ", code("go_results$parameters$random_seed"), ", copied into the stable result snapshot, and the numeric input is saved/restored by ", code("get_session_state()"), "/", code("set_session_state()"), ". The deterministic enrichGO over-representation calculation is not made random by this setting.")
+    ),
     h3("Result objects used across the module"),
     tags$ul(
       tags$li(code("go_results$Edo_GO"), ": canonical enrichment result object."),

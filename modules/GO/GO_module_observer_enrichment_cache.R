@@ -37,6 +37,7 @@ observeEvent(input$resetButton_GO, {
     updateNumericInput(session, "qvalueCutoff_GO", value = 0.2)
     updateNumericInput(session, "minGSSize_GO", value = 10)
     updateNumericInput(session, "maxGSSize_GO", value = 500)
+    updateNumericInput(session, "randomSeed_GO", value = 12345)
     updateSelectInput(session, "keyType_GO", selected = "SYMBOL")
     updateSelectInput(session, "OrgDb_GO", selected = "Homo.sapiens")
     updateTextAreaInput(session, "universe_GO", value = "")
@@ -287,6 +288,8 @@ run_go_analysis <- function(cache_policy = c("normal", "use_stale", "refresh"), 
 
       setProgress(value = 0.45, detail = "Running GO enrichment")
 
+      random_seed <- as.integer(input$randomSeed_GO %||% 12345)
+      set.seed(random_seed)
       edo <- perform_go_enrichment(
         genes          = enrichment_inputs$genes,
         annotations    = annotations,
@@ -324,6 +327,7 @@ run_go_analysis <- function(cache_policy = c("normal", "use_stale", "refresh"), 
         debug_log   = debug_log
       )
 
+      results_list$parameters <- list(random_seed = random_seed)
       GO_Result_List(results_list)
       go_results_ready_for_fallback(TRUE)
       go_initial_selection_applied(FALSE)

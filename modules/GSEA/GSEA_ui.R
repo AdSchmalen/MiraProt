@@ -621,6 +621,16 @@ GSEA_ui_definition <- function(ns) {
             max = 10000,
             step = 100,
             width = "100%"
+          ),
+
+          numericInput(
+            ns("randomSeed_GSEA"),
+            "Random seed:",
+            value = 12345,
+            min = 1,
+            max = 2147483647,
+            step = 1,
+            width = "100%"
           )
         ),
         br(),
