@@ -385,20 +385,29 @@ The developer guide documents the portable architecture, launcher, caches, packa
 
 ## Citation
 
-If you use MiraProt in research, please cite the software version used for the analysis and the associated MiraProt publication when available.
+## Citation
 
-The associated manuscript is currently in preparation:
+If you use MiraProt in research, please cite the MiraProt software release used for your analysis and the associated MiraProt publication.
 
-> **Interactive downstream proteomics analysis with MiraProt using Müller cell proteomes from equine recurrent uveitis**  
-> Adrian Schmalen, Amelie B. Fleischer, Barbara M. Riedel, Cornelia A. Deeg
-
-Machine-readable software citation metadata are provided in:
+Machine-readable citation metadata are provided in:
 
 ```text
 CITATION.cff
 ```
 
-A version-specific archival DOI and the publication DOI can be added to the citation metadata when they become available.
+For MiraProt v1.0.0, the archived software release is available through Zenodo:
+
+> Adrian Schmalen. MiraProt (v1.0.0). Zenodo.
+> https://doi.org/10.5281/zenodo.22110860
+
+The associated MiraProt manuscript is:
+
+> **Interactive downstream proteomics analysis with MiraProt using Müller cell proteomes from equine recurrent uveitis**
+> Adrian Schmalen, Amelie B. Fleischer, Barbara M. Riedel, Cornelia A. Deeg
+> bioRxiv
+> https://doi.org/10.64898/2026.08.27.747296
+
+For reproducible analyses, cite the specific MiraProt version used and retain the corresponding software release information.
 
 When external resources or methods such as MSigDB, STRING, Ensembl, AnnotationHub, or individual R/Bioconductor packages make a substantive contribution to an analysis, cite those resources as appropriate.
 
