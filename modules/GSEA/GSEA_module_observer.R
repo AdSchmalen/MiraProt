@@ -806,10 +806,11 @@ init_gsea_observers <- function(input, output, session, rv, ns, state,
             " | Min GS size: %s",
             " | Max GS size: %s",
             " | nPermSimple: %s",
-            " | Input genes: %d"
+            " | Input genes: %d",
+            " | Random seed: %s"
           ),
           db_l0, ranking_desc_l0, pval_cut_l0, padj_l0,
-          mingss_l0, maxgss_l0, nperm_l0, n_input_l0
+          mingss_l0, maxgss_l0, nperm_l0, n_input_l0, random_seed
         ),
         level = 0
       )

@@ -376,7 +376,8 @@
               " | Median of imputed values: %s",
               " | Median before imputation: %s",
               " | Median after imputation: %s",
-              " | Dataset size: %d x %d"
+              " | Dataset size: %d x %d",
+              " | Random seed: %s"
             ),
             as.character(selected_method),
             length(selected_columns),
@@ -386,7 +387,8 @@
             fmt_num(median_before),
             fmt_num(median_after),
             nrow(result$data),
-            ncol(result$data)
+            ncol(result$data),
+            random_seed
           ),
           level = 0
         )

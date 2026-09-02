@@ -837,7 +837,7 @@ perform_go_enrichment <- function(genes, annotations, keyType, ont, pAdjustMetho
 #' @param keyType key type for gene identifiers
 #' @param debug_log logging function
 #' @return list with results and processed data
-create_go_results_list_direct <- function(edo, go_data, annotations = NULL, keyType = "SYMBOL",
+create_go_results_list_direct <- function(edo, go_data, annotations = NULL, keyType = "SYMBOL", random_seed,
                                           debug_log = function(message, level = 1) {}) {
 
   debug_log("Creating GO results list", 1)
@@ -933,12 +933,13 @@ create_go_results_list_direct <- function(edo, go_data, annotations = NULL, keyT
         " | Min GS size: %s",
         " | Max GS size: %s",
         " | Input protein rows: %d",
-        " | Unique input proteins: %d"
+        " | Unique input proteins: %d",
+        " | Random seed: %s"
       ),
       org_l0, ont_l0, keyType,
       pval_cut_l0, qval_cut_l0, padj_l0,
       mingss_l0, maxgss_l0,
-      n_input_rows_l0, n_input_l0
+      n_input_rows_l0, n_input_l0, random_seed
     ),
     level = 0
   )
