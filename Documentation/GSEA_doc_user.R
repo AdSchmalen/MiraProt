@@ -110,8 +110,8 @@ render_GSEA_overview_content_GSEA <- function() {
       class = "alert alert-info",
       p(
         strong("Choose a Ranking Method: "),
-        "Ordinary methods calculate ranks from the selected sample groups. ",
-        "Precalculated statistics uses existing abundance-ratio and p/q-value columns with the selected ranking metric."
+        "The single Ranking Method dropdown includes ordinary methods, which calculate ranks from selected sample groups. ",
+        "Selecting log2(FC), log2(FC) x -log10(p), or -log10(p) instead uses existing abundance-ratio and p/q-value columns."
       )
     ),
 
@@ -141,7 +141,7 @@ render_GSEA_overview_content_GSEA <- function() {
       tags$ol(
         tags$li("Load data (identifier column + abundance ratio + p‑value column) in the Data Wizard."),
         tags$li("Select the matching identifier column."),
-        tags$li("Choose Precalculated statistics, select the abundance-ratio and p/q-value columns, and choose a Ranking Metric:"),
+        tags$li("In Ranking Method, choose log2(FC), log2(FC) x -log10(p), or -log10(p), then select the abundance-ratio and p/q-value columns:"),
         tags$ul(
           tags$li(strong("Abundance ratio:"), "auto log2 transform used as ranking metric."),
           tags$li(strong("P‑value:"), "converted to a score (e.g. −log10)."),
@@ -297,20 +297,20 @@ render_GSEA_dataselection_plotting_content_GSEA <- function() {
             tags$li(strong("Ranking Method:" ),
                     tags$ul(
                       tags$li(strong("Sample-derived methods:"), " the app computes advanced ranking scores from your abundance values (recommended when you provide raw abundances). These scores use established ranking metrics from the literature to combine effect size and significance for a more informed ordering."),
-                      tags$li(strong("Precalculated statistics:"), " select existing columns from your table. The module supports three sensible ranking metrics:"),
+                      tags$li(strong("Precalculated metrics:"), " select log2(FC), log2(FC) x -log10(p), or -log10(p) to use existing columns from your table:"),
                       tags$ul(
                         tags$li(strong("Abundance ratio:"), " an abundance ratio column will be converted to log2 and used as the ranking metric."),
                         tags$li(strong("P‑value:"), " a chosen p‑value column can be used (the module transforms it to a score)."),
                         tags$li(strong("Combined score:"), " when both an abundance ratio and a p‑value are selected, the module can combine them into a single ranking score (log2FC × −log10(p‑value))).")
                       ),
-                      tags$li("Important: arbitrary unrelated columns are not treated as valid ranking metrics unless they were explicitly prepared as ranking scores in the Data Wizard. When you choose Precalculated statistics, pick an abundance ratio or p‑value column (or both) so the module interprets them correctly.")
+                      tags$li("Important: arbitrary unrelated columns are not treated as valid ranking metrics unless they were explicitly prepared as ranking scores in the Data Wizard. For a precalculated metric, pick an abundance ratio or p‑value column (or both) so the module interprets them correctly.")
                     )
             )
           )
         ),
         div(
           class = "alert alert-info",
-          HTML("<strong>Note:</strong> Ordinary Ranking Methods derive scores from selected sample groups; Precalculated statistics uses the selected abundance-ratio and p/q-value columns plus the Ranking Metric.")
+          HTML("<strong>Note:</strong> The single Ranking Method dropdown switches between sample-group inputs for ordinary methods and abundance-ratio/p/q-value columns for the three precalculated metrics.")
         )
       ),
 

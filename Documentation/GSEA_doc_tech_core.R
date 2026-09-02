@@ -111,8 +111,8 @@ render_GSEA_tech_core_dataproc_content_GSEA <- function() {
       tags$li(code("rv$data_mod"), " and ", code("rv$data_def"), " are the required shared app inputs."),
       tags$li(code("input$fileSelector_GSEA"), ": selected GMT file name used to construct the local gene set path."),
       tags$li(code("input$Identifier_GSEA"), ": selected identifier column used by ranking functions."),
-      tags$li(code("input$RankinkMethod_GSEA"), ": single dispatch control; ", code("Precalculated statistics"), " selects ", code("compute_precalculated_ranks_GSEA()"), ", while all other values resolve through ", code("rank_methods"), " and select ", code("compute_custom_ranks_GSEA()"), "."),
-      tags$li("Session restore maps legacy ", code("GSEA_type_select == \"Precalculated Ranking\""), " to ", code("RankinkMethod_GSEA == \"Precalculated statistics\""), " while restoring legacy custom-method selections normally.")
+      tags$li(code("input$RankinkMethod_GSEA"), ": single dispatch control; ", code("log2(FC)"), ", ", code("log2(FC) x -log10(p)"), ", and ", code("-log10(p)"), " select ", code("compute_precalculated_ranks_GSEA()"), " and are passed directly as its ", code("metric"), ". All other values resolve through ", code("rank_methods"), " and select ", code("compute_custom_ranks_GSEA()"), "."),
+      tags$li("Session restore reads ", code("RankingMetric_GSEA_precalc"), " for legacy ", code("GSEA_type_select == \"Precalculated Ranking\""), " and intermediate ", code("RankinkMethod_GSEA == \"Precalculated statistics\""), " states; sample-derived methods restore normally.")
     )
   )
 }

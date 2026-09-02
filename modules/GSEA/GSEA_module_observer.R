@@ -65,6 +65,7 @@ init_gsea_observers <- function(input, output, session, rv, ns, state,
 
   # Module-level constant for the Sheet 5 name used by the GSEA export system
   GSEA_SHEET5_NAME <- "GSEA_Analysis"
+  precalculated_metrics <- c("log2(FC)", "log2(FC) x -log10(p)", "-log10(p)")
 
   # Unpack state for convenience
   data_modified               <- state$data_modified
@@ -535,7 +536,7 @@ init_gsea_observers <- function(input, output, session, rv, ns, state,
     def <- df_data_definition_post_mod()
     req(has_gsea_metadata_ready_content(def))
 
-    if (identical(input$RankinkMethod_GSEA, "Precalculated statistics")) {
+    if (isTRUE(input$RankinkMethod_GSEA %in% precalculated_metrics)) {
       ratio_choices <- gsea_get_ratio_choices(def)
       pval_choices  <- gsea_get_pvalue_choices(def, input$AbundanceRatio_GSEA_precalc)
       if (length(ratio_choices) == 0) return("Warning: No abundance ratio columns found")
@@ -589,17 +590,17 @@ init_gsea_observers <- function(input, output, session, rv, ns, state,
 
       setProgress(value = 0.2, detail = "Computing rankings...")
 
-      if (identical(input$RankinkMethod_GSEA, "Precalculated statistics")) {
+      if (isTRUE(input$RankinkMethod_GSEA %in% precalculated_metrics)) {
         debug_log("Using precalculated ranking method", 2)
         req(input$AbundanceRatio_GSEA_precalc, input$pVal_GSEA_precalc,
-            input$Identifier_GSEA, input$RankingMetric_GSEA_precalc)
+            input$Identifier_GSEA, input$RankinkMethod_GSEA)
 
         ranking_result <- compute_precalculated_ranks_GSEA(
           raw, def,
           input$AbundanceRatio_GSEA_precalc,
           input$pVal_GSEA_precalc,
           input$Identifier_GSEA,
-          input$RankingMetric_GSEA_precalc,
+          input$RankinkMethod_GSEA,
           input$absolute_GSEA_precalc,
           input$ties_GSEA_precalc,
           input$PADOG_GSEA_precalc,
@@ -738,12 +739,12 @@ init_gsea_observers <- function(input, output, session, rv, ns, state,
           analysis_timestamp = Sys.time(),
           analysis_type      = "original_calculation"
         ),
-        if (identical(input$RankinkMethod_GSEA, "Precalculated statistics")) {
+        if (isTRUE(input$RankinkMethod_GSEA %in% precalculated_metrics)) {
           list(
             ranking_type   = "Precalculated statistics",
             ab_ratio_col   = input$AbundanceRatio_GSEA_precalc,
             pval_col       = input$pVal_GSEA_precalc,
-            ranking_metric = input$RankingMetric_GSEA_precalc
+            ranking_metric = input$RankinkMethod_GSEA
           )
         } else {
           list(
@@ -921,7 +922,6 @@ init_gsea_observers <- function(input, output, session, rv, ns, state,
       updateCheckboxInput(session, "PADOG_GSEA", value = FALSE)
       updateNumericInput(session, "gsea_min_valid_values", value = 1)
       updateSelectInput(session, "gsea_validation_rule", selected = "In total")
-      updateSelectInput(session, "RankingMetric_GSEA_precalc", selected = "log2(FC) x -log10(p)")
       updateCheckboxInput(session, "absolute_GSEA_precalc", value = FALSE)
       updateCheckboxInput(session, "ties_GSEA_precalc", value = FALSE)
       updateCheckboxInput(session, "PADOG_GSEA_precalc", value = FALSE)
@@ -1342,7 +1342,6 @@ init_gsea_observers <- function(input, output, session, rv, ns, state,
       Identifier_GSEA = id_choices,
       AbundanceRatio_GSEA_precalc = ratio_choices,
       pVal_GSEA_precalc = pval_choices,
-      RankingMetric_GSEA_precalc = c("log2(FC)", "log2(FC) x -log10(p)", "-log10(p)"),
       RefenceValues_GSEA = ref_choices,
       numeratorSel_GSEA = sample_choices,
       denominatorSel_GSEA = sample_choices
@@ -1401,7 +1400,6 @@ init_gsea_observers <- function(input, output, session, rv, ns, state,
         gsea_value_in_choices(saved$Identifier_GSEA, metadata_choices$Identifier_GSEA) &&
         gsea_value_in_choices(saved$AbundanceRatio_GSEA_precalc, metadata_choices$AbundanceRatio_GSEA_precalc) &&
         gsea_value_in_choices(saved$pVal_GSEA_precalc, metadata_choices$pVal_GSEA_precalc) &&
-        gsea_value_in_choices(saved$RankingMetric_GSEA_precalc, metadata_choices$RankingMetric_GSEA_precalc) &&
         gsea_value_in_choices(saved$RefenceValues_GSEA, metadata_choices$RefenceValues_GSEA) &&
         gsea_value_in_choices(saved$numeratorSel_GSEA, metadata_choices$numeratorSel_GSEA) &&
         gsea_value_in_choices(saved$denominatorSel_GSEA, metadata_choices$denominatorSel_GSEA)
@@ -1438,7 +1436,6 @@ init_gsea_observers <- function(input, output, session, rv, ns, state,
       updateSelectInput(session, "Identifier_GSEA", choices = metadata_choices$Identifier_GSEA, selected = saved$Identifier_GSEA)
       updateSelectInput(session, "AbundanceRatio_GSEA_precalc", choices = metadata_choices$AbundanceRatio_GSEA_precalc, selected = saved$AbundanceRatio_GSEA_precalc)
       updateSelectInput(session, "pVal_GSEA_precalc", choices = metadata_choices$pVal_GSEA_precalc, selected = saved$pVal_GSEA_precalc)
-      updateSelectInput(session, "RankingMetric_GSEA_precalc", choices = metadata_choices$RankingMetric_GSEA_precalc, selected = saved$RankingMetric_GSEA_precalc)
       updateSelectInput(session, "RefenceValues_GSEA", choices = metadata_choices$RefenceValues_GSEA, selected = saved$RefenceValues_GSEA)
       updateSelectizeInput(session, "numeratorSel_GSEA", choices = metadata_choices$numeratorSel_GSEA, selected = saved$numeratorSel_GSEA, server = TRUE)
       updateSelectizeInput(session, "denominatorSel_GSEA", choices = metadata_choices$denominatorSel_GSEA, selected = saved$denominatorSel_GSEA, server = TRUE)
@@ -1446,7 +1443,13 @@ init_gsea_observers <- function(input, output, session, rv, ns, state,
 
       restore_select <- function(id, value) if (!is.null(value) && length(value) > 0L) tryCatch(updateSelectInput(session, id, selected = value), error = function(e) NULL)
       restore_numeric <- function(id, value) if (!is.null(value) && length(value) == 1L && !is.na(suppressWarnings(as.numeric(value)))) tryCatch(updateNumericInput(session, id, value = value), error = function(e) NULL)
-      restore_select("RankinkMethod_GSEA", if (identical(saved$GSEA_type_select, "Precalculated Ranking")) "Precalculated statistics" else saved$RankinkMethod_GSEA)
+      restored_ranking_method <- if (identical(saved$GSEA_type_select, "Precalculated Ranking") ||
+                                     identical(saved$RankinkMethod_GSEA, "Precalculated statistics")) {
+        saved$RankingMetric_GSEA_precalc
+      } else {
+        saved$RankinkMethod_GSEA
+      }
+      restore_select("RankinkMethod_GSEA", restored_ranking_method)
       restore_select("plot_type_GSEA", saved$plot_type_GSEA)
       tryCatch(colourpicker::updateColourInput(session, "GSEAColorInput_down", value = saved$GSEAColorInput_down), error = function(e) NULL)
       tryCatch(colourpicker::updateColourInput(session, "GSEAColorInput_zero", value = saved$GSEAColorInput_zero), error = function(e) NULL)
