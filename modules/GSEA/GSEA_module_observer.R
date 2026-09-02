@@ -535,17 +535,17 @@ init_gsea_observers <- function(input, output, session, rv, ns, state,
     def <- df_data_definition_post_mod()
     req(has_gsea_metadata_ready_content(def))
 
-    if (input$GSEA_type_select == "Custom Ranking") {
-      req(input$RefenceValues_GSEA)
-      sample_choices <- gsea_get_sample_choices(def, input$RefenceValues_GSEA)
-      if (length(sample_choices) < 4) {
-        return("Warning: Need at least 4 samples (2 per group) for custom ranking analysis")
-      }
-    } else {
+    if (identical(input$RankinkMethod_GSEA, "Precalculated statistics")) {
       ratio_choices <- gsea_get_ratio_choices(def)
       pval_choices  <- gsea_get_pvalue_choices(def, input$AbundanceRatio_GSEA_precalc)
       if (length(ratio_choices) == 0) return("Warning: No abundance ratio columns found")
       if (length(pval_choices)  == 0) return("Warning: No p-value columns found")
+    } else {
+      req(input$RefenceValues_GSEA)
+      sample_choices <- gsea_get_sample_choices(def, input$RefenceValues_GSEA)
+      if (length(sample_choices) < 4) {
+        return("Warning: Need at least 4 samples (2 per group) for sample-derived ranking")
+      }
     }
     ""
   })
@@ -589,8 +589,26 @@ init_gsea_observers <- function(input, output, session, rv, ns, state,
 
       setProgress(value = 0.2, detail = "Computing rankings...")
 
-      if (input$GSEA_type_select == "Custom Ranking") {
-        debug_log("Using custom ranking method", 2)
+      if (identical(input$RankinkMethod_GSEA, "Precalculated statistics")) {
+        debug_log("Using precalculated ranking method", 2)
+        req(input$AbundanceRatio_GSEA_precalc, input$pVal_GSEA_precalc,
+            input$Identifier_GSEA, input$RankingMetric_GSEA_precalc)
+
+        ranking_result <- compute_precalculated_ranks_GSEA(
+          raw, def,
+          input$AbundanceRatio_GSEA_precalc,
+          input$pVal_GSEA_precalc,
+          input$Identifier_GSEA,
+          input$RankingMetric_GSEA_precalc,
+          input$absolute_GSEA_precalc,
+          input$ties_GSEA_precalc,
+          input$PADOG_GSEA_precalc,
+          file.path("./GSEA", input$fileSelector_GSEA),
+          DEBUG_LEVEL
+        )
+
+      } else {
+        debug_log("Using sample-derived ranking method", 2)
         req(input$numeratorSel_GSEA, input$denominatorSel_GSEA,
             input$RefenceValues_GSEA, input$RankinkMethod_GSEA)
 
@@ -640,24 +658,6 @@ init_gsea_observers <- function(input, output, session, rv, ns, state,
           valid_n_num,
           valid_g_val,
           impute_arg,
-          DEBUG_LEVEL
-        )
-
-      } else {
-        debug_log("Using precalculated ranking method", 2)
-        req(input$AbundanceRatio_GSEA_precalc, input$pVal_GSEA_precalc,
-            input$Identifier_GSEA, input$RankingMetric_GSEA_precalc)
-
-        ranking_result <- compute_precalculated_ranks_GSEA(
-          raw, def,
-          input$AbundanceRatio_GSEA_precalc,
-          input$pVal_GSEA_precalc,
-          input$Identifier_GSEA,
-          input$RankingMetric_GSEA_precalc,
-          input$absolute_GSEA_precalc,
-          input$ties_GSEA_precalc,
-          input$PADOG_GSEA_precalc,
-          file.path("./GSEA", input$fileSelector_GSEA),
           DEBUG_LEVEL
         )
       }
@@ -733,22 +733,22 @@ init_gsea_observers <- function(input, output, session, rv, ns, state,
             minGSSize      = 10,
             maxGSSize      = 500,
             eps            = 0,
-            nPermSimple     = input$numPermutations_GSEA %||% 1000
+            nPermSimple     = input$numPermutations_GSEA %||% 10000
           ),
           analysis_timestamp = Sys.time(),
           analysis_type      = "original_calculation"
         ),
-        if (input$GSEA_type_select == "Custom Ranking") {
+        if (identical(input$RankinkMethod_GSEA, "Precalculated statistics")) {
           list(
-            ranking_type        = "Custom Ranking",
-            ranking_method_name = input$RankinkMethod_GSEA
-          )
-        } else {
-          list(
-            ranking_type   = "Precalculated Ranking",
+            ranking_type   = "Precalculated statistics",
             ab_ratio_col   = input$AbundanceRatio_GSEA_precalc,
             pval_col       = input$pVal_GSEA_precalc,
             ranking_metric = input$RankingMetric_GSEA_precalc
+          )
+        } else {
+          list(
+            ranking_type        = "Sample-derived",
+            ranking_method_name = input$RankinkMethod_GSEA
           )
         }
       )
@@ -777,11 +777,11 @@ init_gsea_observers <- function(input, output, session, rv, ns, state,
           current_metadata$analysis_params$numPermutations
       ), error = function(e) NA_character_)
       n_input_l0   <- tryCatch(length(complete_result$GeneList), error = function(e) NA_integer_)
-      ranking_desc_l0 <- if (isTRUE(ranking_type == "Custom Ranking")) {
-        sprintf("Ranking: Custom Ranking | Method: %s",
+      ranking_desc_l0 <- if (isTRUE(ranking_type == "Sample-derived")) {
+        sprintf("Ranking method: %s",
                 tryCatch(current_metadata$ranking_method_name, error = function(e) NA_character_))
-      } else if (isTRUE(ranking_type == "Precalculated Ranking")) {
-        sprintf("Ranking: Precalculated Ranking | Abundance ratio column: %s | p-value column: %s | Ranking metric: %s",
+      } else if (isTRUE(ranking_type == "Precalculated statistics")) {
+        sprintf("Ranking: Precalculated statistics | Abundance ratio column: %s | p-value column: %s | Ranking metric: %s",
                 tryCatch(current_metadata$ab_ratio_col,   error = function(e) NA_character_),
                 tryCatch(current_metadata$pval_col,       error = function(e) NA_character_),
                 tryCatch(current_metadata$ranking_metric, error = function(e) NA_character_))
@@ -914,8 +914,7 @@ init_gsea_observers <- function(input, output, session, rv, ns, state,
       updateCheckboxInput(session, "dotplot_y_ticks_right", value = FALSE)
 
       # Right-side GSEA configuration controls with non-NULL static defaults.
-      updateRadioButtons(session, "GSEA_type_select", selected = "Custom Ranking")
-      updateNumericInput(session, "numPermutations_GSEA", value = 1000)
+      updateNumericInput(session, "numPermutations_GSEA", value = 10000)
       updateSelectInput(session, "RankinkMethod_GSEA", selected = "MWT")
       updateCheckboxInput(session, "absolute_GSEA", value = FALSE)
       updateCheckboxInput(session, "ties_GSEA", value = FALSE)
@@ -1447,7 +1446,7 @@ init_gsea_observers <- function(input, output, session, rv, ns, state,
 
       restore_select <- function(id, value) if (!is.null(value) && length(value) > 0L) tryCatch(updateSelectInput(session, id, selected = value), error = function(e) NULL)
       restore_numeric <- function(id, value) if (!is.null(value) && length(value) == 1L && !is.na(suppressWarnings(as.numeric(value)))) tryCatch(updateNumericInput(session, id, value = value), error = function(e) NULL)
-      restore_select("GSEA_type_select", saved$GSEA_type_select)
+      restore_select("RankinkMethod_GSEA", if (identical(saved$GSEA_type_select, "Precalculated Ranking")) "Precalculated statistics" else saved$RankinkMethod_GSEA)
       restore_select("plot_type_GSEA", saved$plot_type_GSEA)
       tryCatch(colourpicker::updateColourInput(session, "GSEAColorInput_down", value = saved$GSEAColorInput_down), error = function(e) NULL)
       tryCatch(colourpicker::updateColourInput(session, "GSEAColorInput_zero", value = saved$GSEAColorInput_zero), error = function(e) NULL)

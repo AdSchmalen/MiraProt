@@ -23,7 +23,7 @@ render_GSEA_overview_content_GSEA <- function() {
         "The GSEA module performs Gene Set Enrichment Analysis (GSEA) for the dataset loaded in the active analysis context. ",
         "Instead of starting from a filtered gene list, GSEA works on a ranked list of genes ",
         "and tests whether predefined gene sets are enriched at the top or bottom of that ranking. ",
-        "The module offers both advanced custom rankings and rankings based on existing columns, ",
+        "The module offers both sample-derived ranking methods and ranking from existing statistics columns, ",
         "and provides plots to summarise and visualise the enrichment results."
       )
     ),
@@ -109,24 +109,24 @@ render_GSEA_overview_content_GSEA <- function() {
     div(
       class = "alert alert-info",
       p(
-        strong("Choose one ranking mode: "),
-        "Custom Ranking computes scores from abundance values using established metrics; ",
-        "Pre-calculated Ranking uses existing abundance-ratio and/or p-value columns."
+        strong("Choose a Ranking Method: "),
+        "Ordinary methods calculate ranks from the selected sample groups. ",
+        "Precalculated statistics uses existing abundance-ratio and p/q-value columns with the selected ranking metric."
       )
     ),
 
-    h3("Quick Steps — Custom Ranking"),
+    h3("Quick Steps — Sample-derived Methods"),
     div(
       class = "alert alert-success",
       p(strong("Use this when you want MiraProt to compute an advanced ranking from abundance values.")),
       tags$ol(
         tags$li("Load data in the Data Wizard (identifier column + abundance values)."),
         tags$li("Select the matching identifier column in the GSEA tab (e.g. SYMBOL, ENTREZID, UNIPROT)."),
-        tags$li("Choose Custom Ranking and pick a ranking method (e.g. Signal‑to‑Noise, Ratio, Fold Change Rank Ordering Statistics)."),
+        tags$li("Choose a ranking method (e.g. Signal‑to‑Noise, Ratio, Fold Change Rank Ordering Statistics)."),
         tags$li("Select numerator (group 1) and denominator (group 2) samples."),
         tags$li("Optionally enable: Absolute values, Break ties randomly, Down‑weight common genes (PADOG)."),
         tags$li("Select a gene set file from the", code("./GSEA/"), "folder (click Refresh Gene Sets after adding new files)."),
-        tags$li("Set the number of permutations."),
+        tags$li("Use the default 10,000 permutations or adjust it for your run."),
         tags$li("Significance statistics are computed automatically during the run."),
         tags$li("Click", strong("Run GSEA"), "and wait until results appear."),
         tags$li("Select enriched gene sets or start with the top ones; choose a plot type and click", strong("Create Plot"), "."),
@@ -134,14 +134,14 @@ render_GSEA_overview_content_GSEA <- function() {
       )
     ),
 
-    h3("Quick Steps — Pre-calculated Ranking"),
+    h3("Quick Steps — Precalculated statistics"),
     div(
       class = "alert alert-success",
       p(strong("Use this when ranking can be built directly from existing abundance ratio and p‑value columns.")),
       tags$ol(
         tags$li("Load data (identifier column + abundance ratio + p‑value column) in the Data Wizard."),
         tags$li("Select the matching identifier column."),
-        tags$li("Choose Pre‑calculated Ranking and specify one of:"),
+        tags$li("Choose Precalculated statistics, select the abundance-ratio and p/q-value columns, and choose a Ranking Metric:"),
         tags$ul(
           tags$li(strong("Abundance ratio:"), "auto log2 transform used as ranking metric."),
           tags$li(strong("P‑value:"), "converted to a score (e.g. −log10)."),
@@ -149,7 +149,7 @@ render_GSEA_overview_content_GSEA <- function() {
         ),
         tags$li("Use only valid abundance ratio / p‑value columns (avoid unrelated columns)."),
         tags$li("Select a gene set file from", code("./GSEA/"), "and Refresh if newly added."),
-        tags$li("Set the number of permutations."),
+        tags$li("Use the default 10,000 permutations or adjust it for your run."),
         tags$li("Significance statistics are computed automatically during the run."),
         tags$li("Click", strong("Run GSEA"), "; if no sets are reported, review ranking inputs, identifier matching, and gene set content."),
         tags$li("Select enriched sets or use top results; choose a plot type and click", strong("Create Plot"), "."),
@@ -226,7 +226,7 @@ render_GSEA_overview_content_GSEA <- function() {
         " Zyla J, Marczyk M, Weiner J, Polanska J (2017). ",
         em("Ranking metrics in gene set enrichment analysis: do they matter?"),
         " BMC Bioinformatics 18:256. PMID: 28499413, PMCID: PMC5427619, DOI: 10.1186/s12859-017-1674-0. ",
-        "The custom ranking mode in MiraProt is conceptually based on these ranking metric considerations."
+        "MiraProt’s sample-derived ranking methods are conceptually based on these ranking metric considerations."
       ),
       tags$li(
         strong("Molecular Signatures Database (MSigDB):"),
@@ -294,23 +294,23 @@ render_GSEA_dataselection_plotting_content_GSEA <- function() {
           p("Choose how genes will be ordered for GSEA:"),
           tags$ul(
             tags$li(strong("Identifier column:"), " choose the ID type that matches your gene sets (for example SYMBOL or ENTREZID)."),
-            tags$li(strong("Ranking source — two options:"),
+            tags$li(strong("Ranking Method:" ),
                     tags$ul(
-                      tags$li(strong("Custom ranking:"), " the app computes advanced ranking scores from your abundance values (recommended when you provide raw abundances). These scores use established ranking metrics from the literature to combine effect size and significance for a more informed ordering."),
-                      tags$li(strong("Pre‑calculated ranking:"), " select existing columns from your table. The module supports three sensible pre‑calculated options:"),
+                      tags$li(strong("Sample-derived methods:"), " the app computes advanced ranking scores from your abundance values (recommended when you provide raw abundances). These scores use established ranking metrics from the literature to combine effect size and significance for a more informed ordering."),
+                      tags$li(strong("Precalculated statistics:"), " select existing columns from your table. The module supports three sensible ranking metrics:"),
                       tags$ul(
                         tags$li(strong("Abundance ratio:"), " an abundance ratio column will be converted to log2 and used as the ranking metric."),
                         tags$li(strong("P‑value:"), " a chosen p‑value column can be used (the module transforms it to a score)."),
                         tags$li(strong("Combined score:"), " when both an abundance ratio and a p‑value are selected, the module can combine them into a single ranking score (log2FC × −log10(p‑value))).")
                       ),
-                      tags$li("Important: arbitrary unrelated columns are not treated as valid ranking metrics unless they were explicitly prepared as ranking scores in the Data Wizard. When you choose a 'pre‑calculated' option, pick an abundance ratio or p‑value column (or both) so the module interprets them correctly.")
+                      tags$li("Important: arbitrary unrelated columns are not treated as valid ranking metrics unless they were explicitly prepared as ranking scores in the Data Wizard. When you choose Precalculated statistics, pick an abundance ratio or p‑value column (or both) so the module interprets them correctly.")
                     )
             )
           )
         ),
         div(
           class = "alert alert-info",
-          HTML("<strong>Note:</strong> Custom ranking derives scores from abundance values using literature‑informed metrics; pre‑calculated ranking uses the specific columns you select (abundance ratio and/or p‑value) and optionally their combined score.")
+          HTML("<strong>Note:</strong> Ordinary Ranking Methods derive scores from selected sample groups; Precalculated statistics uses the selected abundance-ratio and p/q-value columns plus the Ranking Metric.")
         )
       ),
 
@@ -325,7 +325,7 @@ render_GSEA_dataselection_plotting_content_GSEA <- function() {
             tags$li(strong("Gene set collection:"), " pick a collection available in the app (the app lists files placed in the ", code("./GSEA/"), " folder)."),
             tags$li(strong("Supported file types:"), " use common GSEA formats (for example GMT from MSigDB) so sets map correctly to your identifiers."),
             tags$li(strong("Refresh Gene Sets:"), " if you add files to ", code("./GSEA/"), " while the app runs, click the refresh control to detect them without restarting."),
-            tags$li(strong("Number of permutations:"), " controls permutation-based significance estimation (more permutations usually improve stability but increase runtime)."),
+            tags$li(strong("Number of permutations:"), " defaults to 10,000 and controls permutation-based significance estimation (more permutations usually improve stability but increase runtime)."),
             tags$li(strong("Significance statistics:"), " computed automatically from the permutation-based GSEA run (including p-value/FDR reporting).")
           )
         )
@@ -406,8 +406,8 @@ render_GSEA_dataselection_plotting_content_GSEA <- function() {
       class = "well",
       tags$ul(
         tags$li(strong("Ranked input:"), " GSEA examines coordinated enrichment across the entire ranked gene list rather than relying on a hard cutoff."),
-        tags$li(strong("Custom ranking:"), " when selected, the app computes ranking scores from abundance values using ranking metrics informed by the literature (see Zyla et al., 2017). Custom rankings often combine effect size and significance information and are generally more powerful than a single-column fallback."),
-        tags$li(strong("Pre‑calculated ranking:"), " uses columns that already exist in your table: an abundance ratio (converted to log2), a p‑value column, or a combined score derived from both (log2FC × −log10(p‑value))."),
+        tags$li(strong("Sample-derived methods:"), " when selected, the app computes ranking scores from abundance values using ranking metrics informed by the literature (see Zyla et al., 2017). Sample-derived rankings often combine effect size and significance information and are generally more powerful than a single-column fallback."),
+        tags$li(strong("Precalculated statistics:"), " uses columns that already exist in your table: an abundance ratio (converted to log2), a p‑value column, or a combined score derived from both (log2FC × −log10(p‑value))."),
         tags$li(strong("Gene sets:"), " only genes present in both your data and the selected set contribute to that set's enrichment; ensure identifiers match the gene set format."),
         tags$li(strong("Significance:"), " permutation-based p-values and multiple-testing correction (FDR) are used to flag enriched sets.")
       )
@@ -416,14 +416,14 @@ render_GSEA_dataselection_plotting_content_GSEA <- function() {
     # Data requirements
     h3("Data Requirements"),
     tags$ul(
-      tags$li("A processed table with one identifier column and either abundance values (for custom ranking) or a pre‑calculated ranking column (abundance ratio, p‑value, or both)."),
+      tags$li("A processed table with one identifier column and either abundance values (for a sample-derived method) or precalculated statistics columns (abundance ratio, p‑value, or both)."),
       tags$li("Metadata that correctly tags identifier and ranking-capable columns so they appear in the GSEA selectors."),
       tags$li("Gene set files in the ", code("./GSEA/"), " folder (GMT is recommended for MSigDB collections) and matching identifier types.")
     ),
 
-    # --- New Chapter: Ranking Methods (Custom Ranking) ---
-    h3("Ranking Methods (Custom Ranking)"),
-    p("Custom Ranking computes a score for each gene using your chosen method and the two sample groups (numerator vs denominator). Methods are adapted from published evaluations (Zyla et al., 2017) to capture different patterns: raw change, scaled change, robustness to noise, and distribution shifts."),
+    # --- Ranking Methods ---
+    h3("Sample-derived Ranking Methods"),
+    p("Each ordinary Ranking Method computes a score for each gene using your chosen method and the two sample groups (numerator vs denominator). Methods are adapted from published evaluations (Zyla et al., 2017) to capture different patterns: raw change, scaled change, robustness to noise, and distribution shifts."),
     tags$ul(
       tags$li(strong("Signal-to-Noise:"), " Difference of group means divided by summed variation. Good default when changes are clear and variance is moderate."),
       tags$li(strong("T-Test:"), " Standardised mean difference. Works well for most contrasts; balances effect size and variability."),

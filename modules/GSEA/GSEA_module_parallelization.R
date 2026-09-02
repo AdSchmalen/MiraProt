@@ -216,7 +216,7 @@ gsea_notify_sequential_fallback <- function(message, debug_level = 0) {
 #' @return A gseaResult S4 object with attribute "gsea_workers_used", or NULL.
 run_gsea_analysis <- function(gene_list,
                                gene_set_file,
-                               num_permutations  = 1000,
+                               num_permutations  = 10000,
                                p_value_cutoff    = 0.05,
                                DEBUG_LEVEL       = 1,
                                requested_cores   = NULL,
