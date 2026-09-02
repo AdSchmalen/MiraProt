@@ -373,6 +373,12 @@ GSEA_module_server <- function(id, rv, debug_level = 0, modEnv = new.env()) {
           } else {
             restored_inputs$RankinkMethod_GSEA
           }
+          legacy_ranking_method <- c(
+            "log2(FC)" = "log2 Ratio (precalculated)",
+            "log2(FC) x -log10(p)" = "log2 Ratio x -log10(p-Value)",
+            "-log10(p)" = "-log10(p-Value)"
+          )[restored_ranking_method]
+          if (length(legacy_ranking_method) == 1L && !is.na(legacy_ranking_method)) restored_ranking_method <- legacy_ranking_method
           # restore_select("RefenceValues_GSEA", restored_inputs$RefenceValues_GSEA)
           restore_select("RankinkMethod_GSEA", restored_ranking_method)
           # if (!is.null(restored_inputs$numeratorSel_GSEA)) tryCatch(updateSelectizeInput(session, "numeratorSel_GSEA", selected = restored_inputs$numeratorSel_GSEA, server = TRUE), error = function(e) NULL)

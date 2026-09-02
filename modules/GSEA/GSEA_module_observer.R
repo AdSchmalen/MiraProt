@@ -65,7 +65,7 @@ init_gsea_observers <- function(input, output, session, rv, ns, state,
 
   # Module-level constant for the Sheet 5 name used by the GSEA export system
   GSEA_SHEET5_NAME <- "GSEA_Analysis"
-  precalculated_metrics <- c("log2(FC)", "log2(FC) x -log10(p)", "-log10(p)")
+  precalculated_metrics <- c("log2 Ratio (precalculated)", "log2 Ratio x -log10(p-Value)", "-log10(p-Value)")
 
   # Unpack state for convenience
   data_modified               <- state$data_modified
@@ -1449,6 +1449,12 @@ init_gsea_observers <- function(input, output, session, rv, ns, state,
       } else {
         saved$RankinkMethod_GSEA
       }
+      legacy_ranking_method <- c(
+        "log2(FC)" = "log2 Ratio (precalculated)",
+        "log2(FC) x -log10(p)" = "log2 Ratio x -log10(p-Value)",
+        "-log10(p)" = "-log10(p-Value)"
+      )[restored_ranking_method]
+      if (length(legacy_ranking_method) == 1L && !is.na(legacy_ranking_method)) restored_ranking_method <- legacy_ranking_method
       restore_select("RankinkMethod_GSEA", restored_ranking_method)
       restore_select("plot_type_GSEA", saved$plot_type_GSEA)
       tryCatch(colourpicker::updateColourInput(session, "GSEAColorInput_down", value = saved$GSEAColorInput_down), error = function(e) NULL)

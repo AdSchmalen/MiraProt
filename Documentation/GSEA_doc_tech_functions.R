@@ -65,7 +65,7 @@ render_GSEA_tech_functions_content_GSEA_v2 <- function() {
     h4("Core analysis inputs"),
     tags$ul(
       tags$li(code("createGSEA"), ": start analysis."),
-      tags$li(code("RankinkMethod_GSEA"), ": single ranking dispatch control. Ordinary values use ", code("compute_custom_ranks_GSEA()"), " with ", code("Identifier_GSEA"), ", ", code("RefenceValues_GSEA"), " and sample groups. The values ", code("log2(FC)"), ", ", code("log2(FC) x -log10(p)"), ", and ", code("-log10(p)"), " use ", code("compute_precalculated_ranks_GSEA()"), " and are passed directly as its ", code("metric"), "."),
+      tags$li(code("RankinkMethod_GSEA"), ": single ranking dispatch control. Ordinary values use ", code("compute_custom_ranks_GSEA()"), " with ", code("Identifier_GSEA"), ", ", code("RefenceValues_GSEA"), " and sample groups. The values ", code("log2 Ratio (precalculated)"), ", ", code("log2 Ratio x -log10(p-Value)"), ", and ", code("-log10(p-Value)"), " use ", code("compute_precalculated_ranks_GSEA()"), " and are passed directly as its ", code("metric"), "."),
       tags$li(code("fileSelector_GSEA"), ": selected GMT file."),
       tags$li(code("numeratorSel_GSEA"), ", ", code("denominatorSel_GSEA"), ": sample-derived ranking groups."),
       tags$li(code("AbundanceRatio_GSEA_precalc"), ", ", code("pVal_GSEA_precalc"), ": Precalculated statistics selectors."),

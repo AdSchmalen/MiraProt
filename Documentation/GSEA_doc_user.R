@@ -111,7 +111,7 @@ render_GSEA_overview_content_GSEA <- function() {
       p(
         strong("Choose a Ranking Method: "),
         "The single Ranking Method dropdown includes ordinary methods, which calculate ranks from selected sample groups. ",
-        "Selecting log2(FC), log2(FC) x -log10(p), or -log10(p) instead uses existing abundance-ratio and p/q-value columns."
+        "Selecting log₂ Ratio (precalculated), log₂ Ratio x -log₁₀(p-Value), or -log₁₀(p-Value) instead uses existing abundance-ratio and p/q-value columns."
       )
     ),
 
@@ -141,7 +141,7 @@ render_GSEA_overview_content_GSEA <- function() {
       tags$ol(
         tags$li("Load data (identifier column + abundance ratio + p‑value column) in the Data Wizard."),
         tags$li("Select the matching identifier column."),
-        tags$li("In Ranking Method, choose log2(FC), log2(FC) x -log10(p), or -log10(p), then select the abundance-ratio and p/q-value columns:"),
+        tags$li("In Ranking Method, choose log₂ Ratio (precalculated), log₂ Ratio x -log₁₀(p-Value), or -log₁₀(p-Value), then select the abundance-ratio and p/q-value columns:"),
         tags$ul(
           tags$li(strong("Abundance ratio:"), "auto log2 transform used as ranking metric."),
           tags$li(strong("P‑value:"), "converted to a score (e.g. −log10)."),
@@ -297,7 +297,7 @@ render_GSEA_dataselection_plotting_content_GSEA <- function() {
             tags$li(strong("Ranking Method:" ),
                     tags$ul(
                       tags$li(strong("Sample-derived methods:"), " the app computes advanced ranking scores from your abundance values (recommended when you provide raw abundances). These scores use established ranking metrics from the literature to combine effect size and significance for a more informed ordering."),
-                      tags$li(strong("Precalculated metrics:"), " select log2(FC), log2(FC) x -log10(p), or -log10(p) to use existing columns from your table:"),
+                      tags$li(strong("Precalculated metrics:"), " select log₂ Ratio (precalculated), log₂ Ratio x -log₁₀(p-Value), or -log₁₀(p-Value) to use existing columns from your table:"),
                       tags$ul(
                         tags$li(strong("Abundance ratio:"), " an abundance ratio column will be converted to log2 and used as the ranking metric."),
                         tags$li(strong("P‑value:"), " a chosen p‑value column can be used (the module transforms it to a score)."),
