@@ -283,7 +283,6 @@ GSEA_module_server <- function(id, rv, debug_level = 0, modEnv = new.env()) {
             gsea_validation_rule = tryCatch(input$gsea_validation_rule, error = function(e) NULL),
             AbundanceRatio_GSEA_precalc = tryCatch(input$AbundanceRatio_GSEA_precalc, error = function(e) NULL),
             pVal_GSEA_precalc = tryCatch(input$pVal_GSEA_precalc, error = function(e) NULL),
-            RankingMetric_GSEA_precalc = tryCatch(input$RankingMetric_GSEA_precalc, error = function(e) NULL),
             absolute_GSEA_precalc = tryCatch(input$absolute_GSEA_precalc, error = function(e) NULL),
             ties_GSEA_precalc = tryCatch(input$ties_GSEA_precalc, error = function(e) NULL),
             PADOG_GSEA_precalc = tryCatch(input$PADOG_GSEA_precalc, error = function(e) NULL),
@@ -368,11 +367,18 @@ GSEA_module_server <- function(id, rv, debug_level = 0, modEnv = new.env()) {
           if (!is.null(restored_inputs$dotplot_swap_panels)) tryCatch(updateCheckboxInput(session, "dotplot_swap_panels", value = isTRUE(restored_inputs$dotplot_swap_panels)), error = function(e) NULL)
           if (!is.null(restored_inputs$dotplot_y_ticks_right)) tryCatch(updateCheckboxInput(session, "dotplot_y_ticks_right", value = isTRUE(restored_inputs$dotplot_y_ticks_right)), error = function(e) NULL)
           # Legacy sessions used GSEA_type_select as a separate dispatch control.
-          restored_ranking_method <- if (identical(restored_inputs$GSEA_type_select, "Precalculated Ranking")) {
-            "Precalculated statistics"
+          restored_ranking_method <- if (identical(restored_inputs$GSEA_type_select, "Precalculated Ranking") ||
+                                           identical(restored_inputs$RankinkMethod_GSEA, "Precalculated statistics")) {
+            restored_inputs$RankingMetric_GSEA_precalc
           } else {
             restored_inputs$RankinkMethod_GSEA
           }
+          legacy_ranking_method <- c(
+            "log2(FC)" = "log2 Ratio (precalculated)",
+            "log2(FC) x -log10(p)" = "log2 Ratio x -log10(p-Value)",
+            "-log10(p)" = "-log10(p-Value)"
+          )[restored_ranking_method]
+          if (length(legacy_ranking_method) == 1L && !is.na(legacy_ranking_method)) restored_ranking_method <- legacy_ranking_method
           # restore_select("RefenceValues_GSEA", restored_inputs$RefenceValues_GSEA)
           restore_select("RankinkMethod_GSEA", restored_ranking_method)
           # if (!is.null(restored_inputs$numeratorSel_GSEA)) tryCatch(updateSelectizeInput(session, "numeratorSel_GSEA", selected = restored_inputs$numeratorSel_GSEA, server = TRUE), error = function(e) NULL)
@@ -384,7 +390,6 @@ GSEA_module_server <- function(id, rv, debug_level = 0, modEnv = new.env()) {
           restore_select("gsea_validation_rule", restored_inputs$gsea_validation_rule)
           # restore_select("AbundanceRatio_GSEA_precalc", restored_inputs$AbundanceRatio_GSEA_precalc)
           # restore_select("pVal_GSEA_precalc", restored_inputs$pVal_GSEA_precalc)
-          restore_select("RankingMetric_GSEA_precalc", restored_inputs$RankingMetric_GSEA_precalc)
           if (!is.null(restored_inputs$absolute_GSEA_precalc)) tryCatch(updateCheckboxInput(session, "absolute_GSEA_precalc", value = isTRUE(restored_inputs$absolute_GSEA_precalc)), error = function(e) NULL)
           if (!is.null(restored_inputs$ties_GSEA_precalc)) tryCatch(updateCheckboxInput(session, "ties_GSEA_precalc", value = isTRUE(restored_inputs$ties_GSEA_precalc)), error = function(e) NULL)
           if (!is.null(restored_inputs$PADOG_GSEA_precalc)) tryCatch(updateCheckboxInput(session, "PADOG_GSEA_precalc", value = isTRUE(restored_inputs$PADOG_GSEA_precalc)), error = function(e) NULL)

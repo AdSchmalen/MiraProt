@@ -900,8 +900,8 @@ compute_custom_ranks_GSEA <- function(raw, def, nums, dens, id_col, ref_val, met
 #' @param ab_ratio_col Character; abundance ratio column name.
 #' @param pval_col Character; p-value column name.
 #' @param id_col Character; identifier column option name.
-#' @param metric Character; ranking metric code ("log2(FC)",
-#'   "log2(FC) x -log10(p)", "-log10(p)").
+#' @param metric Character; ranking metric code ("log2 Ratio (precalculated)",
+#'   "log2 Ratio x -log10(p-Value)", "-log10(p-Value)").
 #' @param abs_f Logical; use absolute values.
 #' @param ties_f Logical; resolve ties.
 #' @param padog_f Logical; apply PADOG weighting.
@@ -950,9 +950,9 @@ compute_precalculated_ranks_GSEA <- function(raw, def, ab_ratio_col, pval_col, i
     df$negLogP <- -log10(df$PValue)
 
     ranking_vals <- switch(metric,
-      "log2(FC)"              = df$log2FC,
-      "log2(FC) x -log10(p)" = df$log2FC * df$negLogP,
-      "-log10(p)"             = df$negLogP,
+      "log2 Ratio (precalculated)"   = df$log2FC,
+      "log2 Ratio x -log10(p-Value)" = df$log2FC * df$negLogP,
+      "-log10(p-Value)"             = df$negLogP,
       {
         gsea_debug_log("Unknown ranking metric", 1, DEBUG_LEVEL)
         return(NULL)
@@ -964,9 +964,9 @@ compute_precalculated_ranks_GSEA <- function(raw, def, ab_ratio_col, pval_col, i
     if (ties_f) {
       gsea_debug_log("Applying tie resolution for precalculated data", 2, DEBUG_LEVEL)
       secondary_metrics <- switch(metric,
-        "log2(FC)"              = df$negLogP,
-        "-log10(p)"             = df$log2FC,
-        "log2(FC) x -log10(p)" = pmax(df$log2FC, df$negLogP),
+        "log2 Ratio (precalculated)"   = df$negLogP,
+        "-log10(p-Value)"             = df$log2FC,
+        "log2 Ratio x -log10(p-Value)" = pmax(df$log2FC, df$negLogP),
         df$negLogP
       )
       ranking_vals <- resolve_ties_automatic(ranking_vals, secondary_metrics, df$Gene, DEBUG_LEVEL)

@@ -580,14 +580,16 @@ GSEA_ui_definition <- function(ns) {
               "T-Test" = "T-Test",
               "Ratio" = "Ratio",
               "Difference of Expression Means Between Classes" = "Difference of Expression Means Between Classes",
-              "log2 Ratio" = "log2 Ratio",
+              "log₂ Ratio" = "log2 Ratio",
               "Sum of Ranks" = "Sum of Ranks",
               "Baumgartner-Weiss-Schinder" = "Baumgartner-Weiss-Schinder",
               "Weighted Average Difference" = "Weighted Average Difference",
               "Fold Change Rank Ordering Statistics" = "Fold Change Rank Ordering Statistics",
               "MWT" = "MWT",
               "Minimum Significant Difference" = "Minimum Significant Difference",
-              "Precalculated statistics" = "Precalculated statistics"
+              "log₂ Ratio (precalculated)" = "log2 Ratio (precalculated)",
+              "log₂ Ratio x -log₁₀(p-Value)" = "log2 Ratio x -log10(p-Value)",
+              "-log₁₀(p-Value)" = "-log10(p-Value)"
             ),
             selected = "MWT",
             width = "100%"
@@ -624,7 +626,7 @@ GSEA_ui_definition <- function(ns) {
         br(),
         # Sample-derived Ranking Parameters
         conditionalPanel(
-          condition = paste0("input['", ns("RankinkMethod_GSEA"), "'] != 'Precalculated statistics'"),
+          condition = paste0("!['log2 Ratio (precalculated)', 'log2 Ratio x -log10(p-Value)', '-log10(p-Value)'].includes(input['", ns("RankinkMethod_GSEA"), "'])"),
 
           wellPanel(
             h4("Ranking Parameters"),
@@ -723,7 +725,7 @@ GSEA_ui_definition <- function(ns) {
 
         # Precalculated Statistics Parameters
         conditionalPanel(
-          condition = paste0("input['", ns("RankinkMethod_GSEA"), "'] == 'Precalculated statistics'"),
+          condition = paste0("['log2 Ratio (precalculated)', 'log2 Ratio x -log10(p-Value)', '-log10(p-Value)'].includes(input['", ns("RankinkMethod_GSEA"), "'])"),
 
           wellPanel(
             h4("Ranking Parameters"),
@@ -741,19 +743,6 @@ GSEA_ui_definition <- function(ns) {
               ns("pVal_GSEA_precalc"),
               "P-value Column:",
               choices = NULL,
-              width = "100%"
-            ),
-
-            # Ranking Metric
-            selectInput(
-              ns("RankingMetric_GSEA_precalc"),
-              "Ranking Metric:",
-              choices = c(
-                "log2(FC)" = "log2(FC)",
-                "log2(FC) x -log10(p)" = "log2(FC) x -log10(p)",
-                "-log10(p)" = "-log10(p)"
-              ),
-              selected = "log2(FC) x -log10(p)",
               width = "100%"
             ),
 
