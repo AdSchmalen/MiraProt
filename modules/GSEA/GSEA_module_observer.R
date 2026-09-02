@@ -338,6 +338,24 @@ init_gsea_observers <- function(input, output, session, rv, ns, state,
   }
 
   refresh_gsea_metadata_choices <- function(def, reason = "metadata update") {
+    current_data <- data_modified()
+    metadata_aligned <- if (exists("metadata_matches_dataset", mode = "function", inherits = TRUE)) {
+      metadata_matches_dataset(def, current_data)
+    } else {
+      is.data.frame(def) && is.data.frame(current_data) && "Column" %in% names(def) &&
+        nrow(def) == ncol(current_data) && identical(as.character(def$Column), names(current_data))
+    }
+    if (!isTRUE(metadata_aligned)) {
+      updateSelectInput(session, "Identifier_GSEA", choices = character(0), selected = character(0))
+      updateSelectInput(session, "RefenceValues_GSEA", choices = character(0), selected = character(0))
+      updateSelectizeInput(session, "numeratorSel_GSEA", choices = character(0), selected = character(0), server = TRUE)
+      updateSelectizeInput(session, "denominatorSel_GSEA", choices = character(0), selected = character(0), server = TRUE)
+      updateSelectInput(session, "AbundanceRatio_GSEA_precalc", choices = character(0), selected = character(0))
+      updateSelectInput(session, "pVal_GSEA_precalc", choices = character(0), selected = character(0))
+      last_gsea_metadata_choice_signature(NULL)
+      debug_log(paste("Cleared GSEA metadata choices until data and metadata align (", reason, ")", sep = ""), 2)
+      return(invisible(FALSE))
+    }
     if (datawizard_metadata_defer_downstream_choices(rv)) {
       debug_log(paste("Metadata assignment pending; deferring GSEA metadata choices (", reason, ")", sep = ""), 2)
       return(invisible(FALSE))
@@ -359,10 +377,10 @@ init_gsea_observers <- function(input, output, session, rv, ns, state,
     choose_restored_or_current <- function(id, current_value, choices, multiple = FALSE) {
       pending_value <- pending_ui_restore[[id]]
       if (!is.null(pending_value)) {
+        pending_ui_restore[[id]] <<- NULL
         pending_value <- as.character(pending_value)
         pending_value <- pending_value[!is.na(pending_value) & pending_value %in% choices]
         if (length(pending_value) > 0L) {
-          pending_ui_restore[[id]] <<- NULL
           return(if (multiple) pending_value else pending_value[[1]])
         }
       }
@@ -374,61 +392,36 @@ init_gsea_observers <- function(input, output, session, rv, ns, state,
       if (multiple) character(0) else if (length(choices) > 0L) choices[[1]] else NULL
     }
 
-    central_id_choices <- rv$datawizard_identifier_option_choices %||% character(0)
-    id_choices <- if (length(central_id_choices) > 0) central_id_choices else gsea_get_identifier_choices(def)
-    if (length(id_choices) > 0) {
-      selected_identifier <- choose_restored_or_current("Identifier_GSEA", input$Identifier_GSEA, id_choices)
-      updateSelectInput(session, "Identifier_GSEA", choices = id_choices, selected = selected_identifier)
-      debug_log(paste("Updated identifier choices:", length(id_choices), "selected:", selected_identifier), 2)
-    }
+    id_choices <- gsea_get_identifier_choices(def)
+    selected_identifier <- choose_restored_or_current("Identifier_GSEA", input$Identifier_GSEA, id_choices)
+    updateSelectInput(session, "Identifier_GSEA", choices = id_choices, selected = selected_identifier)
+    debug_log(paste("Updated identifier choices:", length(id_choices), "selected:", selected_identifier), 2)
 
     ratio_choices <- gsea_get_ratio_choices(def)
-    selected_ratio <- input$AbundanceRatio_GSEA_precalc
-    if (length(ratio_choices) > 0) {
-      selected_ratio <- choose_restored_or_current("AbundanceRatio_GSEA_precalc", input$AbundanceRatio_GSEA_precalc, ratio_choices)
-      updateSelectInput(session, "AbundanceRatio_GSEA_precalc",
-                        choices = ratio_choices,
-                        selected = selected_ratio)
-      debug_log(paste("Updated ratio choices:", length(ratio_choices)), 2)
-    }
+    selected_ratio <- choose_restored_or_current("AbundanceRatio_GSEA_precalc", input$AbundanceRatio_GSEA_precalc, ratio_choices)
+    updateSelectInput(session, "AbundanceRatio_GSEA_precalc",
+                      choices = ratio_choices,
+                      selected = selected_ratio)
+    debug_log(paste("Updated ratio choices:", length(ratio_choices)), 2)
 
     pval_choices <- gsea_get_pvalue_choices(def, selected_ratio)
-    if (length(pval_choices) > 0) {
-      selected_pval <- choose_restored_or_current("pVal_GSEA_precalc", input$pVal_GSEA_precalc, pval_choices)
-      updateSelectInput(session, "pVal_GSEA_precalc",
-                        choices = pval_choices,
-                        selected = selected_pval)
-      debug_log(paste("Updated p-value choices:", length(pval_choices)), 2)
-    }
+    selected_pval <- choose_restored_or_current("pVal_GSEA_precalc", input$pVal_GSEA_precalc, pval_choices)
+    updateSelectInput(session, "pVal_GSEA_precalc",
+                      choices = pval_choices,
+                      selected = selected_pval)
+    debug_log(paste("Updated p-value choices:", length(pval_choices)), 2)
 
-    exact_abundance_types <- c(
-      "Normalized Abundance", "Imputed Raw Abundance",
-      "Imputed Normalized Abundance", "Imputed Batch Corrected Normalized Abundance", "Imputed Batch Corrected Raw Abundance", "Batch Corrected Raw Abundance",
-      "Batch Corrected Normalized Abundance", "Raw Abundance"
-    )
-    content_all <- normalize_gsea_metadata_content(def$Content)
-    content_choices <- unique(content_all[!is.na(content_all) & content_all != ""])
-    ref_candidates <- content_choices[content_choices %in% normalize_gsea_metadata_content(exact_abundance_types)]
-    if (length(ref_candidates) == 0) {
-      non_row_index_choices <- setdiff(content_choices, "Row Index")
-      ref_candidates <- if (length(non_row_index_choices) > 0) non_row_index_choices else content_choices
-    }
-    if (length(ref_candidates) > 0) {
-      selected_ref <- choose_restored_or_current("RefenceValues_GSEA", input$RefenceValues_GSEA, ref_candidates)
-      updateSelectInput(session, "RefenceValues_GSEA",
-                        choices = ref_candidates,
-                        selected = selected_ref)
-      debug_log(paste("Updated reference value choices:", paste(ref_candidates, collapse = ", ")), 2)
+    ref_candidates <- gsea_get_reference_choices(def)
+    selected_ref <- choose_restored_or_current("RefenceValues_GSEA", input$RefenceValues_GSEA, ref_candidates)
+    updateSelectInput(session, "RefenceValues_GSEA", choices = ref_candidates, selected = selected_ref)
+    debug_log(paste("Updated reference value choices:", paste(ref_candidates, collapse = ", ")), 2)
 
-      sample_choices <- gsea_get_sample_choices(def, selected_ref)
-      if (length(sample_choices) > 0) {
-        selected_numerator <- choose_restored_or_current("numeratorSel_GSEA", input$numeratorSel_GSEA, sample_choices, multiple = TRUE)
-        selected_denominator <- choose_restored_or_current("denominatorSel_GSEA", input$denominatorSel_GSEA, sample_choices, multiple = TRUE)
-        updateSelectizeInput(session, "numeratorSel_GSEA", choices = sample_choices, selected = selected_numerator, server = TRUE)
-        updateSelectizeInput(session, "denominatorSel_GSEA", choices = sample_choices, selected = selected_denominator, server = TRUE)
-        debug_log(paste("Updated sample choices:", length(sample_choices)), 2)
-      }
-    }
+    sample_choices <- gsea_get_sample_choices(def, selected_ref)
+    selected_numerator <- choose_restored_or_current("numeratorSel_GSEA", input$numeratorSel_GSEA, sample_choices, multiple = TRUE)
+    selected_denominator <- choose_restored_or_current("denominatorSel_GSEA", input$denominatorSel_GSEA, sample_choices, multiple = TRUE)
+    updateSelectizeInput(session, "numeratorSel_GSEA", choices = sample_choices, selected = selected_numerator, server = TRUE)
+    updateSelectizeInput(session, "denominatorSel_GSEA", choices = sample_choices, selected = selected_denominator, server = TRUE)
+    debug_log(paste("Updated sample choices:", length(sample_choices)), 2)
 
     tryCatch({
       rv$gsea_pending_ui_restore <- if (length(pending_ui_restore) > 0L) pending_ui_restore else NULL
@@ -582,9 +575,16 @@ init_gsea_observers <- function(input, output, session, rv, ns, state,
       def <- df_data_definition_post_mod()
       raw <- data_modified()
 
-      if (is.null(raw) || nrow(raw) == 0) {
+      if (is.null(raw) || nrow(raw) == 0 || !metadata_matches_dataset(def, raw)) {
         debug_log("No data available for GSEA", 1)
-        showNotification("No data available for GSEA analysis", type = "error")
+        showNotification("GSEA data and metadata are not currently aligned", type = "error")
+        return()
+      }
+
+      live_identifiers <- gsea_get_identifier_choices(def)
+      if (!input$Identifier_GSEA %in% live_identifiers) {
+        debug_log("Selected identifier is absent from current metadata", 1)
+        showNotification("Select a current identifier before running GSEA", type = "error")
         return()
       }
 
@@ -618,8 +618,12 @@ init_gsea_observers <- function(input, output, session, rv, ns, state,
 
         nums <- input$numeratorSel_GSEA
         dens <- input$denominatorSel_GSEA
+        live_references <- gsea_get_reference_choices(def)
+        live_samples <- gsea_get_sample_choices(def, input$RefenceValues_GSEA)
 
-        if (length(nums) < 2 || length(dens) < 2) {
+        if (!input$RefenceValues_GSEA %in% live_references ||
+            any(!nums %in% live_samples) || any(!dens %in% live_samples) ||
+            length(nums) < 2 || length(dens) < 2) {
           debug_log("Insufficient samples in groups", 1)
           showNotification("Need at least 2 samples per group", type = "error")
           return()
@@ -1319,28 +1323,20 @@ init_gsea_observers <- function(input, output, session, rv, ns, state,
       rv$datawizard_metadata_choices_revision,
       error = gsea_restore_unavailable(NULL)
     ))
-    if (!datawizard_choices_ready || is.null(def) || !has_gsea_metadata_ready_content(def) || datawizard_metadata_defer_downstream_choices(rv)) {
+    current_data <- data_modified()
+    metadata_aligned <- is.data.frame(current_data) && isTRUE(tryCatch(
+      metadata_matches_dataset(def, current_data), error = function(e) FALSE
+    ))
+    if (!datawizard_choices_ready || !metadata_aligned || is.null(def) || !has_gsea_metadata_ready_content(def) || datawizard_metadata_defer_downstream_choices(rv)) {
       return(NULL)
     }
 
-    central_id_choices <- rv$datawizard_identifier_option_choices %||% character(0)
-    id_choices <- if (length(central_id_choices) > 0) central_id_choices else gsea_get_identifier_choices(def)
+    id_choices <- gsea_get_identifier_choices(def)
     ratio_choices <- gsea_get_ratio_choices(def)
     selected_ratio <- saved_inputs$AbundanceRatio_GSEA_precalc %||% input$AbundanceRatio_GSEA_precalc
     pval_choices <- gsea_get_pvalue_choices(def, selected_ratio)
 
-    exact_abundance_types <- c(
-      "Normalized Abundance", "Imputed Raw Abundance",
-      "Imputed Normalized Abundance", "Imputed Batch Corrected Normalized Abundance", "Imputed Batch Corrected Raw Abundance", "Batch Corrected Raw Abundance",
-      "Batch Corrected Normalized Abundance", "Raw Abundance"
-    )
-    content_all <- normalize_gsea_metadata_content(def$Content)
-    content_choices <- unique(content_all[!is.na(content_all) & content_all != ""])
-    ref_choices <- content_choices[content_choices %in% normalize_gsea_metadata_content(exact_abundance_types)]
-    if (length(ref_choices) == 0L) {
-      non_row_index_choices <- setdiff(content_choices, "Row Index")
-      ref_choices <- if (length(non_row_index_choices) > 0L) non_row_index_choices else content_choices
-    }
+    ref_choices <- gsea_get_reference_choices(def)
     selected_ref <- saved_inputs$RefenceValues_GSEA %||% input$RefenceValues_GSEA
     sample_choices <- if (length(ref_choices) > 0L && !is.null(selected_ref) && selected_ref %in% ref_choices) {
       gsea_get_sample_choices(def, selected_ref)
