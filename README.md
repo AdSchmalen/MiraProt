@@ -401,6 +401,7 @@ For MiraProt v1.0.0, the archived software release is available through Zenodo:
 The associated MiraProt manuscript is:
 
 > **Interactive downstream proteomics analysis with MiraProt using Müller cell proteomes from equine recurrent uveitis**
+> 
 > Adrian Schmalen, Amelie B. Fleischer, Barbara M. Riedel, Cornelia A. Deeg
 > bioRxiv
 > https://doi.org/10.64898/2026.08.27.747296
