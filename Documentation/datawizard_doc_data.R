@@ -461,7 +461,10 @@ render_tech_imputation_content <- function() {
       ),
       tags$li(
         tags$code("imputation_column_select"), " (", tags$code("selectInput, multiple"), "): ",
-        "selects metadata ", tags$code("Content"), " types (\"Data Types to Impute\"). Choices are populated from ", tags$code("data_def()"), "."
+        "selects metadata ", tags$code("Content"), " types (\"Data type\"). Choices are populated from ", tags$code("data_def()"), "."
+      ),
+      tags$li(
+        tags$code("randomSeed_Imputation"), " (", tags$code("numericInput"), "): integer random seed, default ", tags$code("12345"), "."
       ),
       tags$li(
         tags$code("apply_imputation_btn"), " / ", tags$code("reset_imputation_btn"),
@@ -480,6 +483,11 @@ render_tech_imputation_content <- function() {
 
     tags$h3("Imputation Methods"),
     tags$p("The server dispatches by the selected method (", tags$code("input$imputation_method_select"), ") using a common wrapper."),
+    tags$p(
+      tags$code("perform_imputation()"), " validates ", tags$code("input$randomSeed_Imputation"), " and seeds each execution attempt immediately before dispatch. ",
+      tags$code("performGenericImputation(..., random_seed = random_seed)"), " establishes the coherent analysis RNG stream: left-censored optimizer fallback and truncated log-normal draws use it, and MICE CART consumes it through ", tags$code("mice::mice()"), ". ",
+      tags$code("impute_random_forest()"), " derives a worker seed from that stream and uses ", tags$code("parallel::clusterSetRNGStream()"), " for PSOCK workers; its sequential fallback remains on the seeded master stream."
+    ),
     tags$ul(
       tags$li(
         tags$b("Left-censored:"), " calls ",
@@ -561,8 +569,12 @@ render_tech_imputation_content <- function() {
     tags$ul(
       tags$li(
         tags$code("get_current_imputation_state_for_export()"),
-        " returns a compact state including ", tags$code("method"), ", ", tags$code("columns"), ", ",
+        " returns a compact state including ", tags$code("method"), ", ", tags$code("columns"), ", ", tags$code("randomSeed_Imputation"), ", ",
         tags$code("applied"), ", ", tags$code("last_processing_time"), ", ", tags$code("has_results"), "."
+      ),
+      tags$li(
+        tags$code("randomSeed_Imputation"), " is included in UI-config, ", tags$code("imputation_setting"),
+        ", and the existing numeric-input session bridge; imports or older payloads without it restore ", tags$code("12345"), "."
       ),
       tags$li(
         tags$code("get_imputation_ui_config_for_export()"),

@@ -411,11 +411,20 @@
       input        = input,
       input_specs  = list(
         imputation_method_select = "selectInput",
-        imputation_column_select = "selectInput"
+        imputation_column_select = "selectInput",
+        randomSeed_Imputation = "numericInput"
       ),
       module_label    = "Imputation",
       restore_trigger = session_restore_trigger
     )
+    set_imputation_session_state <- function(state) {
+      if (is.list(state) && !is.null(state$ui_inputs) && is.list(state$ui_inputs)) {
+        if (is.null(state$ui_inputs$randomSeed_Imputation)) state$ui_inputs$randomSeed_Imputation <- 12345
+      } else if (is.list(state) && is.null(state$randomSeed_Imputation)) {
+        state$randomSeed_Imputation <- 12345
+      }
+      imputation_session_state$set_session_state(state)
+    }
 
     # ========================================
     # Enhanced Return Interface
@@ -427,18 +436,20 @@
 
       # Session-restore bridge
       get_session_state = imputation_session_state$get_session_state,
-      set_session_state = imputation_session_state$set_session_state,
+      set_session_state = set_imputation_session_state,
       imputation_setting = reactive({
         tryCatch({
           list(
             imputation_method_select = input$imputation_method_select,
-            imputation_column_select = input$imputation_column_select
+            imputation_column_select = input$imputation_column_select,
+            randomSeed_Imputation = input$randomSeed_Imputation
           )
         }, error = function(e) {
           debug_log(paste("Error getting imputation settings:", e$message), 1)
           list(
             imputation_method_select = "None",
-            imputation_column_select = character(0)
+            imputation_column_select = character(0),
+            randomSeed_Imputation = 12345
           )
         })
       }),

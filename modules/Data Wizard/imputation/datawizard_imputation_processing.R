@@ -44,6 +44,12 @@
           return(character(0))
         })
 
+        random_seed <- suppressWarnings(as.numeric(input$randomSeed_Imputation)[1])
+        if (!is.finite(random_seed) || random_seed < 1 || random_seed > .Machine$integer.max) {
+          random_seed <- 12345
+        }
+        random_seed <- as.integer(random_seed)
+
         valid_choices <- valid_imputation_choices_cache()
         if (length(valid_choices) == 0) {
           current_metadata <- tryCatch(data_def(), error = function(e) NULL)
@@ -109,12 +115,15 @@
           for (attempt in 1:max_retries) {
             tryCatch({
 
+              set.seed(random_seed)
+
               result <- switch(selected_method,
                                "left-censored" = {
                                  debug_log("Performing left-censored imputation", 2)
                                  performGenericImputation(current_data, current_data_def, selected_columns,
                                                           performLeftCensoredImputation, "Imputed ",
-                                                          transform_policy = "raw_no_backtransform")
+                                                          transform_policy = "raw_no_backtransform",
+                                                          random_seed = random_seed)
                                },
                                "Random forest" = {
                                  debug_log("Performing Random Forest imputation", 2)
@@ -124,13 +133,15 @@
                                  }
                                  performGenericImputation(current_data, current_data_def, selected_columns,
                                                           impute_random_forest, "Imputed ",
-                                                          transform_policy = "raw_no_backtransform")
+                                                          transform_policy = "raw_no_backtransform",
+                                                          random_seed = random_seed)
                                },
                                "MICE - CART" = {
                                  debug_log("Performing MICE CART imputation", 2)
                                  performGenericImputation(current_data, current_data_def, selected_columns,
                                                           impute_mice_cart, "Imputed ",
-                                                          transform_policy = "raw_no_backtransform")
+                                                          transform_policy = "raw_no_backtransform",
+                                                          random_seed = random_seed)
                                },
                                {
                                  stop("Unknown imputation method: ", selected_method)

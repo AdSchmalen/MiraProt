@@ -137,7 +137,9 @@ performGenericImputation <- function(data,
                                      imputation_columns,
                                      impute_fun,
                                      prefix = "Imputed ",
-                                     transform_policy = c("raw_no_backtransform")) {
+                                     transform_policy = c("raw_no_backtransform"),
+                                     random_seed = NULL) {
+  if (!is.null(random_seed)) set.seed(random_seed)
   if (is.data.frame(data_def) && "Custom" %in% names(data_def)) {
     data_def <- data_def[, names(data_def) != "Custom", drop = FALSE]
   }
@@ -552,7 +554,10 @@ performGroupedLeftCensoredImputation <- function(loadedData, data_def, imputatio
 # 2. Random Forest Imputation
 
 # Random Forest Imputation with robust session management
-impute_random_forest <- function(data) {
+impute_random_forest <- function(data, random_seed = NULL) {
+
+  if (!is.null(random_seed)) set.seed(random_seed)
+  worker_seed <- sample.int(.Machine$integer.max, 1L)
 
   # Work only with numeric columns
   numeric_data <- as.data.frame(data[sapply(data, is.numeric)], check.names = FALSE)
@@ -599,6 +604,7 @@ impute_random_forest <- function(data) {
     }, add = TRUE)
 
     cl <- parallel::makeCluster(num_cores)
+    parallel::clusterSetRNGStream(cl, iseed = worker_seed)
     doParallel::registerDoParallel(cl)
 
     run_missforest("variables", cores_hint = num_cores)
