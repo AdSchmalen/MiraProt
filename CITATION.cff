@@ -10,7 +10,7 @@ type: software
 
 version: "1.0.0"
 
-date-released: "2026-08-28"
+date-released: "2026-09-02"
 
 authors:
   - family-names: "Schmalen"
@@ -47,24 +47,24 @@ keywords:
 doi: "10.5281/zenodo.22110860"
 
 # Associated MiraProt publication
-#
-# preferred-citation:
-#   type: article
-#   title: >-
-#     Interactive downstream proteomics analysis with MiraProt using Müller cell
-#     proteomes from equine recurrent uveitis
-#   authors:
-#     - family-names: "Schmalen"
-#       given-names: "Adrian"
-#       orcid: "https://orcid.org/0000-0003-2462-2675"
-#     - family-names: "Fleischer"
-#       given-names: "Amelie B."
-#     - family-names: "Riedel"
-#       given-names: "Barbara M."
-#       orcid: "https://orcid.org/0009-0005-0448-3972"
-#     - family-names: "Deeg"
-#       given-names: "Cornelia A."
-#       orcid: "https://orcid.org/0000-0003-0375-3190"
-#   doi: "10.XXXX/XXXXXXXX"
-#   journal: "bioRxiv"
-#   date-published: "2026-08-26"
+
+preferred-citation:
+  type: article
+  title: >-
+    Interactive downstream proteomics analysis with MiraProt using Müller cell
+    proteomes from equine recurrent uveitis
+  authors:
+    - family-names: "Schmalen"
+      given-names: "Adrian"
+      orcid: "https://orcid.org/0000-0003-2462-2675"
+    - family-names: "Fleischer"
+      given-names: "Amelie B."
+    - family-names: "Riedel"
+      given-names: "Barbara M."
+      orcid: "https://orcid.org/0009-0005-0448-3972"
+    - family-names: "Deeg"
+      given-names: "Cornelia A."
+      orcid: "https://orcid.org/0000-0003-0375-3190"
+  doi: "10.64898/2026.08.27.747296"
+  journal: "bioRxiv"
+  date-published: "2026-09-02"
