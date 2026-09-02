@@ -385,8 +385,6 @@ The developer guide documents the portable architecture, launcher, caches, packa
 
 ## Citation
 
-## Citation
-
 If you use MiraProt in research, please cite the MiraProt software release used for your analysis and the associated MiraProt publication.
 
 Machine-readable citation metadata are provided in:
