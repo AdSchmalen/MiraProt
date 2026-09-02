@@ -324,6 +324,7 @@ run_go_analysis <- function(cache_policy = c("normal", "use_stale", "refresh"), 
         go_data     = go_data_for_enrichment,
         annotations = annotations,
         keyType     = input$keyType_GO %||% "SYMBOL",
+        random_seed = random_seed,
         debug_log   = debug_log
       )
 
