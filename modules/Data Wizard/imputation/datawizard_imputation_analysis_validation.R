@@ -471,11 +471,25 @@
           for (col_name in missing_cols) {
             if (startsWith(col_name, prefix)) {
               base_col <- sub(paste0("^", prefix), "", col_name)
+              base_col <- sub("_dup[0-9]+$", "", base_col)
               src_idx <- which(current_metadata$Column == base_col)[1]
               if (!is.na(src_idx)) {
                 new_row <- current_metadata[src_idx, , drop = FALSE]
                 new_row$Column <- col_name
-                if ("Content" %in% names(new_row)) new_row$Content <- col_name
+                if ("Content" %in% names(new_row)) {
+                  source_content <- as.character(new_row$Content)
+                  new_row$Content <- if (is.na(source_content) || !nzchar(trimws(source_content))) {
+                    "Imputed Data"
+                  } else {
+                    paste("Imputed", source_content)
+                  }
+                }
+                if ("Sample" %in% names(new_row)) {
+                  dup_suffix <- regmatches(col_name, regexpr("_dup[0-9]+$", col_name))
+                  if (length(dup_suffix) && !is.na(new_row$Sample) && nzchar(new_row$Sample)) {
+                    new_row$Sample <- paste0(new_row$Sample, dup_suffix)
+                  }
+                }
                 if ("Transformation" %in% names(new_row)) new_row$Transformation <- "None"
                 synced_metadata <- rbind(synced_metadata, new_row)
               }
